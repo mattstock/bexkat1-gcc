@@ -70,6 +70,7 @@
 #include "basic-block.h"
 #include "df.h"
 #include "builtins.h"
+#include "emit-rtl.h"
 
 #define LOSE_AND_RETURN(msgid, x)		\
   do						\
