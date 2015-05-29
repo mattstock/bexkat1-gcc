@@ -103,6 +103,8 @@ avr-*-*)
 bfin*-*)
 	cpu_type=bfin
 	;;
+bexkat1*)	cpu_type=bexkat1
+	;;
 cr16-*-*)
 	;;
 crisv32-*-*)
@@ -458,6 +460,10 @@ bfin*-*)
 	tmake_file="$tmake_file bfin/t-bfin t-fdpbit"
 	extra_parts="crtbegin.o crtend.o crti.o crtn.o"
         ;;
+bexkat1-*-elf)
+	tmake_file="bexkat1/t-bexkat1 t-softfp-sfdf t-softfp-excl t-softfp"
+	extra_parts="$extra_parts crti.o crtn.o crtbegin.o crtend.o"
+	;;
 cr16-*-elf)
 	tmake_file="${tmake_file} cr16/t-cr16 cr16/t-crtlibid t-fdpbit"
 	extra_parts="$extra_parts crti.o crtn.o crtlibid.o"
