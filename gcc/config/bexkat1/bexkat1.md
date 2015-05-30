@@ -523,7 +523,7 @@
   if (get_attr_length (insn) == 4)
     return "b<CC>\\t%l0";
   else
-    return "b<rCC>\\t+8\n\tjmpd\t%l0";
+    return "b<rCC>\\t.+8\n\tjmpd\t%l0";
 }
   [(set (attr "length")
         (if_then_else (lt (abs (minus (pc) (match_dup 0))) (const_int 2046))
