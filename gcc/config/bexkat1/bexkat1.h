@@ -97,20 +97,20 @@
    $19 - general purpose 32-bit register.
    $20 - general purpose 32-bit register.
    $21 - general purpose 32-bit register.
-   $22 - general purpose 32-bit register.
-   $23 - general purpose 32-bit register.
-   $24 - general purpose 32-bit register.
-   $25 - general purpose 32-bit register.
-   $26 - general purpose 32-bit register.
-   $27 - general purpose 32-bit register.
-   $28 - general purpose 32-bit register.
-   $29 - general purpose 32-bit register.
-   $30 - frame pointer
-   $31 - stack pointer
+   %22 - general purpose 32-bit register.
+   %23 - general purpose 32-bit register.
+   %24 - general purpose 32-bit register.
+   %25 - general purpose 32-bit register.
+   %26 - general purpose 32-bit register.
+   %27 - general purpose 32-bit register.
+   %28 - general purpose 32-bit register.
+   %29 - general purpose 32-bit register.
+   %fp - frame pointer
+   %sp - stack pointer
 
    Special Registers...
 
-   $pc - 32-bit program counter.
+   5pc - 32-bit program counter.
    
 */
 
@@ -118,8 +118,8 @@
   "%0", "%1", "%2", "%3", "%4", "%5", "%6", "%7", \
   "%8", "%9", "%10", "%11", "%12", "%13", "%14", "%15", \
   "%16", "%17", "%18", "%19", "%20", "%21", "%22", "%23", \
-  "%24", "%25", "%26", "%27", "%28", "%29", "%30", "%31", \
-  "?fp", "?ap", "$pc", "?cc" }
+  "%24", "%25", "%26", "%27", "%28", "%29", "%fp", "%sp", \
+  "?fp", "?ap", "%pc", "?cc" }
 
 #define BEXKAT1_R0     0
 #define BEXKAT1_R1     1 
@@ -174,8 +174,8 @@ enum reg_class
 
 #define REG_CLASS_CONTENTS \
 { { 0x000000000 }, /* Empty */			         \
-  { 0x3FFFFFFFF }, /* $r0 to $r31, ?fp, ?ap */           \
-  { 0x400000000 }, /* $pc */	                         \
+  { 0x3FFFFFFFF }, /* %0 to %28, %fp, %sp, ?fp, ?ap */   \
+  { 0x400000000 }, /* %pc */	                         \
   { 0x800000000 }, /* ?cc */                             \
   { 0xFFFFFFFFF }  /* All registers */                   \
 }
@@ -195,8 +195,8 @@ enum reg_class
                               0, 0, 0, 0, 0, 0, 1, 1, \
                               1, 1, 1, 1 }
 
-#define CALL_USED_REGISTERS { 1, 1, 1, 1, 1, 1, 1, 1, \
-                              0, 0, 0, 0, 0, 0, 0, 0, \
+#define CALL_USED_REGISTERS { 1, 1, 1, 1, 0, 0, 0, 0, \
+                              0, 0, 0, 0, 0, 0, 0, 1, \
                               0, 0, 0, 0, 0, 0, 0, 0, \
                               0, 0, 0, 0, 0, 0, 1, 1, \
                               1, 1, 1, 1 }
@@ -212,7 +212,7 @@ enum reg_class
 
 /* A C expression whose value is a register class containing hard
    register REGNO.  */
-#define REGNO_REG_CLASS(R) ((R < BEXKAT1_QFP) ? GENERAL_REGS :		\
+#define REGNO_REG_CLASS(R) ((R < BEXKAT1_PC) ? GENERAL_REGS :		\
                             (R == BEXKAT1_CC ? CC_REGS : SPECIAL_REGS))
 
 /* A C expression for the number of consecutive hard registers,
@@ -300,7 +300,7 @@ enum reg_class
 /* Offset from the argument pointer register to the first argument's
    address.  On some machines it may depend on the data type of the
    function.  */
-#define FIRST_PARM_OFFSET(F) 12
+#define FIRST_PARM_OFFSET(F) 8
 
 /* Define this macro to nonzero value if the addresses of local variable slots
    are at negative offsets from the frame pointer.  */
@@ -436,7 +436,7 @@ enum reg_class
 
 /* A C expression that is nonzero if REGNO is the number of a hard
    register in which function arguments are sometimes passed.  */
-#define FUNCTION_ARG_REGNO_P(r) (r <= BEXKAT1_R7)
+#define FUNCTION_ARG_REGNO_P(r) (r <= BEXKAT1_R3)
 
 /* A macro whose definition is the name of the class to which a valid
    base register must belong.  A base register is one used in an

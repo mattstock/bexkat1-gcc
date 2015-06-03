@@ -258,54 +258,22 @@
   }
 }")
 
-(define_insn "*loadsi_offset"
-  [(set (match_operand:SI 0 "register_operand" "=r")
-        (mem:SI (plus:SI
-                  (match_operand:SI 1 "register_operand" "r")
-                  (match_operand:SI 2 "immediate_operand" "i"))))]
-  ""
-  "ld.l\\t%0, %2(%1)")
-
-(define_insn "*loadsi_indirect"
-  [(set (match_operand:SI 0 "register_operand" "=r")
-        (mem:SI (match_operand:SI 1 "register_operand" "r")))]
-  ""
-  "ld.l\\t%0, 0(%1)")
-
-(define_insn "*loadsi_direct"
-  [(set (match_operand:SI 0 "register_operand" "=r")
-        (mem:SI (match_operand:SI 1 "immediate_operand" "i")))]
-  ""
-  "ldd.l\\t%0, %1")
-
-(define_insn "*storesi_offset"
-  [(set (mem:SI (plus:SI
-                  (match_operand:SI 1 "register_operand" "r")
-                  (match_operand:SI 2 "immediate_operand" "i")))
-	(match_operand:SI 0 "register_operand" "r"))]
-  ""
-  "st.l\\t%0, %2(%1)")
-
-(define_insn "*storesi_indirect"
-  [(set (mem:SI (match_operand:SI 1 "register_operand" "r"))
-	(match_operand:SI 0 "register_operand" "r"))]
-  ""
-  "st.l\\t%0, 0(%1)")
-
-(define_insn "*storesi_direct"
-  [(set (mem:SI (match_operand:SI 1 "immediate_operand" "i"))
-	(match_operand:SI 0 "register_operand" "r"))]
-  ""
-  "std.l\\t%0, %1")
-
 (define_insn "*movsi"
-  [(set (match_operand:SI 0 "register_operand" "=r,r")
-	(match_operand:SI 1 "nonmemory_operand" "r,i"))]
-  ""
+  [(set (match_operand:SI 0 "nonimmediate_operand" "=r,r,r,r,B,r,W,r,A")
+  	(match_operand:SI 1 "bexkat1_general_movsrc_operand" "r,I,i,B,r,W,r,A,r"))]
+  "register_operand(operands[0], SImode) ||
+   register_operand(operands[1], SImode)"
   "@
    mov\\t%0, %1
-   ldi\\t%0, %1"
-  [(set_attr "length" "4,8")])
+   ldiu\\t%0, %1
+   ldi\\t%0, %1
+   ld.l\\t%0, %1
+   st.l\\t%1, %0
+   ld.l\\t%0, %1
+   st.l\\t%1, %0
+   ldd.l\\t%0, %1
+   std.l\\t%1, %0"
+  [(set_attr "length" "4,4,8,4,4,4,4,8,8")])
 
 (define_insn "zero_extendqisi2"
   [(set (match_operand:SI 0 "register_operand" "=r,r,r,r")
@@ -355,55 +323,21 @@
     operands[1] = force_reg (QImode, operands[1]);
 }")
 
-(define_insn "*loadqi_offset"
-  [(set (match_operand:QI 0 "register_operand" "=r")
-        (mem:QI (plus:SI
-                  (match_operand:SI 1 "register_operand" "r")
-                  (match_operand:SI 2 "immediate_operand" "i"))))]
-  ""
-  "ld.b\\t%0, %2(%1)")
-
-(define_insn "*loadqi_indirect"
-  [(set (match_operand:QI 0 "register_operand" "=r")
-        (mem:QI (match_operand:SI 1 "register_operand" "r")))]
-  ""
-  "ld.b\\t%0, 0(%1)")
-
-(define_insn "*loadqi_direct"
-  [(set (match_operand:QI 0 "register_operand" "=r")
-        (mem:QI (match_operand:SI 1 "immediate_operand" "i")))]
-  ""
-  "ldd.b\\t%0, %1")
-
-(define_insn "*storeqi_offset"
-  [(set (mem:QI (plus:SI
-                  (match_operand:SI 1 "register_operand" "r")
-                  (match_operand:SI 2 "immediate_operand" "i")))
-	(match_operand:QI 0 "register_operand" "r"))]
-  ""
-  "st.b\\t%0, %2(%1)")
-
-(define_insn "*storeqi_indirect"
-  [(set (mem:QI (match_operand:SI 1 "register_operand" "r"))
-	(match_operand:QI 0 "register_operand" "r"))]
-  ""
-  "st.b\\t%0, 0(%1)")
-
-(define_insn "*storeqi_direct"
-  [(set (mem:QI (match_operand:SI 1 "immediate_operand" "i"))
-	(match_operand:QI 0 "register_operand" "r"))]
-  ""
-  "std.b\\t%0, %1")
-
 (define_insn "*movqi"
-  [(set (match_operand:QI 0 "nonimmediate_operand" "=r,r")
-	(match_operand:QI 1 "general_operand" "r,i"))]
+  [(set (match_operand:QI 0 "nonimmediate_operand" "=r,r,r,B,r,W,r,A")
+	(match_operand:QI 1 "bexkat1_general_movsrc_operand" "r,i,B,r,W,r,A,r"))]
   "register_operand (operands[0], QImode)
    || register_operand (operands[1], QImode)"
   "@
    mov\\t%0, %1
-   ldi\\t%0, %1"
-  [(set_attr "length"	"4,8")])
+   ldiu\\t%0, %1
+   ld.b\\t%0, %1
+   st.b\\t%1, %0
+   ld.b\\t%0, %1
+   st.b\\t%1, %0
+   ldd.b\\t%0, %1
+   std.b\\t%1, %0"
+  [(set_attr "length"	"4,4,4,4,4,4,8,8")])
 
 (define_expand "movhi"
   [(set (match_operand:HI 0 "general_operand" "")
@@ -457,14 +391,20 @@
   "std\\t%0, %1")
 
 (define_insn "*movhi"
-  [(set (match_operand:HI 0 "nonimmediate_operand" "=r,r")
-	(match_operand:HI 1 "general_operand" "r,i"))]
+  [(set (match_operand:HI 0 "nonimmediate_operand" "=r,r,r,B,r,W,r,A")
+	(match_operand:HI 1 "general_operand" "r,i,B,r,W,r,A,r"))]
   "register_operand (operands[0], HImode)
    || register_operand (operands[1], HImode)"
   "@
    mov\\t%0, %1
-   ldi\\t%0, %1"
-  [(set_attr "length"	"4,8")])
+   ldiu\\t%0, %1
+   ld\\t%0, %1
+   st\\t%1, %0
+   ld\\t%0, %1
+   st\\t%1, %0
+   ldd\\t%0, %1
+   std\\t%1, %0"
+  [(set_attr "length"	"4,4,4,4,4,4,8,8")])
 
 ;; -------------------------------------------------------------------------
 ;; Compare instructions
@@ -543,13 +483,13 @@
 
 (define_insn "*call"
   [(call (mem:SI (match_operand:SI
-		  0 "nonmemory_operand" "i,r"))
+		  0 "nonmemory_operand" "r,i"))
 	 (match_operand 1 "" ""))]
   ""
   "@
-   jsrd\\t%0
-   jsr\\t%0"
-  [(set_attr "length"	"8,4")])
+   jsr\\t%a0
+   jsrd\\t%0"
+  [(set_attr "length"	"4,8")])
 
 (define_expand "call_value"
   [(set (match_operand 0 "" "")
@@ -575,7 +515,8 @@
 		       1 "register_operand" "r"))
 	      (match_operand 2 "" "")))]
   ""
-  "jsr\\t%1")
+  "jsr\\t%a1"
+  [(set_attr "length"	"4")])
 
 (define_insn "indirect_jump"
   [(set (pc) (match_operand:SI 0 "nonimmediate_operand" "r"))]

@@ -156,7 +156,7 @@ bexkat1_print_operand_address (FILE *file, rtx x)
 	  break;
 	case SYMBOL_REF:
 	  output_addr_const (file, XEXP (x, 1));
-	  fprintf (file, "0(%s)", reg_names[REGNO (XEXP (x, 0))]);
+	  fprintf (file, "(%s)", reg_names[REGNO (XEXP (x, 0))]);
 	  break;
 	case CONST:
 	  {
@@ -201,7 +201,14 @@ bexkat1_print_operand (FILE *file, rtx x, int code)
     case 0:
       /* No code, print as usual.  */
       break;
-
+    case 'a':
+      if (GET_CODE (operand) == REG) {
+	if (REGNO (operand) > BEXKAT1_SP)
+	  internal_error ("internal error: bad register: %d", REGNO (operand));
+	fprintf (file, "(%s)", reg_names[REGNO (operand)]);
+	return;
+      }
+      break;
     default:
       LOSE_AND_RETURN ("invalid operand modifier letter", x);
     }
@@ -318,42 +325,30 @@ bexkat1_expand_prologue (void)
 	}
     }
 
-  if (cfun->machine->size_for_adjusting_sp > 0)
-    {
-      int i = cfun->machine->size_for_adjusting_sp; 
-      while ((i >= 255) && (i <= 510))
-	{
-	  insn = emit_insn (gen_subsi3 (stack_pointer_rtx, 
-					stack_pointer_rtx, 
-					GEN_INT (255)));
-	  RTX_FRAME_RELATED_P (insn) = 1;
-	  i -= 255;
-	}
-      if (i <= 255)
-	{
-	  insn = emit_insn (gen_subsi3 (stack_pointer_rtx, 
-					stack_pointer_rtx, 
-					GEN_INT (i)));
-	  RTX_FRAME_RELATED_P (insn) = 1;
-	}
-      else
-	{
-	  rtx reg = gen_rtx_REG (SImode, BEXKAT1_R12);
-	  insn = emit_move_insn (reg, GEN_INT (i));
-	  RTX_FRAME_RELATED_P (insn) = 1;
-	  insn = emit_insn (gen_subsi3 (stack_pointer_rtx, 
-					stack_pointer_rtx, 
-					reg));
-	  RTX_FRAME_RELATED_P (insn) = 1;
-	}
-    }
+  insn = emit_insn (gen_movsi_push (gen_rtx_REG (Pmode, HARD_FRAME_POINTER_REGNUM)));
+    RTX_FRAME_RELATED_P (insn) = 1;
+    emit_move_insn (hard_frame_pointer_rtx, stack_pointer_rtx);
+
+  if (cfun->machine->size_for_adjusting_sp > 0) {
+    int i = cfun->machine->size_for_adjusting_sp;
+    insn = emit_insn(gen_subsi3(stack_pointer_rtx,
+				stack_pointer_rtx,
+				GEN_INT(i)));
+    RTX_FRAME_RELATED_P (insn) = 1;
+  }
 }
 
 void
 bexkat1_expand_epilogue (void)
 {
   int regno;
-  rtx reg;
+  rtx reg, insn;
+
+  reg = gen_rtx_REG (Pmode, BEXKAT1_R12);
+  insn = emit_move_insn (stack_pointer_rtx, hard_frame_pointer_rtx);
+  RTX_FRAME_RELATED_P (insn) = 1;
+  insn = emit_insn (gen_movsi_pop (reg, gen_rtx_REG (Pmode, HARD_FRAME_POINTER_REGNUM)));
+  RTX_FRAME_RELATED_P (insn) = 1;
 
   if (cfun->machine->callee_saved_reg_size != 0)
     {
@@ -588,7 +583,6 @@ bexkat1_offset_address_p (rtx x)
       if (GET_CODE (x) == CONST_INT)
 	{
 	  unsigned int v = INTVAL (x) & 0xFFFF8000;
-	  fprintf(stderr, "offset int %08x\n", INTVAL(x));
 	  return (v == 0xFFFF8000 || v == 0x00000000);
 	}
     }
