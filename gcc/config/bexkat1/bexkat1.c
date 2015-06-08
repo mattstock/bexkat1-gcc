@@ -321,7 +321,7 @@ bexkat1_expand_prologue (void)
     insn = emit_insn(gen_subsi3(stack_pointer_rtx,
 				stack_pointer_rtx,
 				GEN_INT(i)));
-    RTX_FRAME_RELATED_P (insn) = 1;
+//    RTX_FRAME_RELATED_P (insn) = 1;
   }
 
   if (flag_stack_usage_info)
@@ -372,9 +372,9 @@ bexkat1_expand_epilogue (void)
 
   reg = gen_rtx_REG (Pmode, BEXKAT1_R12);
   insn = emit_move_insn (stack_pointer_rtx, hard_frame_pointer_rtx);
-  RTX_FRAME_RELATED_P (insn) = 1;
+//  RTX_FRAME_RELATED_P (insn) = 1;
   insn = emit_insn (gen_movsi_pop (reg, gen_rtx_REG (Pmode, HARD_FRAME_POINTER_REGNUM)));
-  RTX_FRAME_RELATED_P (insn) = 1;
+//  RTX_FRAME_RELATED_P (insn) = 1;
 
   emit_jump_insn (gen_returner ());
 }
