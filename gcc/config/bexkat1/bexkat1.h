@@ -295,7 +295,7 @@ enum reg_class
 
 /* Define this if it is the responsibility of the caller to allocate
    the area reserved for arguments passed in registers.  */
-#define REG_PARM_STACK_SPACE(FNDECL) (8 * UNITS_PER_WORD)
+#define REG_PARM_STACK_SPACE(FNDECL) (4 * UNITS_PER_WORD)
 
 /* Offset from the argument pointer register to the first argument's
    address.  On some machines it may depend on the data type of the

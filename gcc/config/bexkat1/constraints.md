@@ -41,10 +41,9 @@
 		    && REGNO_OK_FOR_BASE_P (REGNO (XEXP (op, 0)))")))
 
 (define_constraint "I"
-  "A 16-bit constant"
+  "A 16-bit positive constant"
   (and (match_code "const_int")
-       (ior (match_test "ival >= 0 && ival <= 65535")
-       	    (match_test "ival >= -32768 && ival <= 32767"))))
+       (match_test "ival >= 0 && ival <= 65535")))
 
 (define_constraint "O"
   "The constant zero"

@@ -350,46 +350,6 @@
     operands[1] = force_reg (HImode, operands[1]);
 }")
 
-(define_insn "*loadqi_offset"
-  [(set (match_operand:HI 0 "register_operand" "=r")
-        (mem:HI (plus:SI
-                  (match_operand:SI 1 "register_operand" "r")
-                  (match_operand:SI 2 "immediate_operand" "i"))))]
-  ""
-  "ld\\t%0, %2(%1)")
-
-(define_insn "*loadhi_indirect"
-  [(set (match_operand:HI 0 "register_operand" "=r")
-        (mem:HI (match_operand:SI 1 "register_operand" "r")))]
-  ""
-  "ld\\t%0, 0(%1)")
-
-(define_insn "*loadhi_direct"
-  [(set (match_operand:HI 0 "register_operand" "=r")
-        (mem:HI (match_operand:SI 1 "immediate_operand" "i")))]
-  ""
-  "ldd\\t%0, %1")
-
-(define_insn "*storehi_offset"
-  [(set (mem:HI (plus:SI
-                  (match_operand:SI 1 "register_operand" "r")
-                  (match_operand:SI 2 "immediate_operand" "i")))
-	(match_operand:HI 0 "register_operand" "r"))]
-  ""
-  "st\\t%0, %2(%1)")
-
-(define_insn "*storehi_indirect"
-  [(set (mem:HI (match_operand:SI 1 "register_operand" "r"))
-	(match_operand:HI 0 "register_operand" "r"))]
-  ""
-  "st\\t%0, 0(%1)")
-
-(define_insn "*storehi_direct"
-  [(set (mem:HI (match_operand:SI 1 "immediate_operand" "i"))
-	(match_operand:HI 0 "register_operand" "r"))]
-  ""
-  "std\\t%0, %1")
-
 (define_insn "*movhi"
   [(set (match_operand:HI 0 "nonimmediate_operand" "=r,r,r,B,r,W,r,A")
 	(match_operand:HI 1 "general_operand" "r,i,B,r,W,r,A,r"))]

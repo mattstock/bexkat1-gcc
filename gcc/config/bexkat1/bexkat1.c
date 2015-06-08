@@ -312,6 +312,18 @@ bexkat1_expand_prologue (void)
 
   bexkat1_compute_frame ();
 
+  insn = emit_insn (gen_movsi_push (gen_rtx_REG (Pmode, HARD_FRAME_POINTER_REGNUM)));
+    RTX_FRAME_RELATED_P (insn) = 1;
+    emit_move_insn (hard_frame_pointer_rtx, stack_pointer_rtx);
+
+  if (cfun->machine->size_for_adjusting_sp > 0) {
+    int i = cfun->machine->size_for_adjusting_sp;
+    insn = emit_insn(gen_subsi3(stack_pointer_rtx,
+				stack_pointer_rtx,
+				GEN_INT(i)));
+    RTX_FRAME_RELATED_P (insn) = 1;
+  }
+
   if (flag_stack_usage_info)
     current_function_static_stack_size = cfun->machine->size_for_adjusting_sp;
 
@@ -325,17 +337,6 @@ bexkat1_expand_prologue (void)
 	}
     }
 
-  insn = emit_insn (gen_movsi_push (gen_rtx_REG (Pmode, HARD_FRAME_POINTER_REGNUM)));
-    RTX_FRAME_RELATED_P (insn) = 1;
-    emit_move_insn (hard_frame_pointer_rtx, stack_pointer_rtx);
-
-  if (cfun->machine->size_for_adjusting_sp > 0) {
-    int i = cfun->machine->size_for_adjusting_sp;
-    insn = emit_insn(gen_subsi3(stack_pointer_rtx,
-				stack_pointer_rtx,
-				GEN_INT(i)));
-    RTX_FRAME_RELATED_P (insn) = 1;
-  }
 }
 
 void
@@ -343,12 +344,6 @@ bexkat1_expand_epilogue (void)
 {
   int regno;
   rtx reg, insn;
-
-  reg = gen_rtx_REG (Pmode, BEXKAT1_R12);
-  insn = emit_move_insn (stack_pointer_rtx, hard_frame_pointer_rtx);
-  RTX_FRAME_RELATED_P (insn) = 1;
-  insn = emit_insn (gen_movsi_pop (reg, gen_rtx_REG (Pmode, HARD_FRAME_POINTER_REGNUM)));
-  RTX_FRAME_RELATED_P (insn) = 1;
 
   if (cfun->machine->callee_saved_reg_size != 0)
     {
@@ -374,6 +369,12 @@ bexkat1_expand_epilogue (void)
 	    emit_insn (gen_movsi_pop (reg, preg));
 	  }
     }
+
+  reg = gen_rtx_REG (Pmode, BEXKAT1_R12);
+  insn = emit_move_insn (stack_pointer_rtx, hard_frame_pointer_rtx);
+  RTX_FRAME_RELATED_P (insn) = 1;
+  insn = emit_insn (gen_movsi_pop (reg, gen_rtx_REG (Pmode, HARD_FRAME_POINTER_REGNUM)));
+  RTX_FRAME_RELATED_P (insn) = 1;
 
   emit_jump_insn (gen_returner ());
 }
