@@ -151,8 +151,6 @@
 #define BEXKAT1_R27    27
 #define BEXKAT1_R28    28
 #define BEXKAT1_R29    29
-#define BEXKAT1_FP     30
-#define BEXKAT1_SP     31
 
 #define BEXKAT1_QFP    32
 #define BEXKAT1_QAP    33
@@ -421,9 +419,9 @@ enum reg_class
 
 #define HARD_FRAME_POINTER_REGNUM BEXKAT1_FP
 
-#define ELIMINABLE_REGS							\
-{{ FRAME_POINTER_REGNUM, HARD_FRAME_POINTER_REGNUM },			\
- { ARG_POINTER_REGNUM,   HARD_FRAME_POINTER_REGNUM }}			
+#define ELIMINABLE_REGS					\
+ {{ ARG_POINTER_REGNUM,   HARD_FRAME_POINTER_REGNUM },	\
+ {FRAME_POINTER_REGNUM, HARD_FRAME_POINTER_REGNUM }}
 
 /* This macro is similar to `INITIAL_FRAME_POINTER_OFFSET'.  It
    specifies the initial difference between the specified pair of

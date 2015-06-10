@@ -366,14 +366,13 @@ bexkat1_expand_epilogue (void)
 	    && df_regs_ever_live_p (regno))
 	  {
 	    rtx preg = gen_rtx_REG (Pmode, regno);
-	    emit_insn (gen_movsi_pop (reg, preg));
+	    emit_insn (gen_movsi_pop ( preg));
 	  }
     }
 
-  reg = gen_rtx_REG (Pmode, BEXKAT1_R12);
   insn = emit_move_insn (stack_pointer_rtx, hard_frame_pointer_rtx);
 //  RTX_FRAME_RELATED_P (insn) = 1;
-  insn = emit_insn (gen_movsi_pop (reg, gen_rtx_REG (Pmode, HARD_FRAME_POINTER_REGNUM)));
+  insn = emit_insn (gen_movsi_pop (gen_rtx_REG (Pmode, HARD_FRAME_POINTER_REGNUM)));
 //  RTX_FRAME_RELATED_P (insn) = 1;
 
   emit_jump_insn (gen_returner ());
@@ -394,8 +393,10 @@ bexkat1_initial_elimination_offset (int from, int to)
     }
   else if ((from) == ARG_POINTER_REGNUM && (to) == HARD_FRAME_POINTER_REGNUM)
     ret = 0x00;
-  else
+  else {
+    fprintf(stderr, "invalid elim %d %d\n", from, to);
     abort ();
+  }
 
   return ret;
 }
@@ -572,7 +573,7 @@ bexkat1_trampoline_init (rtx m_tramp, tree fndecl, rtx chain_value)
   emit_move_insn (mem, fnaddr);
 }
 
-/* Return true for memory offset addresses between -32768 and 32767.  */
+/* Return true for memory offset addresses between -16383 and 16382.  */
 bool
 bexkat1_offset_address_p (rtx x)
 {

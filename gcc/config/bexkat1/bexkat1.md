@@ -25,6 +25,10 @@
 (include "constraints.md")
 (include "predicates.md")
 
+(define_constants
+  [(BEXKAT1_FP 30)
+   (BEXKAT1_SP 31)])
+
 ; Most instructions are four bytes long.
 (define_attr "length" "" (const_int 4))
 
@@ -44,8 +48,8 @@
 (define_insn "addsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r,r")
 	  (plus:SI
-	   (match_operand:SI 1 "register_operand" "0,r,r")
-	   (match_operand:SI 2 "bexkat1_add_operand" "K,i,r")))]
+            (match_operand:SI 1 "register_operand" "0,r,r")
+            (match_operand:SI 2 "bexkat1_add_operand" "K,i,r")))]
   ""
   "@
   inc\\t%0
@@ -74,33 +78,7 @@
   mul\\t%0, %1, %2")
 
 (define_code_iterator EXTEND [sign_extend zero_extend])
-(define_code_attr mul [(sign_extend "mul") (zero_extend "umul")])
-
-(define_insn "<mul>si3_highpart"
-  [(set (match_operand:SI 0 "register_operand"                       "=r")
-        (truncate:SI
-         (lshiftrt:DI
-          (mult:DI (EXTEND:DI (match_operand:SI 1 "register_operand"  "0"))
-                   (EXTEND:DI (match_operand:SI 2 "register_operand"  "r")))
-          (const_int 32))))]
-  "TARGET_HAS_MULX"
-  "<mul>.x\\t%0, %2")
-
-(define_expand "<mul>sidi3"
-  [(set (match_operand:DI 0 "register_operand" "")
-	(mult:DI (EXTEND:DI (match_operand:SI 1 "register_operand" "0"))
-		 (EXTEND:DI (match_operand:SI 2 "register_operand" "r"))))]
-  "TARGET_HAS_MULX"
-{
-  rtx hi = gen_reg_rtx (SImode);
-  rtx lo = gen_reg_rtx (SImode);
-
-  emit_insn (gen_<mul>si3_highpart (hi, operands[1], operands[2]));
-  emit_insn (gen_mulsi3 (lo, operands[1], operands[2]));
-  emit_move_insn (gen_lowpart (SImode, operands[0]), lo);
-  emit_move_insn (gen_highpart (SImode, operands[0]), hi);
-  DONE;
-})
+(define_code_attr mul [(sign_extend "mul") (zero_extend "mulu")])
 
 (define_insn "divsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
@@ -228,17 +206,17 @@
 
 ;; Push a register onto the stack
 (define_insn "movsi_push"
-  [(set (mem:SI (pre_dec:SI (reg:SI 31)))
+  [(set (mem:SI (pre_dec:SI (reg:SI BEXKAT1_SP)))
   	(match_operand:SI 0 "register_operand" "r"))]
   ""
   "push\\t%0")
 
 ;; Pop a register from the stack
 (define_insn "movsi_pop"
-  [(set (match_operand:SI 1 "register_operand" "=r")
-  	(mem:SI (post_inc:SI (match_operand:SI 0 "register_operand" "r"))))]
+  [(set (match_operand:SI 0 "register_operand" "=r")
+  	(mem:SI (post_inc:SI (reg:SI BEXKAT1_SP))))]
   ""
-  "pop\\t%1")
+  "pop\\t%0")
 
 (define_expand "movsi"
    [(set (match_operand:SI 0 "general_operand" "")
@@ -300,16 +278,14 @@
   [(set (match_operand:SI 0 "register_operand" "=r")
 	(sign_extend:SI (match_operand:QI 1 "nonimmediate_operand" "r")))]
   ""
-  "@
-   ext.b\\t%0, %1"
+  "ext.b\\t%0, %1"
   [(set_attr "length" "4")])
 
 (define_insn "extendhisi2"
   [(set (match_operand:SI 0 "register_operand" "=r")
 	(sign_extend:SI (match_operand:HI 1 "nonimmediate_operand" "r")))]
   ""
-  "@
-   ext\\t%0, %1"
+  "ext\\t%0, %1"
   [(set_attr "length" "4")])
 
 (define_expand "movqi"
