@@ -108,9 +108,9 @@
    %fp - frame pointer
    %sp - stack pointer
 
-   Special Registers...
-
-   5pc - 32-bit program counter.
+   ?ap - arg pointer
+   %pc - program counter
+   ?cc - condition code register
    
 */
 
@@ -119,7 +119,7 @@
   "%8", "%9", "%10", "%11", "%12", "%13", "%14", "%15", \
   "%16", "%17", "%18", "%19", "%20", "%21", "%22", "%23", \
   "%24", "%25", "%26", "%27", "%28", "%29", "%fp", "%sp", \
-  "?fp", "?ap", "%pc", "?cc" }
+  "?ap", "%pc", "?cc" }
 
 #define BEXKAT1_R0     0
 #define BEXKAT1_R1     1 
@@ -151,13 +151,13 @@
 #define BEXKAT1_R27    27
 #define BEXKAT1_R28    28
 #define BEXKAT1_R29    29
+/* BEXKAT1_FP 30
+   BEXKAT1_SP 31 */
+#define BEXKAT1_AP     32
+#define BEXKAT1_PC     33
+/* BEXKAT1_CC     34 */
 
-#define BEXKAT1_QFP    32
-#define BEXKAT1_QAP    33
-#define BEXKAT1_PC     34
-#define BEXKAT1_CC     35
-
-#define FIRST_PSEUDO_REGISTER 36
+#define FIRST_PSEUDO_REGISTER 35
 
 enum reg_class
 {
@@ -170,12 +170,13 @@ enum reg_class
 };
 
 
-#define REG_CLASS_CONTENTS \
-{ { 0x000000000 }, /* Empty */			         \
-  { 0x3FFFFFFFF }, /* %0 to %28, %fp, %sp, ?fp, ?ap */   \
-  { 0x400000000 }, /* %pc */	                         \
-  { 0x800000000 }, /* ?cc */                             \
-  { 0xFFFFFFFFF }  /* All registers */                   \
+#define REG_CLASS_CONTENTS                                              \
+{                                                                       \
+  { 0x00000000, 0x00000000 }, /* Empty */				\
+  { 0xFFFFFFFF, 0x00000001 }, /* %0 to %28, %fp, %sp, ?ap */	        \
+  { 0x00000000, 0x00000002 }, /* %pc */				        \
+  { 0x00000000, 0x00000004 }, /* ?cc */				        \
+  { 0xFFFFFFFF, 0x00000007 }  /* All registers */			\
 }
 
 #define N_REG_CLASSES LIM_REG_CLASSES
@@ -190,14 +191,14 @@ enum reg_class
 #define FIXED_REGISTERS     { 0, 0, 0, 0, 0, 0, 0, 0, \
                               0, 0, 0, 0, 0, 0, 0, 0, \
                               0, 0, 0, 0, 0, 0, 0, 0, \
-                              0, 0, 0, 0, 0, 0, 1, 1, \
-                              1, 1, 1, 1 }
+                              0, 0, 0, 0, 0, 0, 0, 1, \
+                              1, 1, 1 }
 
-#define CALL_USED_REGISTERS { 1, 1, 1, 1, 0, 0, 0, 0, \
+#define CALL_USED_REGISTERS { 0, 0, 0, 0, 0, 0, 0, 0, \
                               0, 0, 0, 0, 0, 0, 0, 1, \
                               0, 0, 0, 0, 0, 0, 0, 0, \
                               0, 0, 0, 0, 0, 0, 1, 1, \
-                              1, 1, 1, 1 }
+                              1, 1, 1}
 
 /* We can't copy to or from our CC register. */
 #define AVOID_CCMODE_COPIES 1
@@ -264,11 +265,12 @@ enum reg_class
    `current_function_outgoing_args_size'.  No space will be pushed
    onto the stack for each call; instead, the function prologue should
    increase the stack frame size by this amount.  */
-#define ACCUMULATE_OUTGOING_ARGS 1
+/* #define ACCUMULATE_OUTGOING_ARGS 1 */
+#define PUSH_ARGS 1
+#define PUSH_ROUNDING(BYTES) (((BYTES) + 3) & ~3) 
 
 /* A C statement (sans semicolon) for initializing the variable CUM
-   for the state at the beginning of the argument list.  
-   For bexkat1, the first arg is passed in register 0 (aka %0).  */
+   for the state at the beginning of the argument list. */
 #define INIT_CUMULATIVE_ARGS(CUM,FNTYPE,LIBNAME,FNDECL,N_NAMED_ARGS) \
   (CUM = BEXKAT1_R0)
 
@@ -278,7 +280,8 @@ enum reg_class
 
 /* Define this macro if pushing a word onto the stack moves the stack
    pointer to a smaller address.  */
-#define STACK_GROWS_DOWNWARD
+#define STACK_GROWS_DOWNWARD 1
+#define FRAME_GROWS_DOWNWARD 1
 
 #define INITIAL_FRAME_POINTER_OFFSET(DEPTH) (DEPTH) = 0
 
@@ -288,21 +291,16 @@ enum reg_class
 
 /* Define this if the above stack space is to be considered part of the
    space allocated by the caller.  */
-#define OUTGOING_REG_PARM_STACK_SPACE(FNTYPE) 1
-#define STACK_PARMS_IN_REG_PARM_AREA
+/* #define OUTGOING_REG_PARM_STACK_SPACE(FNTYPE) 1 */
 
 /* Define this if it is the responsibility of the caller to allocate
    the area reserved for arguments passed in registers.  */
-#define REG_PARM_STACK_SPACE(FNDECL) (4 * UNITS_PER_WORD)
+/* #define REG_PARM_STACK_SPACE(FNDECL) (4 * UNITS_PER_WORD) */
 
 /* Offset from the argument pointer register to the first argument's
    address.  On some machines it may depend on the data type of the
    function.  */
-#define FIRST_PARM_OFFSET(F) 8
-
-/* Define this macro to nonzero value if the addresses of local variable slots
-   are at negative offsets from the frame pointer.  */
-#define FRAME_GROWS_DOWNWARD 1
+#define FIRST_PARM_OFFSET(F) 0
 
 /* Define this macro as a C expression that is nonzero for registers that are
    used by the epilogue or the return pattern.  The stack and frame
@@ -411,30 +409,27 @@ enum reg_class
 
 /* The register number of the frame pointer register, which is used to
    access automatic variables in the stack frame.  */
-#define FRAME_POINTER_REGNUM BEXKAT1_QFP
+#define FRAME_POINTER_REGNUM BEXKAT1_FP
 
 /* The register number of the arg pointer register, which is used to
    access the function's argument list.  */
-#define ARG_POINTER_REGNUM BEXKAT1_QAP
-
-#define HARD_FRAME_POINTER_REGNUM BEXKAT1_FP
+#define ARG_POINTER_REGNUM BEXKAT1_AP
 
 #define ELIMINABLE_REGS					\
- {{ ARG_POINTER_REGNUM,   HARD_FRAME_POINTER_REGNUM },	\
- {FRAME_POINTER_REGNUM, HARD_FRAME_POINTER_REGNUM }}
+  {{ ARG_POINTER_REGNUM, FRAME_POINTER_REGNUM },	 \
+   { ARG_POINTER_REGNUM, STACK_POINTER_REGNUM },	 \
+   { FRAME_POINTER_REGNUM, STACK_POINTER_REGNUM }}
 
 /* This macro is similar to `INITIAL_FRAME_POINTER_OFFSET'.  It
    specifies the initial difference between the specified pair of
    registers.  This macro must be defined if `ELIMINABLE_REGS' is
    defined.  */
 #define INITIAL_ELIMINATION_OFFSET(FROM, TO, OFFSET)			\
-  do {									\
-    (OFFSET) = bexkat1_initial_elimination_offset ((FROM), (TO));		\
-  } while (0)
+  (OFFSET) = bexkat1_initial_elimination_offset ((FROM), (TO))
 
 /* A C expression that is nonzero if REGNO is the number of a hard
    register in which function arguments are sometimes passed.  */
-#define FUNCTION_ARG_REGNO_P(r) (r <= BEXKAT1_R3)
+#define FUNCTION_ARG_REGNO_P(r) 0
 
 /* A macro whose definition is the name of the class to which a valid
    base register must belong.  A base register is one used in an
@@ -446,7 +441,7 @@ enum reg_class
 #define HARD_REGNO_OK_FOR_BASE_P(NUM) \
   ((unsigned) (NUM) < FIRST_PSEUDO_REGISTER \
    && (REGNO_REG_CLASS(NUM) == GENERAL_REGS \
-       || (NUM) == HARD_FRAME_POINTER_REGNUM))
+       || (NUM) == FRAME_POINTER_REGNUM))
 
 /* A C expression which is nonzero if register number NUM is suitable
    for use as a base register in operand addresses.  */
@@ -456,12 +451,13 @@ enum reg_class
    || HARD_REGNO_OK_FOR_BASE_P(reg_renumber[(NUM)]))
 #else
 #define REGNO_OK_FOR_BASE_P(NUM)		 \
-  ((NUM) >= FIRST_PSEUDO_REGISTER || HARD_REGNO_OK_FOR_BASE_P(NUM))
+  ((NUM) >= FIRST_PSEUDO_REGISTER || HARD_REGNO_OK_FOR_BASE_P(NUM) \
+   || (NUM) == ARG_POINTER_REGNUM)
 #endif
 
 /* A C expression which is nonzero if register number NUM is suitable
    for use as an index register in operand addresses.  */
-#define REGNO_OK_FOR_INDEX_P(NUM) BEXKAT1_FP
+#define REGNO_OK_FOR_INDEX_P(NUM) 0
 
 /* The maximum number of bytes that a single instruction can move
    quickly between memory and registers or between two memory

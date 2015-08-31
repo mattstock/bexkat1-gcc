@@ -347,16 +347,16 @@
 ;; -------------------------------------------------------------------------
 
 (define_constants
-  [(CC_REG 35)])
+  [(BEXKAT1_CC 34)])
 
 (define_expand "cbranchsi4"
-  [(set (reg:CC CC_REG)
+  [(set (reg:CC BEXKAT1_CC)
         (compare:CC
          (match_operand:SI 1 "general_operand" "")
          (match_operand:SI 2 "general_operand" "")))
    (set (pc)
         (if_then_else (match_operator 0 "comparison_operator"
-                       [(reg:CC CC_REG) (const_int 0)])
+                       [(reg:CC BEXKAT1_CC) (const_int 0)])
                       (label_ref (match_operand 3 "" ""))
                       (pc)))]
   ""
@@ -369,7 +369,7 @@
   ")
 
 (define_insn "*cmpsi"
-  [(set (reg:CC CC_REG)
+  [(set (reg:CC BEXKAT1_CC)
 	(compare
 	 (match_operand:SI 0 "register_operand" "r")
 	 (match_operand:SI 1 "register_operand"	"r")))]
@@ -390,7 +390,7 @@
 
 (define_insn "*b<cond:code>"
   [(set (pc)
-	(if_then_else (cond (reg:CC CC_REG)
+	(if_then_else (cond (reg:CC BEXKAT1_CC)
 			    (const_int 0))
 		      (label_ref (match_operand 0 "" ""))
 		      (pc)))]

@@ -312,21 +312,6 @@ bexkat1_expand_prologue (void)
 
   bexkat1_compute_frame ();
 
-  insn = emit_insn (gen_movsi_push (gen_rtx_REG (Pmode, HARD_FRAME_POINTER_REGNUM)));
-    RTX_FRAME_RELATED_P (insn) = 1;
-    emit_move_insn (hard_frame_pointer_rtx, stack_pointer_rtx);
-
-  if (cfun->machine->size_for_adjusting_sp > 0) {
-    int i = cfun->machine->size_for_adjusting_sp;
-    insn = emit_insn(gen_subsi3(stack_pointer_rtx,
-				stack_pointer_rtx,
-				GEN_INT(i)));
-//    RTX_FRAME_RELATED_P (insn) = 1;
-  }
-
-  if (flag_stack_usage_info)
-    current_function_static_stack_size = cfun->machine->size_for_adjusting_sp;
-
   /* Save callee-saved registers.  */
   for (regno = 0; regno < FIRST_PSEUDO_REGISTER; regno++)
     {
@@ -337,43 +322,42 @@ bexkat1_expand_prologue (void)
 	}
     }
 
+  insn = emit_insn (gen_movsi_push (gen_rtx_REG (Pmode, FRAME_POINTER_REGNUM)));
+  RTX_FRAME_RELATED_P (insn) = 1;
+  emit_move_insn (frame_pointer_rtx, stack_pointer_rtx);
+
+  if (cfun->machine->size_for_adjusting_sp > 0) {
+    int i = cfun->machine->size_for_adjusting_sp;
+    emit_insn(gen_subsi3(stack_pointer_rtx,
+				stack_pointer_rtx,
+				GEN_INT(i)));
+  }
+
+  if (flag_stack_usage_info)
+    current_function_static_stack_size = cfun->machine->size_for_adjusting_sp;
 }
 
 void
 bexkat1_expand_epilogue (void)
 {
   int regno;
-  rtx reg, insn;
 
-  if (cfun->machine->callee_saved_reg_size != 0)
+  if (cfun->machine->size_for_adjusting_sp > 0)
     {
-      reg = gen_rtx_REG (Pmode, BEXKAT1_R12);
-      if (cfun->machine->callee_saved_reg_size <= 255)
-	{
-	  emit_move_insn (reg, hard_frame_pointer_rtx);
-	  emit_insn (gen_subsi3 
-		     (reg, reg, 
-		      GEN_INT (cfun->machine->callee_saved_reg_size)));
-	}
-      else
-	{
-	  emit_move_insn (reg,
-			  GEN_INT (-cfun->machine->callee_saved_reg_size));
-	  emit_insn (gen_addsi3 (reg, reg, hard_frame_pointer_rtx));
-	}
-      for (regno = FIRST_PSEUDO_REGISTER; regno-- > 0; )
+      int i = cfun->machine->size_for_adjusting_sp;
+      emit_insn(gen_addsi3(stack_pointer_rtx,
+  				stack_pointer_rtx,
+				GEN_INT(i)));
+    }
+  emit_insn (gen_movsi_pop (gen_rtx_REG (Pmode, FRAME_POINTER_REGNUM)));
+
+  for (regno = FIRST_PSEUDO_REGISTER; regno-- > 0; )
 	if (!fixed_regs[regno] && !call_used_regs[regno]
 	    && df_regs_ever_live_p (regno))
 	  {
 	    rtx preg = gen_rtx_REG (Pmode, regno);
 	    emit_insn (gen_movsi_pop ( preg));
 	  }
-    }
-
-  insn = emit_move_insn (stack_pointer_rtx, hard_frame_pointer_rtx);
-//  RTX_FRAME_RELATED_P (insn) = 1;
-  insn = emit_insn (gen_movsi_pop (gen_rtx_REG (Pmode, HARD_FRAME_POINTER_REGNUM)));
-//  RTX_FRAME_RELATED_P (insn) = 1;
 
   emit_jump_insn (gen_returner ());
 }
@@ -384,15 +368,22 @@ int
 bexkat1_initial_elimination_offset (int from, int to)
 {
   int ret;
+
+  bexkat1_compute_frame ();
   
-  if ((from) == FRAME_POINTER_REGNUM && (to) == HARD_FRAME_POINTER_REGNUM)
+  if ((from) == FRAME_POINTER_REGNUM && (to) == STACK_POINTER_REGNUM)
+    {
+      /* Compute this since we need to use cfun->machine->local_vars_size.  */
+      ret = -cfun->machine->callee_saved_reg_size;
+    }
+  else if ((from) == ARG_POINTER_REGNUM && (to) == STACK_POINTER_REGNUM)
     {
       /* Compute this since we need to use cfun->machine->local_vars_size.  */
       bexkat1_compute_frame ();
       ret = -cfun->machine->callee_saved_reg_size;
     }
-  else if ((from) == ARG_POINTER_REGNUM && (to) == HARD_FRAME_POINTER_REGNUM)
-    ret = 0x00;
+  else if ((from) == ARG_POINTER_REGNUM && (to) == FRAME_POINTER_REGNUM)
+    ret = 0;
   else {
     fprintf(stderr, "invalid elim %d %d\n", from, to);
     abort ();
@@ -435,7 +426,7 @@ bexkat1_setup_incoming_varargs (cumulative_args_t cum_v,
 static bool
 bexkat1_fixed_condition_code_regs (unsigned int *p1, unsigned int *p2)
 {
-  *p1 = CC_REG;
+  *p1 = BEXKAT1_CC;
   *p2 = INVALID_REGNUM;
   return true;
 }
@@ -602,10 +593,6 @@ bexkat1_offset_address_p (rtx x)
 #define TARGET_RETURN_IN_MEMORY		bexkat1_return_in_memory
 #undef  TARGET_MUST_PASS_IN_STACK
 #define TARGET_MUST_PASS_IN_STACK	must_pass_in_stack_var_size
-#undef  TARGET_PASS_BY_REFERENCE
-#define TARGET_PASS_BY_REFERENCE        bexkat1_pass_by_reference
-#undef  TARGET_ARG_PARTIAL_BYTES
-#define TARGET_ARG_PARTIAL_BYTES        bexkat1_arg_partial_bytes
 #undef  TARGET_FUNCTION_ARG
 #define TARGET_FUNCTION_ARG		bexkat1_function_arg
 #undef  TARGET_FUNCTION_ARG_ADVANCE
