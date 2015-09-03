@@ -431,20 +431,14 @@ bexkat1_fixed_condition_code_regs (unsigned int *p1, unsigned int *p2)
   return true;
 }
 
-/* Return the next register to be used to hold a function argument or
-   NULL_RTX if there's no more space.  */
+/* We only pass args on the stack */
 
 static rtx
 bexkat1_function_arg (cumulative_args_t cum_v, machine_mode mode,
 		    const_tree type ATTRIBUTE_UNUSED,
 		    bool named ATTRIBUTE_UNUSED)
 {
-  CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
-
-  if (*cum < 8)
-    return gen_rtx_REG (mode, *cum);
-  else 
-    return NULL_RTX;
+  return NULL_RTX;
 }
 
 #define BEXKAT1_FUNCTION_ARG_SIZE(MODE, TYPE)	\
@@ -455,11 +449,6 @@ static void
 bexkat1_function_arg_advance (cumulative_args_t cum_v, machine_mode mode,
 			    const_tree type, bool named ATTRIBUTE_UNUSED)
 {
-  CUMULATIVE_ARGS *cum = get_cumulative_args (cum_v);
-
-  *cum = (*cum < BEXKAT1_R6
-	  ? *cum + ((3 + BEXKAT1_FUNCTION_ARG_SIZE (mode, type)) / 4)
-	  : *cum);
 }
 
 /* Return non-zero if the function argument described by TYPE is to be
@@ -593,14 +582,11 @@ bexkat1_offset_address_p (rtx x)
 #define TARGET_RETURN_IN_MEMORY		bexkat1_return_in_memory
 #undef  TARGET_MUST_PASS_IN_STACK
 #define TARGET_MUST_PASS_IN_STACK	must_pass_in_stack_var_size
+
 #undef  TARGET_FUNCTION_ARG
 #define TARGET_FUNCTION_ARG		bexkat1_function_arg
 #undef  TARGET_FUNCTION_ARG_ADVANCE
 #define TARGET_FUNCTION_ARG_ADVANCE	bexkat1_function_arg_advance
-
-
-#undef  TARGET_SETUP_INCOMING_VARARGS
-#define TARGET_SETUP_INCOMING_VARARGS 	bexkat1_setup_incoming_varargs
 
 #undef	TARGET_FIXED_CONDITION_CODE_REGS
 #define	TARGET_FIXED_CONDITION_CODE_REGS bexkat1_fixed_condition_code_regs

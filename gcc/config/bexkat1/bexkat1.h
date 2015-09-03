@@ -283,7 +283,7 @@ enum reg_class
 #define STACK_GROWS_DOWNWARD 1
 #define FRAME_GROWS_DOWNWARD 1
 
-#define INITIAL_FRAME_POINTER_OFFSET(DEPTH) (DEPTH) = 0
+#define INITIAL_FRAME_POINTER_OFFSET(DEPTH) (DEPTH) = 4
 
 /* Offset from the frame pointer to the first local variable slot to
    be allocated.  */
