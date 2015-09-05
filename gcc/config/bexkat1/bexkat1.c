@@ -380,10 +380,11 @@ bexkat1_initial_elimination_offset (int from, int to)
     {
       /* Compute this since we need to use cfun->machine->local_vars_size.  */
       bexkat1_compute_frame ();
-      ret = -cfun->machine->callee_saved_reg_size;
+      ret = -cfun->machine->callee_saved_reg_size -
+	cfun->machine->size_for_adjusting_sp;
     }
   else if ((from) == ARG_POINTER_REGNUM && (to) == FRAME_POINTER_REGNUM)
-    ret = 0;
+    ret = cfun->machine->callee_saved_reg_size;
   else {
     fprintf(stderr, "invalid elim %d %d\n", from, to);
     abort ();
