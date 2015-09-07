@@ -26,8 +26,8 @@
 (include "predicates.md")
 
 (define_constants
-  [(BEXKAT1_FP 30)
-   (BEXKAT1_SP 31)])
+  [(BEXKAT1_FP 14)
+   (BEXKAT1_SP 15)])
 
 ; Most instructions are four bytes long.
 (define_attr "length" "" (const_int 4))
@@ -49,7 +49,7 @@
   [(set (match_operand:SI 0 "register_operand" "=r,r,r")
 	  (plus:SI
             (match_operand:SI 1 "register_operand" "0,r,r")
-            (match_operand:SI 2 "bexkat1_add_operand" "K,i,r")))]
+            (match_operand:SI 2 "bexkat1_add_operand" "K,J,r")))]
   ""
   "@
   inc\\t%0
@@ -60,7 +60,7 @@
   [(set (match_operand:SI 0 "register_operand" "=r,r,r")
 	  (minus:SI
 	   (match_operand:SI 1 "register_operand" "0,r,r")
-	   (match_operand:SI 2 "bexkat1_sub_operand" "K,i,r")))]
+	   (match_operand:SI 2 "bexkat1_sub_operand" "K,J,r")))]
   ""
   "@
   dec\\t%0
@@ -71,7 +71,7 @@
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	  (mult:SI
 	   (match_operand:SI 1 "register_operand" "r,r")
-	   (match_operand:SI 2 "register_operand" "i,r")))]
+	   (match_operand:SI 2 "register_operand" "J,r")))]
   ""
   "@
   muli\\t%0, %1, %2
@@ -80,11 +80,23 @@
 (define_code_iterator EXTEND [sign_extend zero_extend])
 (define_code_attr mul [(sign_extend "mul") (zero_extend "mulu")])
 
+(define_insn "<mul>si3_highpart"
+  [(set (match_operand:SI 0 "register_operand"                       "=r,r")
+        (truncate:SI
+         (lshiftrt:DI
+          (mult:DI (EXTEND:DI (match_operand:SI 1 "register_operand"  "r,r"))
+                   (EXTEND:DI (match_operand:SI 2 "register_operand"  "J,r")))
+          (const_int 32))))]
+  ""
+  "@
+  <mul>i.x\\t%0, %1, %2
+  <mul>.x\\t%0, %1, %2")
+
 (define_insn "divsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	  (div:SI
 	   (match_operand:SI 1 "register_operand" "r,r")
-	   (match_operand:SI 2 "register_operand" "i,r")))]
+	   (match_operand:SI 2 "register_operand" "J,r")))]
   ""
   "@
   divi\\t %0, %1, %2
@@ -94,7 +106,7 @@
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	  (udiv:SI
 	   (match_operand:SI 1 "register_operand" "r,r")
-	   (match_operand:SI 2 "register_operand" "i,r")))]
+	   (match_operand:SI 2 "register_operand" "J,r")))]
   ""
   "@
   diviu\\t%0, %1, %2
@@ -104,7 +116,7 @@
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	  (mod:SI
 	   (match_operand:SI 1 "register_operand" "r,r")
-	   (match_operand:SI 2 "register_operand" "i,r")))]
+	   (match_operand:SI 2 "register_operand" "J,r")))]
   ""
   "@
   modi\\t%0, %1, %2
@@ -114,7 +126,7 @@
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	  (umod:SI
 	   (match_operand:SI 1 "register_operand" "r,r")
-	   (match_operand:SI 2 "register_operand" "i,r")))]
+	   (match_operand:SI 2 "register_operand" "J,r")))]
   ""
   "@
   modui\\t%0, %1, %2
@@ -143,7 +155,7 @@
 (define_insn "andsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(and:SI (match_operand:SI 1 "register_operand" "r,r")
-		(match_operand:SI 2 "register_operand" "i,r")))]
+		(match_operand:SI 2 "register_operand" "J,r")))]
   ""
   "@
   andi\\t%0, %1, %2
@@ -152,7 +164,7 @@
 (define_insn "xorsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(xor:SI (match_operand:SI 1 "register_operand" "r,r")
-		(match_operand:SI 2 "register_operand" "i,r")))]
+		(match_operand:SI 2 "register_operand" "J,r")))]
   ""
   "@
   xori\\t%0, %1, %2
@@ -161,7 +173,7 @@
 (define_insn "iorsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(ior:SI (match_operand:SI 1 "register_operand" "r,r")
-		(match_operand:SI 2 "register_operand" "i,r")))]
+		(match_operand:SI 2 "register_operand" "J,r")))]
   ""
   "@
   ori\\t%0, %1, %2
@@ -174,7 +186,7 @@
 (define_insn "ashlsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(ashift:SI (match_operand:SI 1 "register_operand" "r,r")
-		   (match_operand:SI 2 "register_operand" "i,r")))]
+		   (match_operand:SI 2 "register_operand" "I,r")))]
   ""
   "@
   lsli\\t%0, %1, %2
@@ -183,7 +195,7 @@
 (define_insn "ashrsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(ashiftrt:SI (match_operand:SI 1 "register_operand" "r,r")
-		     (match_operand:SI 2 "register_operand" "i,r")))]
+		     (match_operand:SI 2 "register_operand" "I,r")))]
   ""
   "@
   asri\\t%0, %1, %2
@@ -192,7 +204,7 @@
 (define_insn "lshrsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(lshiftrt:SI (match_operand:SI 1 "register_operand" "r,r")
-		     (match_operand:SI 2 "register_operand" "i,r")))]
+		     (match_operand:SI 2 "register_operand" "I,r")))]
   ""
   "@
   lsri\\t%0, %1, %2
@@ -347,7 +359,7 @@
 ;; -------------------------------------------------------------------------
 
 (define_constants
-  [(BEXKAT1_CC 34)])
+  [(BEXKAT1_CC 18)])
 
 (define_expand "cbranchsi4"
   [(set (reg:CC BEXKAT1_CC)
@@ -419,13 +431,13 @@
 
 (define_insn "*call"
   [(call (mem:SI (match_operand:SI
-		  0 "nonmemory_operand" "r,i"))
+		  0 "nonmemory_operand" "i,r"))
 	 (match_operand 1 "" ""))]
   ""
   "@
-   jsr\\t%a0
-   jsrd\\t%0"
-  [(set_attr "length"	"4,8")])
+   jsrd\\t%0
+   jsr\\t%a0"
+  [(set_attr "length"	"8,4")])
 
 (define_expand "call_value"
   [(set (match_operand 0 "" "")

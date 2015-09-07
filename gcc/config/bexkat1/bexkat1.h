@@ -75,38 +75,26 @@
 
 /* Registers...
 
-   $0  - general purpose 32-bit register.
-   $1  - general purpose 32-bit register.
-   $2  - general purpose 32-bit register.
-   $3  - general purpose 32-bit register.
-   $4  - general purpose 32-bit register.
-   $5  - general purpose 32-bit register.
-   $6  - general purpose 32-bit register.
-   $7  - general purpose 32-bit register.
-   $8  - general purpose 32-bit register.
-   $9  - general purpose 32-bit register.
-   $10 - general purpose 32-bit register.
-   $11 - general purpose 32-bit register.
-   $12 - general purpose 32-bit register.
-   $13 - general purpose 32-bit register.
-   $14 - general purpose 32-bit register.
-   $15 - general purpose 32-bit register.
-   $16 - general purpose 32-bit register.
-   $17 - general purpose 32-bit register.
-   $18 - general purpose 32-bit register.
-   $19 - general purpose 32-bit register.
-   $20 - general purpose 32-bit register.
-   $21 - general purpose 32-bit register.
-   %22 - general purpose 32-bit register.
-   %23 - general purpose 32-bit register.
-   %24 - general purpose 32-bit register.
-   %25 - general purpose 32-bit register.
-   %26 - general purpose 32-bit register.
-   %27 - general purpose 32-bit register.
-   %28 - general purpose 32-bit register.
-   %29 - general purpose 32-bit register.
-   %fp - frame pointer
-   %sp - stack pointer
+   %0  - general purpose 32-bit register.
+   %1  - general purpose 32-bit register.
+   %2  - general purpose 32-bit register.
+   %3  - general purpose 32-bit register.
+   %4  - general purpose 32-bit register.
+   %5  - general purpose 32-bit register.
+   %6  - general purpose 32-bit register.
+   %7  - general purpose 32-bit register.
+   %8  - general purpose 32-bit register.
+   %9  - general purpose 32-bit register.
+   %10 - general purpose 32-bit register.
+   %11 - general purpose 32-bit register.
+   %12 - general purpose 32-bit register.
+   %13 - general purpose 32-bit register.
+   %fp - general purpose 32-bit register.
+   %sp - general purpose 32-bit register.
+
+   there are another 16 special registers that are referenced
+   implictly based on the opcode context - there can be used
+   as floating point, high word results for multiply ops, etc.
 
    ?ap - arg pointer
    %pc - program counter
@@ -116,9 +104,7 @@
 
 #define REGISTER_NAMES {	\
   "%0", "%1", "%2", "%3", "%4", "%5", "%6", "%7", \
-  "%8", "%9", "%10", "%11", "%12", "%13", "%14", "%15", \
-  "%16", "%17", "%18", "%19", "%20", "%21", "%22", "%23", \
-  "%24", "%25", "%26", "%27", "%28", "%29", "%fp", "%sp", \
+  "%8", "%9", "%10", "%11", "%12", "%13", "%fp", "%sp", \
   "?ap", "%pc", "?cc" }
 
 #define BEXKAT1_R0     0
@@ -135,29 +121,13 @@
 #define BEXKAT1_R11    11
 #define BEXKAT1_R12    12
 #define BEXKAT1_R13    13
-#define BEXKAT1_R14    14
-#define BEXKAT1_R15    15
-#define BEXKAT1_R16    16
-#define BEXKAT1_R17    17
-#define BEXKAT1_R18    18
-#define BEXKAT1_R19    19
-#define BEXKAT1_R20    20
-#define BEXKAT1_R21    21
-#define BEXKAT1_R22    22
-#define BEXKAT1_R23    23
-#define BEXKAT1_R24    24
-#define BEXKAT1_R25    25
-#define BEXKAT1_R26    26
-#define BEXKAT1_R27    27
-#define BEXKAT1_R28    28
-#define BEXKAT1_R29    29
-/* BEXKAT1_FP 30
-   BEXKAT1_SP 31 */
-#define BEXKAT1_AP     32
-#define BEXKAT1_PC     33
-/* BEXKAT1_CC     34 */
+/* BEXKAT1_FP 14
+   BEXKAT1_SP 15 */
+#define BEXKAT1_AP     16
+#define BEXKAT1_PC     17
+/* BEXKAT1_CC     18 */
 
-#define FIRST_PSEUDO_REGISTER 35
+#define FIRST_PSEUDO_REGISTER 19
 
 enum reg_class
 {
@@ -172,11 +142,11 @@ enum reg_class
 
 #define REG_CLASS_CONTENTS                                              \
 {                                                                       \
-  { 0x00000000, 0x00000000 }, /* Empty */				\
-  { 0xFFFFFFFF, 0x00000001 }, /* %0 to %28, %fp, %sp, ?ap */	        \
-  { 0x00000000, 0x00000002 }, /* %pc */				        \
-  { 0x00000000, 0x00000004 }, /* ?cc */				        \
-  { 0xFFFFFFFF, 0x00000007 }  /* All registers */			\
+  { 0x00000000 }, /* Empty */				\
+  { 0x0001FFFF }, /* %0 to %13, %fp, %sp, ?ap */	        \
+  { 0x00020000 }, /* %pc */				        \
+  { 0x00040000 }, /* ?cc */				        \
+  { 0x0007FFFF }  /* All registers */			\
 }
 
 #define N_REG_CLASSES LIM_REG_CLASSES
@@ -189,15 +159,11 @@ enum reg_class
     "ALL_REGS" }
 
 #define FIXED_REGISTERS     { 0, 0, 0, 0, 0, 0, 0, 0, \
-                              0, 0, 0, 0, 0, 0, 0, 0, \
-                              0, 0, 0, 0, 0, 0, 0, 0, \
                               0, 0, 0, 0, 0, 0, 0, 1, \
                               1, 1, 1 }
 
 #define CALL_USED_REGISTERS { 0, 0, 0, 0, 0, 0, 0, 0, \
-                              0, 0, 0, 0, 0, 0, 0, 1, \
-                              0, 0, 0, 0, 0, 0, 0, 0, \
-                              0, 0, 0, 0, 0, 0, 1, 1, \
+                              0, 0, 0, 0, 0, 1, 1, 1, \
                               1, 1, 1}
 
 /* We can't copy to or from our CC register. */
@@ -305,7 +271,7 @@ enum reg_class
 /* Define this macro as a C expression that is nonzero for registers that are
    used by the epilogue or the return pattern.  The stack and frame
    pointer registers are already assumed to be used as needed.  */
-#define EPILOGUE_USES(R) (R == BEXKAT1_R15)
+#define EPILOGUE_USES(R) (R == BEXKAT1_R13)
 
 /* A C expression whose value is RTL representing the location of the
    incoming return address at the beginning of any function, before
@@ -329,7 +295,7 @@ enum reg_class
 #define WORDS_BIG_ENDIAN ( ! TARGET_LITTLE_ENDIAN )
 
 /* Alignment required for a function entry point, in bits.  */
-#define FUNCTION_BOUNDARY 32
+#define FUNCTION_BOUNDARY 16
 
 /* Define this macro as a C expression which is nonzero if accessing
    less than a word of memory (i.e. a `char' or a `short') is no
@@ -354,7 +320,7 @@ enum reg_class
 #define EMPTY_FIELD_BOUNDARY  32
 
 /* No data type wants to be aligned rounder than this.  */
-#define BIGGEST_ALIGNMENT 32
+#define BIGGEST_ALIGNMENT 16
 
 /* The best alignment to use in cases where we have a choice.  */
 #define FASTEST_ALIGNMENT 32
@@ -463,7 +429,6 @@ enum reg_class
    quickly between memory and registers or between two memory
    locations.  */
 #define MOVE_MAX 4
-#define TRULY_NOOP_TRUNCATION(op,ip) 1
 
 /* All load operations zero extend.  */
 #define LOAD_EXTEND_OP(MEM) ZERO_EXTEND

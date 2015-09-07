@@ -100,7 +100,7 @@ bexkat1_function_value (const_tree valtype,
 		      const_tree fntype_or_decl ATTRIBUTE_UNUSED,
 		      bool outgoing ATTRIBUTE_UNUSED)
 {
-  return gen_rtx_REG (TYPE_MODE (valtype), BEXKAT1_R15);
+  return gen_rtx_REG (TYPE_MODE (valtype), BEXKAT1_R13);
 }
 
 /* Define how to find the value returned by a library function.
@@ -111,7 +111,7 @@ static rtx
 bexkat1_libcall_value (machine_mode mode,
                      const_rtx fun ATTRIBUTE_UNUSED)
 {
-  return gen_rtx_REG (mode, BEXKAT1_R15);
+  return gen_rtx_REG (mode, BEXKAT1_R13);
 }
 
 /* Handle TARGET_FUNCTION_VALUE_REGNO_P.
@@ -121,7 +121,7 @@ bexkat1_libcall_value (machine_mode mode,
 static bool
 bexkat1_function_value_regno_p (const unsigned int regno)
 {
-  return (regno == BEXKAT1_R15);
+  return (regno == BEXKAT1_R13);
 }
 
 /* Emit an error message when we're in an asm, and a fatal error for
@@ -554,7 +554,7 @@ bexkat1_trampoline_init (rtx m_tramp, tree fndecl, rtx chain_value)
   emit_move_insn (mem, fnaddr);
 }
 
-/* Return true for memory offset addresses between -16383 and 16382.  */
+/* Return true for memory offset addresses between -32767 and 32766.  */
 bool
 bexkat1_offset_address_p (rtx x)
 {
@@ -565,8 +565,8 @@ bexkat1_offset_address_p (rtx x)
       x = XEXP (x, 1);
       if (GET_CODE (x) == CONST_INT)
 	{
-	  unsigned int v = INTVAL (x) & 0xFFFF8000;
-	  return (v == 0xFFFF8000 || v == 0x00000000);
+	  unsigned int v = INTVAL (x) & 0xFFFF0000;
+	  return (v == 0xFFFF0000 || v == 0x00000000);
 	}
     }
   return 0;
