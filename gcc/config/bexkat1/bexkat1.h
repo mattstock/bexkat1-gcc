@@ -295,7 +295,7 @@ enum reg_class
 #define WORDS_BIG_ENDIAN ( ! TARGET_LITTLE_ENDIAN )
 
 /* Alignment required for a function entry point, in bits.  */
-#define FUNCTION_BOUNDARY 16
+#define FUNCTION_BOUNDARY 32
 
 /* Define this macro as a C expression which is nonzero if accessing
    less than a word of memory (i.e. a `char' or a `short') is no
@@ -320,7 +320,7 @@ enum reg_class
 #define EMPTY_FIELD_BOUNDARY  32
 
 /* No data type wants to be aligned rounder than this.  */
-#define BIGGEST_ALIGNMENT 16
+#define BIGGEST_ALIGNMENT 32
 
 /* The best alignment to use in cases where we have a choice.  */
 #define FASTEST_ALIGNMENT 32

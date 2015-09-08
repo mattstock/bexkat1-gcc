@@ -186,7 +186,7 @@
 (define_insn "ashlsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(ashift:SI (match_operand:SI 1 "register_operand" "r,r")
-		   (match_operand:SI 2 "register_operand" "I,r")))]
+		   (match_operand:SI 2 "register_operand" "J,r")))]
   ""
   "@
   lsli\\t%0, %1, %2
@@ -195,7 +195,7 @@
 (define_insn "ashrsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(ashiftrt:SI (match_operand:SI 1 "register_operand" "r,r")
-		     (match_operand:SI 2 "register_operand" "I,r")))]
+		     (match_operand:SI 2 "register_operand" "J,r")))]
   ""
   "@
   asri\\t%0, %1, %2
@@ -204,7 +204,7 @@
 (define_insn "lshrsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	(lshiftrt:SI (match_operand:SI 1 "register_operand" "r,r")
-		     (match_operand:SI 2 "register_operand" "I,r")))]
+		     (match_operand:SI 2 "register_operand" "J,r")))]
   ""
   "@
   lsri\\t%0, %1, %2

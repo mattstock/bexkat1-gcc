@@ -48,7 +48,7 @@
 (define_constraint "J"
   "A 16-bit constant"
   (and (match_code "const_int")
-       (match_test "ival >= -32767 && ival <= 65535")))
+       (match_test "ival >= -32768 && ival <= 32767")))
 
 (define_constraint "O"
   "The constant zero"

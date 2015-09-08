@@ -554,7 +554,7 @@ bexkat1_trampoline_init (rtx m_tramp, tree fndecl, rtx chain_value)
   emit_move_insn (mem, fnaddr);
 }
 
-/* Return true for memory offset addresses between -32767 and 32766.  */
+/* Return true for memory offset addresses between -32768 and 32767.  */
 bool
 bexkat1_offset_address_p (rtx x)
 {
