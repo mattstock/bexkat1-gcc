@@ -45,11 +45,43 @@
 ;; Arithmetic instructions
 ;; -------------------------------------------------------------------------
 
+(define_insn "addsf3"
+  [(set (match_operand:SF 0 "register_operand" "=r")
+          (plus:SF
+            (match_operand:SF 1 "register_operand" "r")
+            (match_operand:SF 2 "register_operand" "r")))]
+  ""
+  "add.s\\t%0, %1, %2")
+
+(define_insn "subsf3"
+  [(set (match_operand:SF 0 "register_operand" "=r")
+          (minus:SF
+            (match_operand:SF 1 "register_operand" "r")
+            (match_operand:SF 2 "register_operand" "r")))]
+  ""
+  "sub.s\\t%0, %1, %2")
+
+(define_insn "mulsf3"
+  [(set (match_operand:SF 0 "register_operand" "=r")
+	  (mult:SF
+	   (match_operand:SF 1 "register_operand" "r")
+	   (match_operand:SF 2 "register_operand" "r")))]
+  ""
+  "mul.s\\t%0, %1, %2")
+
+(define_insn "divsf3"
+  [(set (match_operand:SF 0 "register_operand" "=r")
+	  (div:SF
+	   (match_operand:SF 1 "register_operand" "r")
+	   (match_operand:SF 2 "register_operand" "r")))]
+  ""
+  "div.s\\t %0, %1, %2")
+
 (define_insn "addsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r,r")
 	  (plus:SI
             (match_operand:SI 1 "register_operand" "0,r,r")
-            (match_operand:SI 2 "bexkat1_add_operand" "K,J,r")))]
+            (match_operand:SI 2 "bexkat1_arith_operand" "K,J,r")))]
   ""
   "@
   inc\\t%0
@@ -60,7 +92,7 @@
   [(set (match_operand:SI 0 "register_operand" "=r,r,r")
 	  (minus:SI
 	   (match_operand:SI 1 "register_operand" "0,r,r")
-	   (match_operand:SI 2 "bexkat1_sub_operand" "K,J,r")))]
+	   (match_operand:SI 2 "bexkat1_arith_operand" "K,J,r")))]
   ""
   "@
   dec\\t%0
@@ -71,7 +103,7 @@
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	  (mult:SI
 	   (match_operand:SI 1 "register_operand" "r,r")
-	   (match_operand:SI 2 "register_operand" "J,r")))]
+	   (match_operand:SI 2 "bexkat1_arith_operand" "J,r")))]
   ""
   "@
   muli\\t%0, %1, %2
@@ -96,7 +128,7 @@
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	  (div:SI
 	   (match_operand:SI 1 "register_operand" "r,r")
-	   (match_operand:SI 2 "register_operand" "J,r")))]
+	   (match_operand:SI 2 "bexkat1_arith_operand" "J,r")))]
   ""
   "@
   divi\\t %0, %1, %2
@@ -106,7 +138,7 @@
   [(set (match_operand:SI 0 "register_operand" "=r,r")
 	  (udiv:SI
 	   (match_operand:SI 1 "register_operand" "r,r")
-	   (match_operand:SI 2 "register_operand" "J,r")))]
+	   (match_operand:SI 2 "bexkat1_arith_operand" "J,r")))]
   ""
   "@
   diviu\\t%0, %1, %2
@@ -230,6 +262,71 @@
   ""
   "pop\\t%0")
 
+(define_insn "movsf_push"
+  [(set (mem:SF (pre_dec:SI (reg:SI BEXKAT1_SP)))
+  	(match_operand:SF 0 "register_operand" "r"))]
+  ""
+  "push\\t%0")
+
+;; Pop a register from the stack
+(define_insn "movsf_pop"
+  [(set (match_operand:SF 0 "register_operand" "=r")
+  	(mem:SF (post_inc:SI (reg:SI BEXKAT1_SP))))]
+  ""
+  "pop\\t%0")
+
+(define_expand "movsf"
+   [(set (match_operand:SF 0 "general_operand" "")
+ 	(match_operand:SF 1 "general_operand" ""))]
+   ""
+  "
+{
+  if (! (reload_in_progress || reload_completed)) {
+    if (MEM_P (operands[0])) {
+      operands[1] = force_reg (SFmode, operands[1]);
+      if (GET_CODE (XEXP (operands[0], 0)) == MEM)
+        operands[0] = gen_rtx_MEM(SFmode, force_reg (SFmode, XEXP (operands[0], 0)));
+    } else
+      if (GET_CODE (operands[1]) == MEM
+          && GET_CODE (XEXP (operands[1], 0)) == MEM)
+        operands[1] = gen_rtx_MEM(SFmode, force_reg (SFmode, XEXP (operands[1], 0)));
+  }
+}")
+
+(define_insn "*movsf"
+  [(set (match_operand:SF 0 "nonimmediate_operand" "=r,r,r,B,r,W,r,A")
+  	(match_operand:SF 1 "bexkat1_general_movsrc_operand" "r,E,B,r,W,r,A,r"))]
+  "register_operand(operands[0], SFmode) ||
+   register_operand(operands[1], SFmode)"
+  "@
+   mov\\t%0, %1
+   ldi\\t%0, %1
+   ld.l\\t%0, %1
+   st.l\\t%1, %0
+   ld.l\\t%0, %1
+   st.l\\t%1, %0
+   ldd.l\\t%0, %1
+   std.l\\t%1, %0"
+  [(set_attr "length" "4,8,4,4,4,4,8,8")])
+
+;;(define_expand "movdf"
+;;  [(set (match_operand:DF 0 "nonimmediate_operand" "")
+;;        (match_operand:DF 1 "general_operand" ""))]
+;;  ""
+;;{
+;;  if (! (reload_in_progress || reload_completed)) {
+;;    if (MEM_P (operands[0])) {
+;;      operands[1] = force_reg (DFmode, operands[1]);
+;;      if (GET_CODE (XEXP (operands[0], 0)) == MEM)
+;;        operands[0] = gen_rtx_MEM(DFmode, force_reg (DFmode, XEXP (operands[0], 0)));
+;;    } else
+;;      if (GET_CODE (operands[1]) == MEM
+;;          && GET_CODE (XEXP (operands[1], 0)) == MEM)
+;;        operands[1] = gen_rtx_MEM(DFmode, force_reg (DFmode, XEXP (operands[1], 0)));
+;;  }
+;;})
+
+
 (define_expand "movsi"
    [(set (match_operand:SI 0 "general_operand" "")
  	(match_operand:SI 1 "general_operand" ""))]
@@ -299,6 +396,18 @@
   ""
   "ext\\t%0, %1"
   [(set_attr "length" "4")])
+
+(define_insn "floatsisf2"
+  [(set (match_operand:SF 0 "register_operand" "=r")
+        (float:SF (match_operand:SI 1 "register_operand" "r")))]
+  ""
+  "cvtis\\t%0, %1")
+
+(define_insn "fix_truncsfsi2"
+  [(set (match_operand:SI 0 "register_operand" "=r")
+	(fix:SI (match_operand:SF 1 "register_operand" "r")))]
+  ""
+  "cvtsi\\t%0, %1")
 
 (define_expand "movqi"
   [(set (match_operand:QI 0 "general_operand" "")
@@ -387,6 +496,33 @@
 	 (match_operand:SI 1 "register_operand"	"r")))]
   ""
   "cmp\\t%0, %1")
+
+(define_expand "cbranchsf4"
+  [(set (reg:CC BEXKAT1_CC)
+        (compare:CC
+         (match_operand:SF 1 "general_operand" "")
+         (match_operand:SF 2 "general_operand" "")))
+   (set (pc)
+        (if_then_else (match_operator 0 "comparison_operator"
+                       [(reg:CC BEXKAT1_CC) (const_int 0)])
+                      (label_ref (match_operand 3 "" ""))
+                      (pc)))]
+  ""
+  "
+  /* Force the compare operands into registers.  */
+  if (GET_CODE (operands[1]) != REG)
+	operands[1] = force_reg (SFmode, operands[1]);
+  if (GET_CODE (operands[2]) != REG)
+	operands[2] = force_reg (SFmode, operands[2]);
+  ")
+
+(define_insn "*cmpsf"
+  [(set (reg:CC BEXKAT1_CC)
+	(compare
+	 (match_operand:SF 0 "register_operand" "r")
+	 (match_operand:SF 1 "register_operand"	"r")))]
+  ""
+  "cmp.s\\t%0, %1")
 
 ;; -------------------------------------------------------------------------
 ;; Branch instructions

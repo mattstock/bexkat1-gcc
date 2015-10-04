@@ -29,3 +29,11 @@ Generate little-endian code
 ; Ignored by the compiler
 mno-crt0
 Target RejectNegative
+
+msoft-float
+Target Report RejectNegative Mask(SOFT_FLOAT)
+Use software emulation for floating point
+
+mhard-float
+Target Report RejectNegative InverseMask(SOFT_FLOAT, HARD_FLOAT)
+Use hardware floating point instructions

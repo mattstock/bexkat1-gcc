@@ -213,9 +213,18 @@ bexkat1_print_operand (FILE *file, rtx x, int code)
       LOSE_AND_RETURN ("invalid operand modifier letter", x);
     }
 
+  unsigned long value_long;
+  REAL_VALUE_TYPE value;
+
   /* Print an operand as without a modifier letter.  */
   switch (GET_CODE (operand))
     {
+    case CONST_DOUBLE:
+      REAL_VALUE_FROM_CONST_DOUBLE(value, operand);
+      REAL_VALUE_TO_TARGET_SINGLE(value, value_long);
+      fprintf(file, HOST_WIDE_INT_PRINT_HEX, value_long);
+      return;
+
     case REG:
       if (REGNO (operand) > BEXKAT1_SP)
 	internal_error ("internal error: bad register: %d", REGNO (operand));

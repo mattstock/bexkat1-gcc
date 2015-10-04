@@ -25,7 +25,7 @@
 ;; Nonzero if OP can be an operand to an add/inc/dec instruction.
 
 (define_predicate "bexkat1_general_movsrc_operand"
-  (match_code "mem,reg,subreg,symbol_ref,label_ref,const,const_int")
+  (match_code "mem,reg,subreg,symbol_ref,label_ref,const_double,const,const_int")
 {
   /* Any (MEM LABEL_REF) is OK.  That is a pc-relative load.  */
   if (MEM_P (op) && GET_CODE (XEXP (op, 0)) == LABEL_REF)
@@ -41,10 +41,6 @@
   return general_operand (op, mode);
 })
 
-(define_predicate "bexkat1_add_operand"
-  (ior (match_code "reg") (match_code "const_int")))
-
-;; Nonzero if OP can be an operand to an sub/dec instruction.
-
-(define_predicate "bexkat1_sub_operand"
-  (ior (match_code "reg") (match_code "const_int")))
+(define_predicate "bexkat1_arith_operand"
+  (ior (match_code "reg")
+       (match_code "const_int,const_double")))

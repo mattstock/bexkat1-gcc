@@ -50,6 +50,9 @@
 
 /* Layout of Source Language Data Types */
 
+#define BITS_PER_WORD 32
+#define UNITS_PER_WORD 4
+#define MIN_UNITS_PER_WORD 4
 #define INT_TYPE_SIZE 32
 #define SHORT_TYPE_SIZE 16
 #define LONG_TYPE_SIZE 32
@@ -59,7 +62,14 @@
 #define DOUBLE_TYPE_SIZE 64
 #define LONG_DOUBLE_TYPE_SIZE 64
 
-#define DEFAULT_SIGNED_CHAR 0
+#ifndef DEFAULT_SIGNED_CHAR
+#define DEFAULT_SIGNED_CHAR 1
+#endif
+
+#define BITS_BIG_ENDIAN 0
+#define BYTES_BIG_ENDIAN ( ! TARGET_LITTLE_ENDIAN )
+#define WORDS_BIG_ENDIAN ( ! TARGET_LITTLE_ENDIAN )
+#define STRICT_ALIGNMENT 1
 
 #undef  SIZE_TYPE
 #define SIZE_TYPE "unsigned int"
@@ -175,6 +185,14 @@ enum reg_class
    equivalent, so we can set this to 1.  */
 #define HARD_REGNO_MODE_OK(R,M) 1
 
+/* A C expression that is nonzero if a value of mode MODE1 is
+   accessible in mode MODE2 without copying.  */
+#define MODES_TIEABLE_P(MODE1, MODE2) \
+  ((GET_MODE_CLASS(MODE1) == MODE_FLOAT || \
+    GET_MODE_CLASS(MODE1) == MODE_COMPLEX_FLOAT) \
+  == (GET_MODE_CLASS(MODE2) == MODE_FLOAT || \
+      GET_MODE_CLASS(MODE2) == MODE_COMPLEX_FLOAT))
+
 /* A C expression whose value is a register class containing hard
    register REGNO.  */
 #define REGNO_REG_CLASS(R) ((R < BEXKAT1_PC) ? GENERAL_REGS :		\
@@ -186,10 +204,6 @@ enum reg_class
 #define HARD_REGNO_NREGS(REGNO, MODE)			   \
   ((GET_MODE_SIZE (MODE) + UNITS_PER_WORD - 1)		   \
    / UNITS_PER_WORD)
-
-/* A C expression that is nonzero if a value of mode MODE1 is
-   accessible in mode MODE2 without copying.  */
-#define MODES_TIEABLE_P(MODE1, MODE2) 1
 
 /* The Overall Framework of an Assembler File */
 
@@ -288,11 +302,6 @@ enum reg_class
   gen_frame_mem (Pmode,							\
 		 plus_constant (Pmode, frame_pointer_rtx, UNITS_PER_WORD))
 
-/* Storage Layout */
-
-#define BITS_BIG_ENDIAN 0
-#define BYTES_BIG_ENDIAN ( ! TARGET_LITTLE_ENDIAN )
-#define WORDS_BIG_ENDIAN ( ! TARGET_LITTLE_ENDIAN )
 
 /* Alignment required for a function entry point, in bits.  */
 #define FUNCTION_BOUNDARY 32
@@ -349,9 +358,6 @@ enum reg_class
    && TYPE_MODE (TREE_TYPE (TYPE)) == QImode	\
    && (ALIGN) < FASTEST_ALIGNMENT ? FASTEST_ALIGNMENT : (ALIGN))
      
-/* Set this nonzero if move instructions will actually fail to work
-   when given unaligned data.  */
-#define STRICT_ALIGNMENT 1
 
 /* Generating Code for Profiling */
 #define FUNCTION_PROFILER(FILE,LABELNO) (abort (), 0)
@@ -436,6 +442,9 @@ enum reg_class
 /* A number, the maximum number of registers that can appear in a
    valid memory address.  */
 #define MAX_REGS_PER_ADDRESS 1
+
+#define LARGE_INT(X) \
+  (INTVAL (X) > 0 && UINTVAL (X) >= 0x80000000 && UINTVAL (X) <= 0xffffffff)
 
 #define TRULY_NOOP_TRUNCATION(op,ip) 1
 
