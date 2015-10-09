@@ -173,7 +173,7 @@ enum reg_class
                               1, 1, 1 }
 
 #define CALL_USED_REGISTERS { 0, 0, 0, 0, 0, 0, 0, 0, \
-                              0, 0, 0, 0, 0, 1, 1, 1, \
+                              0, 0, 0, 0, 1, 1, 1, 1, \
                               1, 1, 1}
 
 /* We can't copy to or from our CC register. */

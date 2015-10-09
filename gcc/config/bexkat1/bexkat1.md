@@ -45,6 +45,13 @@
 ;; Arithmetic instructions
 ;; -------------------------------------------------------------------------
 
+(define_insn "sqrtsf2"
+  [(set (match_operand:SF 0 "register_operand" "=r")
+          (sqrt:SF
+            (match_operand:SF 1 "register_operand" "r")))]
+  ""
+  "sqrt.s\\t%0, %1")
+
 (define_insn "addsf3"
   [(set (match_operand:SF 0 "register_operand" "=r")
           (plus:SF
@@ -109,20 +116,29 @@
   muli\\t%0, %1, %2
   mul\\t%0, %1, %2")
 
-(define_code_iterator EXTEND [sign_extend zero_extend])
-(define_code_attr mul [(sign_extend "mul") (zero_extend "mulu")])
-
-(define_insn "<mul>si3_highpart"
+(define_insn "smulsi3_highpart"
   [(set (match_operand:SI 0 "register_operand"                       "=r,r")
         (truncate:SI
          (lshiftrt:DI
-          (mult:DI (EXTEND:DI (match_operand:SI 1 "register_operand"  "r,r"))
-                   (EXTEND:DI (match_operand:SI 2 "register_operand"  "J,r")))
+          (mult:DI (sign_extend:DI (match_operand:SI 1 "register_operand"  "r,r"))
+                   (sign_extend:DI (match_operand:SI 2 "register_operand"  "J,r")))
           (const_int 32))))]
   ""
   "@
-  <mul>i.x\\t%0, %1, %2
-  <mul>.x\\t%0, %1, %2")
+  muli.x\\t%0, %1, %2
+  mul.x\\t%0, %1, %2")
+
+(define_insn "umulsi3_highpart"
+  [(set (match_operand:SI 0 "register_operand"                       "=r,r")
+        (truncate:SI
+         (lshiftrt:DI
+          (mult:DI (zero_extend:DI (match_operand:SI 1 "register_operand"  "r,r"))
+                   (zero_extend:DI (match_operand:SI 2 "register_operand"  "J,r")))
+          (const_int 32))))]
+  ""
+  "@
+  muliu.x\\t%0, %1, %2
+  mulu.x\\t%0, %1, %2")
 
 (define_insn "divsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
@@ -308,24 +324,6 @@
    ldd.l\\t%0, %1
    std.l\\t%1, %0"
   [(set_attr "length" "4,8,4,4,4,4,8,8")])
-
-;;(define_expand "movdf"
-;;  [(set (match_operand:DF 0 "nonimmediate_operand" "")
-;;        (match_operand:DF 1 "general_operand" ""))]
-;;  ""
-;;{
-;;  if (! (reload_in_progress || reload_completed)) {
-;;    if (MEM_P (operands[0])) {
-;;      operands[1] = force_reg (DFmode, operands[1]);
-;;      if (GET_CODE (XEXP (operands[0], 0)) == MEM)
-;;        operands[0] = gen_rtx_MEM(DFmode, force_reg (DFmode, XEXP (operands[0], 0)));
-;;    } else
-;;      if (GET_CODE (operands[1]) == MEM
-;;          && GET_CODE (XEXP (operands[1], 0)) == MEM)
-;;        operands[1] = gen_rtx_MEM(DFmode, force_reg (DFmode, XEXP (operands[1], 0)));
-;;  }
-;;})
-
 
 (define_expand "movsi"
    [(set (match_operand:SI 0 "general_operand" "")

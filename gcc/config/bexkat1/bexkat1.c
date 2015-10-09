@@ -79,49 +79,47 @@
       return;					\
     } while (0)
 
-/* Worker function for TARGET_RETURN_IN_MEMORY.  */
-
 static bool
 bexkat1_return_in_memory (const_tree type, const_tree fntype ATTRIBUTE_UNUSED)
 {
   const HOST_WIDE_INT size = int_size_in_bytes (type);
   return (size == -1 || size > 2 * UNITS_PER_WORD);
-}
+	}
 
 /* Define how to find the value returned by a function.
    VALTYPE is the data type of the value (as a tree).
    If the precise function being called is known, FUNC is its
    FUNCTION_DECL; otherwise, FUNC is 0.  
 
-   We always return values in register %15 for bexkat1.  */
+   We always return values in register %12 for bexkat1.  */
 
 static rtx
 bexkat1_function_value (const_tree valtype, 
 		      const_tree fntype_or_decl ATTRIBUTE_UNUSED,
 		      bool outgoing ATTRIBUTE_UNUSED)
 {
-  return gen_rtx_REG (TYPE_MODE (valtype), BEXKAT1_R13);
+  return gen_rtx_REG (TYPE_MODE (valtype), BEXKAT1_R12);
 }
 
 /* Define how to find the value returned by a library function.
 
-   We always return values in register %15 for bexkat1.  */
+   We always return values in register %12 for bexkat1.  */
 
 static rtx
 bexkat1_libcall_value (machine_mode mode,
                      const_rtx fun ATTRIBUTE_UNUSED)
 {
-  return gen_rtx_REG (mode, BEXKAT1_R13);
+  return gen_rtx_REG (mode, BEXKAT1_R12);
 }
 
 /* Handle TARGET_FUNCTION_VALUE_REGNO_P.
 
-   We always return values in register %15 for bexkat1.  */
+   We always return values in register %12 for bexkat1.  */
 
 static bool
 bexkat1_function_value_regno_p (const unsigned int regno)
 {
-  return (regno == BEXKAT1_R13);
+  return (regno == BEXKAT1_R12);
 }
 
 /* Emit an error message when we're in an asm, and a fatal error for
@@ -589,7 +587,7 @@ bexkat1_offset_address_p (rtx x)
 #define TARGET_PROMOTE_PROTOTYPES	hook_bool_const_tree_true
 
 #undef  TARGET_RETURN_IN_MEMORY
-#define TARGET_RETURN_IN_MEMORY		bexkat1_return_in_memory
+#define TARGET_RETURN_IN_MEMORY         bexkat1_return_in_memory
 #undef  TARGET_MUST_PASS_IN_STACK
 #define TARGET_MUST_PASS_IN_STACK	must_pass_in_stack_var_size
 
