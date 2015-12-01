@@ -315,7 +315,7 @@
   "register_operand(operands[0], SFmode) ||
    register_operand(operands[1], SFmode)"
   "@
-   mov\\t%0, %1
+   mov.l\\t%0, %1
    ldi\\t%0, %1
    ld.l\\t%0, %1
    st.l\\t%1, %0
@@ -349,7 +349,7 @@
   "register_operand(operands[0], SImode) ||
    register_operand(operands[1], SImode)"
   "@
-   mov\\t%0, %1
+   mov.l\\t%0, %1
    ldiu\\t%0, %1
    ldi\\t%0, %1
    ld.l\\t%0, %1
@@ -366,7 +366,7 @@
   ""
   "@
   nop
-  mov\\t%0, %1
+  mov.b\\t%0, %1
   ld.b\\t%0, %1
   ldd.b\\t%0, %1"
   [(set_attr "length"   "4,4,4,8")])
@@ -424,7 +424,7 @@
   "register_operand (operands[0], QImode)
    || register_operand (operands[1], QImode)"
   "@
-   mov\\t%0, %1
+   mov.b\\t%0, %1
    ldiu\\t%0, %1
    ld.b\\t%0, %1
    st.b\\t%1, %0
