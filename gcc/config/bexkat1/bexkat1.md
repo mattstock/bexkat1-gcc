@@ -85,24 +85,22 @@
   "div.s\\t %0, %1, %2")
 
 (define_insn "addsi3"
-  [(set (match_operand:SI 0 "register_operand" "=r,r,r")
+  [(set (match_operand:SI 0 "register_operand" "=r,r")
 	  (plus:SI
-            (match_operand:SI 1 "register_operand" "0,r,r")
-            (match_operand:SI 2 "bexkat1_arith_operand" "K,J,r")))]
+            (match_operand:SI 1 "register_operand" "r,r")
+            (match_operand:SI 2 "bexkat1_arith_operand" "J,r")))]
   ""
   "@
-  inc\\t%0
   addi\\t%0, %1, %2
   add\\t%0, %1, %2")
 
 (define_insn "subsi3"
-  [(set (match_operand:SI 0 "register_operand" "=r,r,r")
+  [(set (match_operand:SI 0 "register_operand" "=r,r")
 	  (minus:SI
-	   (match_operand:SI 1 "register_operand" "0,r,r")
-	   (match_operand:SI 2 "bexkat1_arith_operand" "K,J,r")))]
+	   (match_operand:SI 1 "register_operand" "r,r")
+	   (match_operand:SI 2 "bexkat1_arith_operand" "J,r")))]
   ""
   "@
-  dec\\t%0
   subi\\t%0, %1, %2
   sub\\t%0, %1, %2")
 
@@ -137,7 +135,7 @@
           (const_int 32))))]
   ""
   "@
-  muliu.x\\t%0, %1, %2
+  mului.x\\t%0, %1, %2
   mulu.x\\t%0, %1, %2")
 
 (define_insn "divsi3"
@@ -157,7 +155,7 @@
 	   (match_operand:SI 2 "bexkat1_arith_operand" "J,r")))]
   ""
   "@
-  diviu\\t%0, %1, %2
+  divui\\t%0, %1, %2
   divu\\t%0, %1, %2")
 
 (define_insn "modsi3"
