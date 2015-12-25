@@ -43,10 +43,10 @@
 (define_constraint "I"
   "A 15-bit positive constant"
   (and (match_code "const_int")
-       (match_test "ival >= 0 && ival <= 32768")))
+       (match_test "ival >= 0 && ival < 32768")))
 
 (define_constraint "J"
-  "A 15-bit constant"
+  "A 15-bit signed constant"
   (and (match_code "const_int")
        (match_test "ival >= -16384 && ival <= 16383")))
 

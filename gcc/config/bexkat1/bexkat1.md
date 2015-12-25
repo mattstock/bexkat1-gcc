@@ -546,7 +546,7 @@
     return "b<rCC>\\t.+8\n\tjmpd\t%l0";
 }
   [(set (attr "length")
-        (if_then_else (lt (abs (minus (pc) (match_dup 0))) (const_int 2046))
+        (if_then_else (lt (abs (minus (pc) (match_dup 0))) (const_int 65536))
                       (const_int 4) (const_int 12)))])
 
 ;; -------------------------------------------------------------------------
