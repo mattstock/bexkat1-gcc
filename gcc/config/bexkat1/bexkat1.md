@@ -607,9 +607,12 @@
   [(set (pc)
 	(label_ref (match_operand 0 "" "")))]
   ""
-  "jmpd\\t%l0"
-  [(set_attr "length"	"8")])
-
+  {
+    return get_attr_length (insn) == 4 ? "bra\\t%l0" : "jmpd\\t%l0";
+  }    
+  [(set (attr "length")
+        (if_then_else (lt (abs (minus (pc) (match_dup 0))) (const_int 65536))
+                      (const_int 4) (const_int 8)))])
 
 ;; -------------------------------------------------------------------------
 ;; Prologue & Epilogue
