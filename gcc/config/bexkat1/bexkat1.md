@@ -641,4 +641,14 @@
 (define_insn "returner"
   [(return)]
   "reload_completed"
-  "rts")
+{
+  switch (bexkat1_get_function_kind (current_function_decl))
+    {
+    case bexkat1_fk_interrupt_handler:
+    case bexkat1_fk_exception_handler:
+      return "rti";
+    default:
+      return "rts";
+    }
+}
+)

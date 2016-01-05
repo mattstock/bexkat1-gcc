@@ -122,6 +122,52 @@ bexkat1_function_value_regno_p (const unsigned int regno)
   return (regno == BEXKAT1_R12);
 }
 
+enum bexkat1_function_kind
+bexkat1_get_function_kind (tree func)
+{
+  tree a;
+
+  gcc_assert (TREE_CODE (func) == FUNCTION_DECL);
+
+  a = lookup_attribute ("interrupt", DECL_ATTRIBUTES (func));
+  if (a != NULL_TREE)
+    return bexkat1_fk_interrupt_handler;
+  a = lookup_attribute ("interrupt_handler", DECL_ATTRIBUTES (func));
+  if (a != NULL_TREE)
+    return bexkat1_fk_interrupt_handler;
+  a = lookup_attribute ("exception_handler", DECL_ATTRIBUTES (func));
+  if (a != NULL_TREE)
+    return bexkat1_fk_exception_handler;
+
+  return bexkat1_fk_normal_function;
+}
+
+static tree
+bexkat1_handle_fndecl_attribute (tree *node, tree name,
+				 tree args ATTRIBUTE_UNUSED,
+				 int flags ATTRIBUTE_UNUSED,
+				 bool *no_add_attrs)
+{
+  if (TREE_CODE (*node) != FUNCTION_DECL)
+    {
+      warning (OPT_Wattributes, "%qE attribute only applies to functions",
+	       name);
+      *no_add_attrs = true;
+    }
+  return NULL_TREE;
+}
+
+static const struct attribute_spec bexkat1_attribute_table[] =
+  {
+    { "interrupt", 0, 0, true, false, false,
+      bexkat1_handle_fndecl_attribute, false },
+    { "interrupt_handler", 0, 0, true, false, false,
+      bexkat1_handle_fndecl_attribute, false },
+    { "exception_handler", 0, 0, true, false, false,
+      bexkat1_handle_fndecl_attribute, false },
+    { NULL, 0, 0, false, false, false, NULL, false }
+  };
+
 /* Emit an error message when we're in an asm, and a fatal error for
    "normal" insns.  Formatted output isn't easily implemented, since we
    use output_operand_lossage to output the actual message and handle the
@@ -598,6 +644,9 @@ bexkat1_offset_address_p (rtx x)
 
 #undef	TARGET_FIXED_CONDITION_CODE_REGS
 #define	TARGET_FIXED_CONDITION_CODE_REGS bexkat1_fixed_condition_code_regs
+
+#undef TARGET_ATTRIBUTE_TABLE
+#define TARGET_ATTRIBUTE_TABLE          bexkat1_attribute_table
 
 /* Define this to return an RTX representing the place where a
    function returns or receives a value of data type RET_TYPE, a tree

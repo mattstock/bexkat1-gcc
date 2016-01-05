@@ -23,3 +23,4 @@ extern int   bexkat1_initial_elimination_offset (int, int);
 extern void  bexkat1_print_operand (FILE *, rtx, int);
 extern void  bexkat1_print_operand_address (FILE *, rtx);
 extern bool  bexkat1_offset_address_p (rtx);
+extern enum bexkat1_function_kind bexkat1_get_function_kind(tree);

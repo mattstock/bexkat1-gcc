@@ -102,10 +102,6 @@
    %fp - general purpose 32-bit register.
    %sp - general purpose 32-bit register.
 
-   there are another 16 special registers that are referenced
-   implictly based on the opcode context - there can be used
-   as floating point, high word results for multiply ops, etc.
-
    ?ap - arg pointer
    %pc - program counter
    ?cc - condition code register
@@ -175,6 +171,13 @@ enum reg_class
 #define CALL_USED_REGISTERS { 0, 0, 0, 0, 0, 0, 0, 0, \
                               0, 0, 0, 0, 1, 1, 1, 1, \
                               1, 1, 1}
+
+enum bexkat1_function_kind
+  {
+    bexkat1_fk_normal_function,
+    bexkat1_fk_interrupt_handler,
+    bexkat1_fk_exception_handler
+  };
 
 /* We can't copy to or from our CC register. */
 #define AVOID_CCMODE_COPIES 1
