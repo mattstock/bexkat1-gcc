@@ -327,7 +327,7 @@ bexkat1_option_override (void)
  * prologue and epilogue.  */
 
 static void
-bexkat1_compute_frame (void)
+bexkat1_compute_frame (bool interrupt_handler)
 {
   /* For aligning the local variables.  */
   int stack_alignment = STACK_BOUNDARY / BITS_PER_UNIT;
@@ -350,7 +350,9 @@ bexkat1_compute_frame (void)
   for (regno = 0; regno < FIRST_PSEUDO_REGISTER; regno++)
     if (df_regs_ever_live_p (regno) && (! call_used_regs[regno]))
       cfun->machine->callee_saved_reg_size += 4;
-
+  if (interrupt_handler)
+    cfun->machine->callee_saved_reg_size += 8; /* %12, %13 */
+  
   cfun->machine->size_for_adjusting_sp = 
     crtl->args.pretend_args_size
     + cfun->machine->local_vars_size 
@@ -362,8 +364,11 @@ bexkat1_expand_prologue (void)
 {
   int regno;
   rtx insn;
-
-  bexkat1_compute_frame ();
+  enum bexkat1_function_kind func_kind =
+    bexkat1_get_function_kind(current_function_decl);
+  bool interrupt_handler = (func_kind == bexkat1_fk_interrupt_handler);
+  
+  bexkat1_compute_frame (interrupt_handler);
 
   /* Save callee-saved registers.  */
   for (regno = 0; regno < FIRST_PSEUDO_REGISTER; regno++)
@@ -375,6 +380,12 @@ bexkat1_expand_prologue (void)
 	}
     }
 
+  /* Save return registers if this is an interrupt or exception handler */
+  if (interrupt_handler) {
+    insn = emit_insn (gen_movsi_push (gen_rtx_REG (Pmode, 12)));
+    insn = emit_insn (gen_movsi_push (gen_rtx_REG (Pmode, 13)));
+  }
+  
   insn = emit_insn (gen_movsi_push (gen_rtx_REG (Pmode, FRAME_POINTER_REGNUM)));
   RTX_FRAME_RELATED_P (insn) = 1;
   emit_move_insn (frame_pointer_rtx, stack_pointer_rtx);
@@ -394,6 +405,9 @@ void
 bexkat1_expand_epilogue (void)
 {
   int regno;
+  enum bexkat1_function_kind func_kind =
+    bexkat1_get_function_kind(current_function_decl);
+  bool interrupt_handler = (func_kind == bexkat1_fk_interrupt_handler);
 
   if (cfun->machine->size_for_adjusting_sp > 0)
     {
@@ -404,6 +418,11 @@ bexkat1_expand_epilogue (void)
     }
   emit_insn (gen_movsi_pop (gen_rtx_REG (Pmode, FRAME_POINTER_REGNUM)));
 
+  
+  if (interrupt_handler) {
+    emit_insn (gen_movsi_pop (gen_rtx_REG (Pmode, 13)));
+    emit_insn (gen_movsi_pop (gen_rtx_REG (Pmode, 12)));
+  }
   for (regno = FIRST_PSEUDO_REGISTER; regno-- > 0; )
 	if (!fixed_regs[regno] && !call_used_regs[regno]
 	    && df_regs_ever_live_p (regno))
@@ -421,8 +440,11 @@ int
 bexkat1_initial_elimination_offset (int from, int to)
 {
   int ret;
+  enum bexkat1_function_kind func_kind =
+    bexkat1_get_function_kind(current_function_decl);
+  bool interrupt_handler = (func_kind == bexkat1_fk_interrupt_handler);
 
-  bexkat1_compute_frame ();
+  bexkat1_compute_frame (interrupt_handler);
   
   if ((from) == FRAME_POINTER_REGNUM && (to) == STACK_POINTER_REGNUM)
     {
@@ -432,7 +454,6 @@ bexkat1_initial_elimination_offset (int from, int to)
   else if ((from) == ARG_POINTER_REGNUM && (to) == STACK_POINTER_REGNUM)
     {
       /* Compute this since we need to use cfun->machine->local_vars_size.  */
-      bexkat1_compute_frame ();
       ret = -cfun->machine->callee_saved_reg_size -
 	cfun->machine->size_for_adjusting_sp;
     }
@@ -488,9 +509,10 @@ bexkat1_fixed_condition_code_regs (unsigned int *p1, unsigned int *p2)
 /* We only pass args on the stack */
 
 static rtx
-bexkat1_function_arg (cumulative_args_t cum_v, machine_mode mode,
-		    const_tree type ATTRIBUTE_UNUSED,
-		    bool named ATTRIBUTE_UNUSED)
+bexkat1_function_arg (cumulative_args_t cum_v ATTRIBUTE_UNUSED,
+		      machine_mode mode ATTRIBUTE_UNUSED,
+		      const_tree type ATTRIBUTE_UNUSED,
+		      bool named ATTRIBUTE_UNUSED)
 {
   return NULL_RTX;
 }
