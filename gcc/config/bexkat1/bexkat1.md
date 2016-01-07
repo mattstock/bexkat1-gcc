@@ -444,20 +444,21 @@
 }")
 
 (define_insn "*movhi"
-  [(set (match_operand:HI 0 "nonimmediate_operand" "=r,r,r,B,r,W,r,A")
-	(match_operand:HI 1 "general_operand" "r,i,B,r,W,r,A,r"))]
+  [(set (match_operand:HI 0 "nonimmediate_operand" "=r,r,r,r,B,r,W,r,A")
+	(match_operand:HI 1 "general_operand" "r,I,i,B,r,W,r,A,r"))]
   "register_operand (operands[0], HImode)
    || register_operand (operands[1], HImode)"
   "@
    mov\\t%0, %1
    ldiu\\t%0, %1
+   ldi\\t%0, %1
    ld\\t%0, %1
    st\\t%1, %0
    ld\\t%0, %1
    st\\t%1, %0
    ldd\\t%0, %1
    std\\t%1, %0"
-  [(set_attr "length"	"4,4,4,4,4,4,8,8")])
+  [(set_attr "length"	"4,4,8,4,4,4,4,8,8")])
 
 ;; -------------------------------------------------------------------------
 ;; Compare instructions
