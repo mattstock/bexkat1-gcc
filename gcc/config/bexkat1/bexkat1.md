@@ -525,11 +525,11 @@
 ;; Branch instructions
 ;; -------------------------------------------------------------------------
 
-(define_code_iterator cond [ne eq lt ltu gt gtu ge le geu leu])
-(define_code_attr CC [(ne "ne") (eq "eq") (lt "lt") (ltu "ltu") 
+(define_code_iterator cond [ordered unordered unlt unle unge ungt ne eq lt ltu gt gtu ge le geu leu])
+(define_code_attr CC [(ordered "ord") (unordered "unord") (unlt "unlt") (unle "unle") (unge "unge") (ungt "ungt") (ne "ne") (eq "eq") (lt "lt") (ltu "ltu") 
 		      (gt "gt") (gtu "gtu") (ge "ge") (le "le") 
 		      (geu "geu") (leu "leu") ])
-(define_code_attr rCC [(ne "eq") (eq "ne") (lt "ge") (ltu "geu") 
+(define_code_attr rCC [(ordered "unord") (unordered "ord") (unlt "unge") (unle "ungt") (unge "unlt") (ungt "unle") (ne "eq") (eq "ne") (lt "ge") (ltu "geu") 
 		       (gt "le") (gtu "leu") (ge "lt") (le "gt") 
 		       (geu "ltu") (leu "gtu") ])
 
