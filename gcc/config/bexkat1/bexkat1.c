@@ -392,9 +392,15 @@ bexkat1_expand_prologue (void)
 
   if (cfun->machine->size_for_adjusting_sp > 0) {
     int i = cfun->machine->size_for_adjusting_sp;
+    while (i > 16382) {
+      emit_insn(gen_subsi3(stack_pointer_rtx,
+			   stack_pointer_rtx,
+			   GEN_INT(16382)));
+      i -= 16382;
+    }
     emit_insn(gen_subsi3(stack_pointer_rtx,
-				stack_pointer_rtx,
-				GEN_INT(i)));
+			 stack_pointer_rtx,
+			 GEN_INT(i)));
   }
 
   if (flag_stack_usage_info)
@@ -412,6 +418,12 @@ bexkat1_expand_epilogue (void)
   if (cfun->machine->size_for_adjusting_sp > 0)
     {
       int i = cfun->machine->size_for_adjusting_sp;
+      while (i > 16382) {
+	emit_insn(gen_addsi3(stack_pointer_rtx,
+			     stack_pointer_rtx,
+			     GEN_INT(16382)));
+	i -= 16382;
+      }
       emit_insn(gen_addsi3(stack_pointer_rtx,
   				stack_pointer_rtx,
 				GEN_INT(i)));
