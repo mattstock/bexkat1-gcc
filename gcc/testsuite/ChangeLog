@@ -1,3 +1,1225 @@
+2017-07-03  Thomas Preud'homme  <thomas.preudhomme@arm.com>
+
+	* gcc.target/arm/fpscr.c: Require arm_vfp_ok instead of arm_fp_ok and
+	add -mfpu=vfp -mfloat-abi=softfp instead of fp_ok options.
+
+2017-07-03  Tom de Vries  <tom@codesourcery.com>
+
+	backport from mainline:
+	PR tree-optimization/81192
+	2017-07-03  Tom de Vries  <tom@codesourcery.com>
+
+	* gcc.dg/pr81192.c: New test.
+
+2017-06-27  Segher Boessenkool  <segher@kernel.crashing.org>
+
+	Revert:
+	Backport from trunk:
+
+	2017-06-09  Segher Boessenkool  <segher@kernel.crashing.org>
+	PR target/80966
+	* gcc.target/powerpc/stack-limit.c: New testcase.
+
+2017-06-27  Segher Boessenkool  <segher@kernel.crashing.org>
+
+	Backports from trunk:
+
+	2017-05-17  Segher Boessenkool  <segher@kernel.crashing.org>
+	PR middle-end/80692
+	* gcc.c-torture/execute/pr80692.c: New testcase.
+
+	2017-06-09  Segher Boessenkool  <segher@kernel.crashing.org>
+	PR target/80966
+	* gcc.target/powerpc/stack-limit.c: New testcase.
+
+2017-06-23  Thomas Preud'homme  <thomas.preudhomme@arm.com>
+
+	Backport from mainline
+	2017-05-04  Prakhar Bahuguna  <prakhar.bahuguna@arm.com>
+
+	* gcc.target/arm/fpscr.c: New file.
+
+2017-06-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-05-26  Martin Liska  <mliska@suse.cz>
+
+	PR ipa/80663
+	* g++.dg/ipa/pr80212.C: Remove the test as it does not longer
+	split at the problematic spot.
+	* gcc.dg/ipa/pr48195.c: Change 101 to 100 as 101 is no longer
+	a valid value of the param.
+
+2017-06-09  Janus Weil  <janus@gcc.gnu.org>
+
+	Backport from trunk
+	PR fortran/70601
+	* gfortran.dg/proc_ptr_comp_50.f90: New test.
+
+2017-06-08  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/81006
+	* c-c++-common/gomp/pr81006.c: New test.
+
+2017-06-06  David S. Miller  <davem@davemloft.net>
+
+	* gcc.target/sparc/sparc-ret-3.c: New test.
+
+2017-05-30  Jakub Jelinek  <jakub@redhat.com>
+
+	Backported from mainline
+	2017-04-11  Jakub Jelinek  <jakub@redhat.com>
+
+	PR rtl-optimization/80385
+	* g++.dg/opt/pr80385.C: New test.
+
+	PR c++/80363
+	* g++.dg/ext/pr80363.C: New test.
+
+	2017-04-10  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/80176
+	* g++.dg/init/ref23.C: New test.
+
+	2017-04-04  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/80286
+	* gcc.target/i386/avx-pr80286.c: New test.
+	* gcc.dg/pr80286.c: New test.
+
+	2017-03-31  Jakub Jelinek  <jakub@redhat.com>
+
+	PR debug/80025
+	* gcc.dg/torture/pr80025.c: New test.
+
+	2017-03-27  Jakub Jelinek  <jakub@redhat.com>
+
+	PR sanitizer/80168
+	* gcc.dg/asan/pr80168.c: New test.
+
+	2017-03-24  Jakub Jelinek  <jakub@redhat.com>
+
+	PR rtl-optimization/80112
+	* gcc.dg/pr80112.c: New test.
+
+	2017-03-22  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/80141
+	* g++.dg/gomp/pr80141.C: New test.
+
+	PR c++/80129
+	* g++.dg/torture/pr80129.C: New test.
+
+	2017-03-21  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/80097
+	* gcc.dg/ubsan/pr80097.c: New test.
+
+	2017-03-10  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/79896
+	* g++.dg/ext/int128-5.C: New test.
+
+	2017-03-09  Jakub Jelinek  <jakub@redhat.com>
+
+	PR sanitizer/79944
+	* c-c++-common/asan/pr79944.c: New test.
+
+	PR target/79932
+	* gcc.target/i386/pr79932-2.c: New test.
+
+	PR target/79932
+	* gcc.target/i386/pr79932-1.c: New test.
+
+	2017-03-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR rtl-optimization/79901
+	* gcc.target/i386/pr79901.c: New test.
+
+	2017-03-03  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/79807
+	* gcc.target/i386/pr79807.c: New test.
+
+	2017-02-28  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/79729
+	* gcc.target/i386/pr79729.c: New test.
+
+	2017-02-25  Jakub Jelinek  <jakub@redhat.com>
+
+	PR middle-end/79396
+	* g++.dg/opt/pr79396.C: New test.
+
+	2017-02-22  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/79664
+	* g++.dg/gomp/pr79664.C: New test.
+
+	2017-02-21  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/79570
+	* gcc.dg/pr79570.c: New test.
+
+	PR c++/79641
+	* c-c++-common/pr79641.c: New test.
+
+	PR target/79494
+	* gcc.dg/pr79494.c: New test.
+
+	2017-02-20  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/79568
+	* gcc.target/i386/pr79568-1.c: New test.
+	* gcc.target/i386/pr79568-2.c: New test.
+	* gcc.target/i386/pr79568-3.c: New test.
+
+	2017-02-18  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/79559
+	* gcc.target/i386/pr79559.c: New test.
+
+	2017-02-16  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/79512
+	* c-c++-common/gomp/pr79512.c: New test.
+
+	2017-02-10  Jakub Jelinek  <jakub@redhat.com>
+
+	PR tree-optimization/79411
+	* gcc.c-torture/compile/pr79411.c: New test.
+
+	2017-02-02  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/79197
+	* gcc.target/powerpc/pr79197.c: New test.
+	* gcc.c-torture/compile/pr79197.c: New test.
+
+	2017-01-11  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/78341
+	* g++.dg/cpp0x/pr78341.C: New test.
+
+	PR middle-end/50199
+	* gcc.dg/lto/pr50199_0.c: New test.
+
+	2017-01-04  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/78949
+	* c-c++-common/Wunused-var-16.c: New test.
+
+	2016-12-21  Jakub Jelinek  <jakub@redhat.com>
+
+	PR fortran/78866
+	* gfortran.dg/gomp/map-1.f90: Add expected error.
+	* gfortran.dg/gomp/pr78866-1.f90: New test.
+	* gfortran.dg/gomp/pr78866-2.f90: New test.
+
+	PR c/77767
+	* gcc.c-torture/execute/pr77767.c: New test.
+
+	2016-12-13  Jakub Jelinek  <jakub@redhat.com>
+
+	PR ipa/77905
+	* g++.dg/ipa/pr77905.C: New test.
+
+	2016-12-14  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/78796
+	* gcc.dg/tls/pr78796.c: New test.
+
+	2016-12-02  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/78649
+	* g++.dg/cpp0x/pr78649.C: New test.
+
+	2016-11-28  Jakub Jelinek  <jakub@redhat.com>
+
+	PR fortran/78298
+	* gfortran.dg/gomp/pr78298.f90: New test.
+
+	2016-11-23  Jakub Jelinek  <jakub@redhat.com>
+
+	PR middle-end/69183
+	* gfortran.dg/gomp/pr69183.f90: New test.
+
+	PR c++/77739
+	* g++.dg/cpp1y/pr77739.C: New test.
+
+	2016-11-22  Jakub Jelinek  <jakub@redhat.com>
+
+	PR middle-end/78416
+	* gcc.dg/torture/pr78416.c: New test.
+
+	2016-11-21  Jakub Jelinek  <jakub@redhat.com>
+
+	PR middle-end/67335
+	* g++.dg/vect/simd-clone-7.cc: New test.
+
+	2016-11-18  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/77285
+	* g++.dg/tls/pr77285-1.C: New test.
+	* g++.dg/tls/pr77285-2.C: New test.
+
+	2016-11-16  Jakub Jelinek  <jakub@redhat.com>
+
+	PR rtl-optimization/78378
+	* gcc.c-torture/execute/pr78378.c: New test.
+
+	2016-11-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/78227
+	* gcc.target/i386/pr78227-1.c: New test.
+	* gcc.target/i386/pr78227-2.c: New test.
+
+	2016-10-31  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/78089
+	* c-c++-common/builtin-shuffle-1.c: New test.
+
+	2016-10-29  Jakub Jelinek  <jakub@redhat.com>
+
+	PR rtl-optimization/77919
+	* g++.dg/torture/pr77919-2.C: New test.
+
+	2016-10-28  Jakub Jelinek  <jakub@redhat.com>
+
+	PR rtl-optimization/77919
+	* g++.dg/torture/pr77919.C: New test.
+
+	2016-10-05  Jakub Jelinek  <jakub@redhat.com>
+
+	PR sanitizer/66343
+	* gcc.dg/pch/pr66343-1.c: New test.
+	* gcc.dg/pch/pr66343-1.hs: New file.
+	* gcc.dg/pch/pr66343-2.c: New test.
+	* gcc.dg/pch/pr66343-2.hs: New file.
+
+	2016-09-28  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/77467
+	* g++.dg/cpp1y/constexpr-77467.C: New test.
+
+	2016-09-27  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/77722
+	* g++.dg/ubsan/return-4.C: New test.
+	* g++.dg/ubsan/return-5.C: New test.
+	* g++.dg/ubsan/return-6.C: New test.
+
+	PR fortran/77666
+	* gfortran.dg/gomp/pr77666.f90: New test.
+
+	2016-09-22  Jakub Jelinek  <jakub@redhat.com>
+
+	PR fortran/77665
+	* gfortran.dg/gomp/pr77665.f90: New test.
+
+	2016-09-20  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/77637
+	* g++.dg/cpp0x/gen-attrs-62.C: New test.
+
+	PR middle-end/77624
+	* c-c++-common/pr77624-1.c: New test.
+	* c-c++-common/pr77624-2.c: New test.
+
+	2016-09-19  Jakub Jelinek  <jakub@redhat.com>
+		    Jan Hubicka  <jh@suse.cz>
+
+	PR target/77587
+	* gcc.dg/pr77587.c: New test.
+	* gcc.dg/pr77587a.c: New file.
+
+	2016-09-16  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/77375
+	* g++.dg/cpp0x/mutable1.C: New test.
+
+	2016-09-16  Jakub Jelinek  <jakub@redhat.com>
+		    Eric Botcazou  <ebotcazou@adacore.com>
+
+	PR middle-end/77594
+	* gcc.target/i386/pr77594.c: New test.
+
+	2016-09-14  Jakub Jelinek  <jakub@redhat.com>
+
+	PR sanitizer/68260
+	* c-c++-common/tsan/pr68260.c: New test.
+
+	2016-09-08  Jakub Jelinek  <jakub@redhat.com>
+
+	PR fortran/77500
+	* gfortran.dg/gomp/pr77500.f90: New test.
+
+	PR fortran/77516
+	* gfortran.dg/gomp/pr77516.f90: New test.
+
+	2016-09-05  Jakub Jelinek  <jakub@redhat.com>
+
+	PR sanitizer/77396
+	* g++.dg/asan/pr77396-2.C: New test.
+
+	2016-09-02  Jakub Jelinek  <jakub@redhat.com>
+
+	PR sanitizer/77396
+	* g++.dg/asan/pr77396.C: New test.
+
+	2016-08-30  Jakub Jelinek  <jakub@redhat.com>
+
+	PR debug/77363
+	* g++.dg/debug/dwarf2/pr77363.C: New test.
+
+	PR middle-end/77377
+	* gcc.target/i386/pr77377.c: New test.
+
+	2016-08-16  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/71910
+	* g++.dg/gomp/pr71910.C: New test.
+
+	2016-08-15  Jakub Jelinek  <jakub@redhat.com>
+
+	PR tree-optimization/72824
+	* gcc.c-torture/execute/ieee/pr72824-2.c: New test.
+
+	2016-08-12  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/67410
+	* gcc.dg/pr67410.c: New test.
+
+	2016-08-11  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/72868
+	* g++.dg/cpp1y/constexpr-switch4.C: New test.
+
+	PR c/72816
+	* gcc.dg/pr72816.c: Remove dg-error.
+
+	2016-08-09  Jakub Jelinek  <jakub@redhat.com>
+
+	PR tree-optimization/72824
+	* gcc.c-torture/execute/ieee/pr72824.c: New test.
+
+	2016-08-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/72816
+	* gcc.dg/pr72816.c: New test.
+
+2017-05-29  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-04-24  Martin Liska  <mliska@suse.cz>
+
+	PR middle-end/79931
+	* g++.dg/ipa/pr79931.C: New test.
+
+2017-05-29  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-04-11  Martin Liska  <mliska@suse.cz>
+
+	PR ipa/80212
+	* g++.dg/ipa/pr80212.C: New test.
+
+2017-05-29  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-04-11  Martin Liska  <mliska@suse.cz>
+
+	PR sanitizer/70878
+	* gcc.dg/ubsan/pr70878.c: New test.
+
+2017-05-29  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-04-06  Martin Liska  <mliska@suse.cz>
+
+	PR sanitizer/80166
+	* gcc.dg/asan/pr80166.c: New test.
+
+2017-05-29  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-03-28  Martin Liska  <mliska@suse.cz>
+
+	PR ipa/80205
+	* g++.dg/ipa/pr80205.C: New test.
+
+2017-05-29  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-03-28  Martin Liska  <mliska@suse.cz>
+
+	PR ipa/80104
+	* gcc.dg/ipa/pr80104.c: New test.
+
+2017-05-19  Uros Bizjak  <ubizjak@gmail.com>
+
+	Backport from mainline
+	2017-05-18  Uros Bizjak  <ubizjak@gmail.com>
+
+	PR target/80799
+	* g++.dg/other/i386-11.C: New test.
+
+2017-05-15  Richard Biener  <rguenther@suse.de>
+
+	Revert backport of
+	PR middle-end/80222
+	* g++.dg/pr80222.C: New testcase.
+
+2017-05-10  Richard Biener  <rguenther@suse.de>
+
+	Backport from mainline
+	2017-03-02  Richard Biener  <rguenther@suse.de>
+
+	PR c/79756
+	* gcc.dg/vector-1.c: New testcase.
+
+	2017-02-28  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/79732
+	* gcc.dg/torture/pr79732.c: New testcase.
+
+	2017-02-22  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/79666
+	* gcc.dg/torture/pr79666.c: New testcase.
+
+2017-05-10  Richard Biener  <rguenther@suse.de>
+
+	Backport from mainline
+	2017-03-21  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/80122
+	* gcc.dg/torture/pr80122.c: New testcase.
+
+	2017-03-28  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/80222
+	* g++.dg/pr80222.C: New testcase.
+
+	2017-04-06  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/80334
+	* g++.dg/torture/pr80334.C: New testcase.
+
+	2017-04-27  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/80539
+	* gcc.dg/torture/pr80539.c: New testcase.
+
+2016-05-08  Bill Schmidt  <wschmidt@linux.vnet.ibm.com>
+
+	Backport from mainline
+	PR target/69868 + swap optimization backports
+	* gcc.target/powerpc/swaps-p8-20.c: New.
+	* gcc.target/powerpc/swaps-p8-23.c: New.
+	* gcc.target/powerpc/swaps-p8-24.c: New.
+
+2017-05-01  Janus Weil  <janus@gcc.gnu.org>
+
+	Backport from trunk
+	PR fortran/80392
+	* gfortran.dg/proc_ptr_comp_49.f90: New test case.
+
+2017-04-21  Janus Weil  <janus@gcc.gnu.org>
+
+	Backport from trunk
+	PR fortran/80361
+	* gfortran.dg/class_62.f90: New test case.
+
+2017-04-21  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	Backport from mainline
+	2015-11-23  Kugan Vivekanandarajah  <kuganv@linaro.org>
+
+	PR target/68390
+	* gcc.c-torture/execute/pr68390.c: New test.
+
+2017-04-14  Dominique d'Humieres  <dominiq@lps.ens.fr>
+
+	Backport from trunk
+	2015-11-18  Steven G. Kargl  <kargl@gcc.gnu.org>
+
+	PR fortran/59910
+	PR fortran/80388
+	* gfortran.dg/pr59910.f90: New test.
+
+2017-04-11  Thomas Preud'homme  <thomas.preudhomme@arm.com>
+
+	Backport from GCC 6
+	2017-04-06  Thomas Preud'homme  <thomas.preudhomme@arm.com>
+
+	PR target/80082
+	* gcc.target/arm/atomic_loaddi_10.c: New testcase.
+	* gcc.target/arm/atomic_loaddi_11.c: Likewise.
+
+2017-04-11  Martin Jambor  <mjambor@suse.cz>
+
+	Backport from mainline
+	2017-03-30  Martin Jambor  <mjambor@suse.cz>
+
+	PR ipa/77333
+	* g++.dg/ipa/pr77333.C: New test.
+
+2017-04-11  Bin Cheng  <bin.cheng@arm.com>
+
+	PR tree-optimization/80345
+	* gcc.c-torture/compile/pr80345.c
+
+	Backport from mainline
+	2016-02-10  Bin Cheng  <bin.cheng@arm.com>
+
+	PR tree-optimization/68021
+	* gcc.dg/tree-ssa/pr68021.c: New test.
+
+2017-04-07  Uros Bizjak  <ubizjak@gmail.com>
+
+	Backport from mainline
+	2017-04-06  Uros Bizjak  <ubizjak@gmail.com>
+
+	PR target/79733
+	* gcc.target/i386/pr79733.c: New test.
+
+2017-04-03  Peter Bergner  <bergner@vnet.ibm.com>
+
+	Backport from mainline
+	2017-04-03  Peter Bergner  <bergner@vnet.ibm.com>
+
+	PR target/80246
+	* gcc.target/powerpc/dfp-builtin-1.c: Require hard_dfp, not
+	powerpc_vsx_ok.
+	(std, ld): Limit scan-assembler-times check to lp64.
+	(stwu, stw, lwz): Add scan-assembler-times check for ilp32.
+	* gcc.target/powerpc/dfp-builtin-2.c: Require hard_dfp, not
+	powerpc_vsx_ok.
+
+	PR target/80246
+	* gcc.target/powerpc/pr80246.c: Require hard_dfp.
+
+2017-03-30  Peter Bergner  <bergner@vnet.ibm.com>
+
+	Backport from mainline
+	2017-03-30  Peter Bergner  <bergner@vnet.ibm.com>
+
+	PR target/80246
+	* gcc.target/powerpc/dfp-builtin-1.c: Remove unneeded dg-skip-if for
+	Darwin and SPE.
+	(dxex, dxexq): Update return type.
+	(diex, diexq): Update argument type.
+	* gcc.target/powerpc/pr80246.c: New test.
+
+>>>>>>> .r248557
+2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-02-22  Martin Liska  <mliska@suse.cz>
+
+	PR lto/79587
+	* gcc.dg/tree-prof/pr79587.c: New test.
+
+2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	PR target/79906
+	* g++.dg/ext/mv8.C: Add power* targets.
+
+2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-03-21  Martin Liska  <mliska@suse.cz>
+
+	* gcc.target/i386/pr65044.c: Add '.' in order to catch
+	apostrophes.
+
+2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-03-20  Martin Liska  <mliska@suse.cz>
+
+	PR middle-end/79753
+	* gcc.target/i386/mpx/pr79753.c: New test.
+
+2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-03-20  Martin Liska  <mliska@suse.cz>
+
+	PR target/79769
+	PR target/79770
+	* g++.dg/pr79769.C: New test.
+	* gcc.target/i386/mpx/pr79770.c: New test.
+
+2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-03-13  Martin Liska  <mliska@suse.cz>
+
+	PR middle-end/78339
+	* gcc.target/i386/mpx/pr78339.c: New test.
+
+2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2016-06-13  Martin Liska  <mliska@suse.cz>
+
+	PR sanitizer/71458
+	* gcc.target/i386/pr71458.c: New test.
+
+2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-03-09  Martin Liska  <mliska@suse.cz>
+
+	PR tree-optimization/79631
+	* gcc.target/i386/mpx/pr79631.c: New test.
+
+2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-03-09  Martin Liska  <mliska@suse.cz>
+
+	PR ipa/79761
+	* g++.dg/pr79761.C: New test.
+
+2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-03-03  Martin Liska  <mliska@suse.cz>
+
+	PR tree-optimization/79803
+	* gcc.dg/tree-ssa/pr79803.c: New test.
+
+2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-03-03  Martin Liska  <mliska@suse.cz>
+
+	PR rtl-optimization/79574
+	* gcc.dg/pr79574-2.c: New test.
+
+2017-03-22  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-02-17  Martin Liska  <mliska@suse.cz>
+
+	PR rtl-optimization/79574
+	* gcc.dg/pr79574.c: New test.
+
+2017-03-21  Martin Sebor  <msebor@redhat.com>
+
+	PR c++/79548
+	* g++.dg/warn/Wunused-var-26.C: New test.
+
+2017-03-21  Pat Haugen  <pthaugen@us.ibm.com>
+
+	Backport from mainline:
+	2017-03-17  Pat Haugen  <pthaugen@us.ibm.com>
+
+	* gcc.target/powerpc/pr79951.c: New.
+
+2017-03-15  Uros Bizjak  <ubizjak@gmail.com>
+
+	PR target/80019
+	* gcc.target/i386/pr80019.c: New test.
+
+2017-03-10  Michael Meissner  <meissner@linux.vnet.ibm.com>
+
+	Back port from trunk
+	2017-03-01  Michael Meissner  <meissner@linux.vnet.ibm.com>
+
+	PR target/79439
+	* gcc.target/powerpc/pr79439.c: New test.
+
+2017-03-02  Uros Bizjak  <ubizjak@gmail.com>
+
+	PR target/79514
+	* gcc.target/i386/pr79514.c: New test.
+
+2017-03-01  Pat Haugen  <pthaugen@us.ibm.com>
+
+	Backport from mainline:
+	2017-03-01  Pat Haugen  <pthaugen@us.ibm.com>
+
+	* gcc.target/powerpc/pr79544.c: Add test for vec_vsrad and fix up
+	scan string.
+
+	2017-02-27  Pat Haugen  <pthaugen@us.ibm.com>
+
+	PR target/79544
+	* gcc.target/powerpc/pr79544.c: New.
+
+2017-02-28  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc.target/sparc/20170228-1.c: New test.
+
+2017-02-24  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gnat.dg/opt63.adb: New test.
+
+2017-02-22  Bill Schmidt  <wschmidt@linux.vnet.ibm.com>
+
+	Backport from mainline
+	2017-02-17  Bill Schmidt  <wschmidt@linux.vnet.ibm.com>
+
+	PR target/79261
+	* gcc.target/powerpc/vec-xxpermdi.c: New file.
+
+2017-01-16  Carl Love  <cel@us.ibm.com>
+
+	Backport from mainline commit r245460 on 2017-02-14
+
+	PR 79545
+	* gcc.target/powerpc/vsx-builtin-3.c: Add missing test case for the
+	xvcvsxdsp and xvcvuxdsp instructions.
+
+2017-02-06  Carl Love  <cel@us.ibm.com>
+
+	* gcc.target/powerpc/builtins-3-p8.c:  Add new testfile for missing
+	vec_packs built-in tests.
+
+2017-02-03  Bill Schmidt  <wschmidt@linux.vnet.ibm.com>
+
+	Backport from mainline
+	2017-01-27  Bill Schmidt  <wschmidt@linux.vnet.ibm.com>
+
+	PR target/65484
+	* g++.dg/vect/pr36648.cc: Modify to reflect that the loop is not
+	vectorized on POWER unless hardware misaligned loads are
+	available.
+
+2017-01-26  Richard Biener  <rguenther@suse.de>
+
+	Backport from mainline
+	2016-01-10  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/79034
+	* g++.dg/torture/pr79034.C: New testcase.
+
+	2016-11-07  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/78224
+	* g++.dg/torture/pr78224.C: New testcase.
+
+2017-01-26  Richard Biener  <rguenther@suse.de>
+
+	Backport from mainline
+	2016-09-27  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/77745
+	* g++.dg/torture/pr77745.C: New testcase.
+
+	2016-09-29  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/77768
+	* gcc.dg/torture/pr77768.c: New testcase.
+
+2017-01-24  Wilco Dijkstra  <wdijkstr@arm.com>
+
+	Backport from mainline
+	PR target/78041
+	* gcc.target/arm/pr78041.c: New test.
+
+2017-01-24  Richard Biener  <rguenther@suse.de>
+
+	Backport from mainline
+	2016-09-20  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/77646
+	* gcc.dg/torture/pr77646.c: New testcase.
+
+	2016-11-05  David Edelsohn  <dje.gcc@gmail.com>
+		Richard Biener  <rguenther@suse.de>
+
+	PR bootstrap/78188
+	PR c++/71848
+	* g++.dg/ipa/pr78188.C: New test.	
+
+	2016-09-21  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/77648
+	* gcc.dg/torture/pr77648-1.c: New testcase.
+	* gcc.dg/torture/pr77648-2.c: Likewise.
+
+2017-01-24  Richard Biener  <rguenther@suse.de>
+
+	Backport from mainline
+	2016-10-06  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/77855
+	* gcc.dg/torture/pr77855.c: New testcase.
+
+	2016-09-01  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/77436
+	* gcc.dg/torture/pr77436.c: New testcase.
+
+	2016-09-06  Richard Biener  <rguenther@suse.de>
+
+	PR c/77450
+	* gcc.dg/pr77450.c: New testcase.
+
+	2016-09-19  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/77605
+	* gcc.dg/torture/pr77605.c: New testcase.
+
+	2016-11-02  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/78185
+	* gcc.dg/pr78185.c: New testcase.
+
+	2016-11-16  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/78333
+	* gcc.dg/pr78333.c: New testcase.
+
+2017-01-23  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2016-01-23  Kyrylo Tkachov  <kyrylo.tkachov@arm.com>
+
+	* gcc.dg/lto/pr69188_0.c: Require profiling support for testcase.
+
+2017-01-23  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-01-20  Martin Liska  <mliska@suse.cz>
+
+	PR lto/69188
+	* gcc.dg/lto/pr69188_0.c: New test.
+	* gcc.dg/lto/pr69188_1.c: New test.
+
+2017-01-20  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-01-13  Martin Liska  <mliska@suse.cz>
+
+	PR ipa/79043
+	* gcc.c-torture/execute/pr79043.c: New test.
+
+2017-01-20  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2015-12-01  Jan Hubicka  <hubicka@ucw.cz>
+
+	* gcc.c-torture/execute/alias-1.c: New testcase.
+
+2017-01-20  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2017-01-17  Martin Liska  <mliska@suse.cz>
+
+	PR ipa/71207
+	* g++.dg/ipa/pr71207.C: New test.
+
+2017-01-17 Thomas Preud'homme <thomas.preudhomme@arm.com>
+
+	Backport from mainline
+	2016-12-07 Thomas Preud'homme <thomas.preudhomme@arm.com>
+
+	PR rtl-optimization/78617
+	* gcc.c-torture/execute/pr78617.c: New test.
+
+2017-01-12  Nathan Sidwell  <nathan@acm.org>
+
+	PR c++/77812
+	* g++.dg/pr77812.C: New.
+
+2017-01-11  Andre Vieira <andre.simoesdiasvieira@arm.com>
+
+	Backport from mainline
+	2016-12-20  Andre Vieira  <andre.simoesdiasvieira@arm.com>
+
+	* gcc.target/arm/pr78255-2.c: Fix to work for targets
+	that do not optimize for tailcall.
+
+2017-01-11  Andre Vieira <andre.simoesdiasvieira@arm.com>
+
+	Backport from mainline
+	2016-12-09  Andre Vieira <andre.simoesdiasvieira@arm.com>
+
+	PR rtl-optimization/78255
+	* gcc.target/aarch64/pr78255.c: New.
+	* gcc.target/arm/pr78255-1.c: New.
+	* gcc.target/arm/pr78255-2.c: New.
+
+2017-01-03  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2016-12-22  Martin Liska  <mliska@suse.cz>
+
+	PR tree-optimization/78886
+	* gcc.dg/tree-ssa/pr78886.c: New test.
+
+2017-01-03  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2016-12-13  Martin Liska  <mliska@suse.cz>
+
+	PR tree-optimization/78428
+	* gcc.dg/tree-ssa/pr78428.c: New test.
+
+2016-12-22  Thomas Koenig  <tkoenig@gcc.gnu.org>
+
+	Backport from trunk
+	PR fortran/78239
+	* gfortran.dg/fimplicit_none_1.f90:  New test.
+	* gfortran.dg/fimplicit_none_2.f90:  New test.
+
+2016-12-14  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/78731
+	* gcc.dg/torture/pr78731.c: New testcase.
+
+2016-12-14  Thomas Preud'homme  <thomas.preudhomme@arm.com>
+
+	Backport from mainline
+	2016-11-25  Thomas Preud'homme  <thomas.preudhomme@arm.com>
+
+	PR tree-optimization/77673
+	* gcc.dg/pr77673.c: New test.
+
+2016-12-13  Thomas Preud'homme  <thomas.preudhomme@arm.com>
+
+	Backport from mainline
+	2016-11-17  Thomas Preud'homme  <thomas.preudhomme@arm.com>
+
+	PR target/77933
+	* gcc.target/arm/pr77933-1.c: New test.
+	* gcc.target/arm/pr77933-2.c: Likewise.
+
+2016-12-12  Bernd Schmidt  <bschmidt@redhat.com>
+
+	Backport from mainline
+	2016-11-07  Bernd Schmidt  <bschmidt@redhat.com>
+
+	PR rtl-optimization/77309
+	* gcc.dg/torture/pr77309.c: New test.
+
+2016-12-08  Nathan Sidwell  <nathan@acm.org>
+
+	PR c++/78551
+	* g++.dg/cpp1y/pr78551.C: New.
+
+2016-12-07  Thomas Preud'homme  <thomas.preudhomme@arm.com>
+
+	Backport from mainline
+	2016-11-16  Thomas Preud'homme  <thomas.preudhomme@arm.com>
+
+	* gcc.target/arm/empty_fiq_handler.c: New test.
+
+	Backport from mainline
+	2016-11-21  Thomas Preud'homme  <thomas.preudhomme@arm.com>
+
+	* gcc.target/arm/empty_fiq_handler.c: Skip if -mthumb is passed in and
+	target is Thumb-only.
+
+2016-12-04  Janus Weil  <janus@gcc.gnu.org>
+
+	Backport from trunk
+	PR fortran/78443
+	* gfortran.dg/typebound_proc_35.f90: New test case.
+
+2016-12-02  Kyrylo Tkachov  <kyrylo.tkachov@arm.com>
+
+	Backport from mainline
+	2016-10-21  Kyrylo Tkachov  <kyrylo.tkachov@arm.com>
+
+	PR rtl-optimization/78038
+	* gcc.target/aarch64/pr78038.c: New test.
+
+2016-12-02  Andreas Krebbel  <krebbel@linux.vnet.ibm.com>
+
+	Backport from mainline
+	2016-12-02  Andreas Krebbel  <krebbel@linux.vnet.ibm.com>
+
+	* gcc.target/s390/vector/vec-scalar-cmp-1.c: Fix and harden the
+	pattern checks.
+	* gcc.target/s390/zvector/vec-cmp-1.c: New test.
+
+2016-12-01  Steven G. Kargl  <kargl@gcc.gnu.org>
+
+	PR fortran/78279
+	* gfortran.dg/pr78279.f90: New test.
+
+2016-11-24  Steven G. Kargl  <kargl@gcc.gnu.org>
+
+	PR fortran/78500
+	* gfortran.dg/class_result_4.f90: New test.
+
+2016-11-23  Steven G. Kargl  <kargl@gcc.gnu.org>
+
+	PR fortran/78297
+	* gfortran.dg/pr78297.f90: New test.
+
+2016-11-23  Janus Weil  <janus@gcc.gnu.org>
+
+	Backport from trunk
+	PR fortran/66227
+	* gfortran.dg/extends_type_of_3.f90: Fix and extend the test case.
+
+2016-11-20  Harald Anlauf  <anlauf@gmx.de>
+
+	PR fortran/69741
+	* gfortran.dg/forall_18.f90: New testcase.
+
+2016-11-11  Uros Bizjak  <ubizjak@gmail.com>
+
+	PR target/78310
+	* gcc.target/i386/pr78310.c: New test.
+
+2016-11-09  Uros Bizjak  <ubizjak@gmail.com>
+
+	PR target/78262
+	* gcc.target/i386/pr78262.c: New test.
+
+2016-11-06  Thomas Koenig  <tkoenig@gcc.gnu.org>
+
+	Backport from trunk
+	PR fortran/69544
+	PR fortran/78178
+	* gfortran.dg/where_5.f90:  New test.
+	* gfortran.dg/where_6.f90:  New test.
+
+2016-11-05  Martin Sebor  <msebor@redhat.com>
+
+	Backport from trunk.
+	PR c/71115
+	* gcc.dg/init-excess-2.c: New test.
+	* gcc.dg/Woverride-init-1.c: Adjust.
+	* gcc.dg/Woverride-init-2.c: Same.
+
+2016-11-03  Martin Liska  <mliska@suse.cz>
+
+	Backport from mainline
+	2016-08-12  Martin Liska  <mliska@suse.cz>
+
+	* g++.dg/gcov/gcov-16.C: New test.
+	* lib/gcov.exp: Support new argument for run-gcov function.
+
+2016-11-02  Will Schmidt  <will_schmidt@vnet.ibm.com>
+
+	Backport from trunk
+	2016-10-26  Will Schmidt <will_schmidt@vnet.ibm.com>
+
+	PR middle-end/72747
+	* c-c++-common/pr72747-1.c: New test.
+	* c-c++-common/pr72747-2.c: Likewise.
+
+2016-11-02  Rainer Orth  <ro@CeBiTec.Uni-Bielefeld.DE>
+
+	* lib/target-supports.exp (check_gc_sections_available): Use
+	-print-prog-name=ld to determine linker used.
+
+2016-10-31  Thomas Koenig  <tkoenig@gcc.gnu.org>
+
+	Backport from trunk
+	PR fortran/71902
+	* gfortran.dg/dependency_47.f90:  New test.
+	* gfortran.dg/dependency_49.f90:  New test.
+
+2016-10-31  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
+
+	Backport from trunk
+	PR fortran/78123
+	* gfortran.dg/fmt_t_9.f: New test.
+
+2016-10-24  Thomas Koenig  <tkoenig@gcc.gnu.org>
+
+	Backport from trunk
+	PR fortran/78021
+	* gfortran.dg/string_length_3.f90:  New test.
+
+2016-10-24  Steven G. Kargl  <kargl@gcc.gnu.org>
+
+	PR fortran/71895
+	* gfortran.dg/pr71895.f90: New test.
+
+2016-10-24  Paul Thomas  <pault@gcc.gnu.org>
+
+	Backport from trunk
+	PR fortran/61420
+	PR fortran/78013
+	* gfortran.dg/proc_ptr_49.f90: New test.
+
+2016-10-23  Bill Schmidt  <wschmidt@linux.vnet.ibm.com>
+
+	Backport from mainline
+	2016-10-17  Bill Schmidt  <wschmidt@linux.vnet.ibm.com>
+
+	PR tree-optimization/77916
+	* gcc.dg/torture/pr77916.c: New.
+
+2016-10-19  Uros Bizjak  <ubizjak@gmail.com>
+
+	PR target/77991
+	* gcc.target/i386/pr77991.c: New test.
+
+2016-10-17  Steven G. Kargl  <kargl@gcc.gnu.org>
+
+	Backport from trunk
+	PR fortran/77978
+	* gfortran.dg/pr77978_1.f90: New test.
+	* gfortran.dg/pr77978_2.f90: Ditto.
+	* gfortran.dg/pr77978_3.f90: Ditto.
+
+2016-10-17  Bill Schmidt  <wschmidt@linux.vnet.ibm.com>
+
+	Backport from mainline
+	2016-10-13  Bill Schmidt  <wschmidt@linux.vnet.ibm.com>
+
+	PR tree-optimization/77937
+	* gcc.dg/torture/pr77937-1.c: New.
+	* gcc.dg/torture/pr77937-2.c: New.
+
+2016-10-17  Martin Liska  <mliska@suse.cz>
+
+	Backported from mainline
+	2016-10-13  Martin Liska  <mliska@suse.cz>
+
+	PR tree-optimization/77943
+	* g++.dg/tree-ssa/pr77943.C: New test.
+
+2016-10-15  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gcc.target/sparc/bmaskbshuf.c: Rename to...
+	* gcc.target/sparc/bmaskbshuf-1.c: ...this.
+	* gcc.target/sparc/bmaskbshuf-2.c: New test.
+
+2016-10-13  Andrew Senkevich  <andrew.senkevich@intel.com>
+
+	Backport from trunk
+	* gcc.target/i386/pcommit-1.c: Deleted test.
+	* gcc.target/i386/sse-12.c: Deleted -pcommit option.
+	* gcc.target/i386/sse-13.c: Ditto.
+	* gcc.target/i386/sse-14.c: Ditto.
+	* gcc.target/i386/sse-22.c: Ditto.
+	* gcc.target/i386/sse-23.c: Ditto.
+	* g++.dg/other/i386-2.C: Ditto.
+	* g++.dg/other/i386-3.C: Ditto.
+
+2016-10-10  Eric Botcazou  <ebotcazou@adacore.com>
+
+	* gnat.dg/biased_subtype.adb: New test.
+
+2016-10-05  Steven G. Kargl  <kargls@gcc.gnu.org>
+
+	PR fortran/58991
+	PR fortran/58992
+	* gfortran.dg/associate_22.f90: New test.
+
+2016-09-30  Steven G. Kargl  <kargl@gcc.gnu.org>
+
+	Backport from trunk
+
+	PR fortran/77391
+	* gfortran.dg/pr77391.f90: New test.
+
 2016-09-30  Steven G. Kargl  <kargl@gcc.gnu.org>
 
 	Backport from trunk
@@ -21,7 +1243,7 @@
 	subroutine as an actual argument when numeric argument is expected.
 
 2016-09-30  Steven G. Kargl  <kargl@gcc.gnu.org>
- 
+
 	Backport from trunk
 
 	PR fortran/69867
@@ -47,14 +1269,14 @@
 2016-09-30  Steven G. Kargl  <kargl@gcc.gnu.org>
 
 	Backport from trunk
- 
+
 	PR fortran/71799
 	* gfortran.dg/pr71799.f90: New test.
 
 2016-09-30  Steven G. Kargl  <kargl@gcc.gnu.org>
 
 	Backport from trunk
- 
+
 	PR fortran/70006
 	* gfortran.dg/pr70006.f90: New test.
 

@@ -748,7 +748,7 @@ add_proc_comp (gfc_symbol *vtype, const char *name, gfc_typebound_proc *tb)
 {
   gfc_component *c;
 
-  if (tb->non_overridable)
+  if (tb->non_overridable && !tb->overridden)
     return;
 
   c = gfc_find_component (vtype, name, true, true);
@@ -1599,6 +1599,7 @@ generate_finalization_wrapper (gfc_symbol *derived, gfc_namespace *ns,
   final->attr.flavor = FL_PROCEDURE;
   final->attr.function = 1;
   final->attr.pure = 0;
+  final->attr.recursive = 1;
   final->result = final;
   final->ts.type = BT_INTEGER;
   final->ts.kind = 4;
