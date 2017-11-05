@@ -342,6 +342,9 @@ avr-*-*)
 bfin*-*)
 	cpu_type=bfin
 	;;
+bexkat1*)
+	cpu_type=bexkat1
+	;;
 crisv32-*)
 	cpu_type=cris
 	;;
@@ -1185,6 +1188,12 @@ bfin*-*)
 	tm_file="${tm_file} dbxelf.h elfos.h newlib-stdint.h bfin/elf.h"
 	use_collect2=no
 	use_gcc_stdint=wrap
+	;;
+bexkat1-*-elf)
+	gas=yes
+	gnu_ld=yes
+	tm_file="dbxelf.h elfos.h newlib-stdint.h ${tm_file}"
+	tmake_file="${tmake_file} bexkat1/t-bexkat1"
 	;;
 cr16-*-elf)
         tm_file="elfos.h ${tm_file} newlib-stdint.h"
