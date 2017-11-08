@@ -267,27 +267,27 @@
   [(set (mem:SI (pre_dec:SI (reg:SI BEXKAT1_SP)))
   	(match_operand:SI 0 "register_operand" "r"))]
   ""
-  "push\\t%0")
+  "subi\\t%%sp, %%sp, 4\\n\\tst.l\\t%0, (%%sp)")
 
 ;; Pop a register from the stack
 (define_insn "movsi_pop"
   [(set (match_operand:SI 0 "register_operand" "=r")
   	(mem:SI (post_inc:SI (reg:SI BEXKAT1_SP))))]
   ""
-  "pop\\t%0")
+  "ld.l\\t%0, (%%sp)\\n\\taddi\\t%%sp, %%sp, 4")
 
 (define_insn "movsf_push"
   [(set (mem:SF (pre_dec:SI (reg:SI BEXKAT1_SP)))
   	(match_operand:SF 0 "register_operand" "r"))]
   ""
-  "push\\t%0")
+  "subi\\t%%sp, %%sp, 4\\n\\tst.l\\t%0, (%%sp)")
 
 ;; Pop a register from the stack
 (define_insn "movsf_pop"
   [(set (match_operand:SF 0 "register_operand" "=r")
   	(mem:SF (post_inc:SI (reg:SI BEXKAT1_SP))))]
   ""
-  "pop\\t%0")
+  "ld.l\\t%0, (%%sp)\\n\\taddi\\t%%sp, %%sp, 4")
 
 (define_expand "movsf"
    [(set (match_operand:SF 0 "general_operand" "")
