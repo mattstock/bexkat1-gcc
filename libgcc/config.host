@@ -566,6 +566,10 @@ bfin*-*)
 	tmake_file="$tmake_file bfin/t-bfin t-fdpbit"
 	extra_parts="crtbegin.o crtend.o crti.o crtn.o"
         ;;
+bexkat1-*-elf)
+	tmake_file="$tmake_file bexkat1/t-bexkat1 t-softfs-sfdf t-softfp-execl t-softfp"
+	extra_parts="$extra_parts crti.o crtn.o crtbegin.o crtend.o"
+	;;
 bpf-*-*)
         tmake_file="$tmake_file ${cpu_type}/t-${cpu_type}"
         extra_parts="crti.o crtn.o"

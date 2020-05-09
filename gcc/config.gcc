@@ -362,6 +362,10 @@ avr-*-*)
 bfin*-*)
 	cpu_type=bfin
 	;;
+bexkat1*)
+	cpu_type=bexkat1
+	target_has_targetm_common=no
+	;;
 bpf-*-*)
 	cpu_type=bpf
 	;;
@@ -1489,6 +1493,12 @@ bfin*-*)
 	tm_file="${tm_file} dbxelf.h elfos.h newlib-stdint.h bfin/elf.h"
 	use_collect2=no
 	use_gcc_stdint=wrap
+	;;
+bexkat1-*-elf)
+	gas=yes
+	gnu_ld=yes
+	tm_file="${tm_file} dbxelf.h elfos.h newlib-stdint.h"
+	tmake_file="${tmake_file} bexkat1/t-bexkat1"
 	;;
 bpf-*-*)
         tmake_file="${tmake_file} bpf/t-bpf"
