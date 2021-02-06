@@ -1,6 +1,6 @@
 /* Build up a list of intrinsic subroutines and functions for the
    name-resolution stage.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
    Contributed by Andy Vaught & Katherine Holcomb
 
 This file is part of GCC.
@@ -119,6 +119,43 @@ gfc_get_intrinsic_sub_symbol (const char *name)
 
   gfc_commit_symbol (sym);
 
+  return sym;
+}
+
+/* Get a symbol for a resolved function, with its special name.  The
+   actual argument list needs to be set by the caller.  */
+
+gfc_symbol *
+gfc_get_intrinsic_function_symbol (gfc_expr *expr)
+{
+  gfc_symbol *sym;
+
+  gfc_get_symbol (expr->value.function.name, gfc_intrinsic_namespace, &sym);
+  sym->attr.external = 1;
+  sym->attr.function = 1;
+  sym->attr.always_explicit = 1;
+  sym->attr.proc = PROC_INTRINSIC;
+  sym->attr.flavor = FL_PROCEDURE;
+  sym->result = sym;
+  if (expr->rank > 0)
+    {
+      sym->attr.dimension = 1;
+      sym->as = gfc_get_array_spec ();
+      sym->as->type = AS_ASSUMED_SHAPE;
+      sym->as->rank = expr->rank;
+    }
+  return sym;
+}
+
+/* Find a symbol for a resolved intrinsic procedure, return NULL if
+   not found.  */
+
+gfc_symbol *
+gfc_find_intrinsic_symbol (gfc_expr *expr)
+{
+  gfc_symbol *sym;
+  gfc_find_symbol (expr->value.function.name, gfc_intrinsic_namespace,
+		   0, &sym);
   return sym;
 }
 
@@ -2733,8 +2770,8 @@ add_functions (void)
 
   make_generic ("null", GFC_ISYM_NULL, GFC_STD_F95);
 
-  add_sym_2 ("num_images", GFC_ISYM_NUM_IMAGES, CLASS_INQUIRY, ACTUAL_NO,
-	     BT_INTEGER, di, GFC_STD_F2008,
+  add_sym_2 ("num_images", GFC_ISYM_NUM_IMAGES, CLASS_TRANSFORMATIONAL,
+	     ACTUAL_NO, BT_INTEGER, di, GFC_STD_F2008,
 	     gfc_check_num_images, gfc_simplify_num_images, NULL,
 	     dist, BT_INTEGER, di, OPTIONAL,
 	     failed, BT_LOGICAL, dl, OPTIONAL);
@@ -3174,7 +3211,7 @@ add_functions (void)
   make_generic ("tanh", GFC_ISYM_TANH, GFC_STD_F77);
 
   add_sym_1 ("team_number", GFC_ISYM_TEAM_NUMBER, CLASS_TRANSFORMATIONAL,
-	     ACTUAL_YES, BT_INTEGER, di, GFC_STD_F2018,
+	     ACTUAL_NO, BT_INTEGER, di, GFC_STD_F2018,
 	     gfc_check_team_number, NULL, gfc_resolve_team_number,
 	     team, BT_DERIVED, di, OPTIONAL);
 
@@ -4442,6 +4479,18 @@ check_arglist (gfc_actual_arglist **ap, gfc_intrinsic_sym *sym,
 	  return false;
 	}
 
+      /* F2018, p. 328: An argument to an intrinsic procedure other than
+	 ASSOCIATED, NULL, or PRESENT shall be a data object.  An EXPR_NULL
+	 is not a data object.  */
+      if (actual->expr->expr_type == EXPR_NULL
+	  && (!(sym->id == GFC_ISYM_ASSOCIATED
+		|| sym->id == GFC_ISYM_NULL
+		|| sym->id == GFC_ISYM_PRESENT)))
+	{
+	  gfc_invalid_null_arg (actual->expr);
+	  return false;
+	}
+
       /* If the formal argument is INTENT([IN]OUT), check for definability.  */
       if (formal->intent == INTENT_INOUT || formal->intent == INTENT_OUT)
 	{
@@ -4763,8 +4812,8 @@ check_specific (gfc_intrinsic_sym *specific, gfc_expr *expr, int error_flag)
 
       for ( ; arg && arg->expr; arg = arg->next, n++)
 	if (!gfc_check_conformance (first_expr, arg->expr,
-				    "arguments '%s' and '%s' for "
-				    "intrinsic '%s'",
+				    _("arguments '%s' and '%s' for "
+				    "intrinsic '%s'"),
 				    gfc_current_intrinsic_arg[0]->name,
 				    gfc_current_intrinsic_arg[n]->name,
 				    gfc_current_intrinsic))
@@ -4800,39 +4849,39 @@ gfc_check_intrinsic_standard (const gfc_intrinsic_sym* isym,
   switch (isym->standard)
     {
     case GFC_STD_F77:
-      symstd_msg = "available since Fortran 77";
+      symstd_msg = _("available since Fortran 77");
       break;
 
     case GFC_STD_F95_OBS:
-      symstd_msg = "obsolescent in Fortran 95";
+      symstd_msg = _("obsolescent in Fortran 95");
       break;
 
     case GFC_STD_F95_DEL:
-      symstd_msg = "deleted in Fortran 95";
+      symstd_msg = _("deleted in Fortran 95");
       break;
 
     case GFC_STD_F95:
-      symstd_msg = "new in Fortran 95";
+      symstd_msg = _("new in Fortran 95");
       break;
 
     case GFC_STD_F2003:
-      symstd_msg = "new in Fortran 2003";
+      symstd_msg = _("new in Fortran 2003");
       break;
 
     case GFC_STD_F2008:
-      symstd_msg = "new in Fortran 2008";
+      symstd_msg = _("new in Fortran 2008");
       break;
 
     case GFC_STD_F2018:
-      symstd_msg = "new in Fortran 2018";
+      symstd_msg = _("new in Fortran 2018");
       break;
 
     case GFC_STD_GNU:
-      symstd_msg = "a GNU Fortran extension";
+      symstd_msg = _("a GNU Fortran extension");
       break;
 
     case GFC_STD_LEGACY:
-      symstd_msg = "for backward compatibility";
+      symstd_msg = _("for backward compatibility");
       break;
 
     default:
@@ -4845,8 +4894,8 @@ gfc_check_intrinsic_standard (const gfc_intrinsic_sym* isym,
     {
       /* Do only print a warning if not a GNU extension.  */
       if (!silent && isym->standard != GFC_STD_GNU)
-	gfc_warning (0, "Intrinsic %qs (is %s) is used at %L",
-		     isym->name, _(symstd_msg), &where);
+	gfc_warning (0, "Intrinsic %qs (%s) used at %L",
+		     isym->name, symstd_msg, &where);
 
       return true;
     }
@@ -4857,7 +4906,7 @@ gfc_check_intrinsic_standard (const gfc_intrinsic_sym* isym,
 
   /* Otherwise, fail.  */
   if (symstd)
-    *symstd = _(symstd_msg);
+    *symstd = symstd_msg;
   return false;
 }
 
@@ -5025,6 +5074,11 @@ got_specific:
 
   if (!sym->module)
     gfc_intrinsic_symbol (sym);
+
+  /* Have another stab at simplification since elemental intrinsics with array
+     actual arguments would be missed by the calls above to do_simplify.  */
+  if (isym->elemental)
+    gfc_simplify_expr (expr, 1);
 
   return MATCH_YES;
 }
@@ -5233,8 +5287,10 @@ gfc_convert_type_warn (gfc_expr *expr, gfc_typespec *ts, int eflag, int wflag,
 	{
 	  /* Larger kinds can hold values of smaller kinds without problems.
 	     Hence, only warn if target kind is smaller than the source
-	     kind - or if -Wconversion-extra is specified.  */
-	  if (expr->expr_type != EXPR_CONSTANT)
+	     kind - or if -Wconversion-extra is specified.  LOGICAL values
+	     will always fit regardless of kind so ignore conversion.  */
+	  if (expr->expr_type != EXPR_CONSTANT
+	      && ts->type != BT_LOGICAL)
 	    {
 	      if (warn_conversion && from_ts.kind > ts->kind)
 		gfc_warning_now (OPT_Wconversion, "Possible change of value in "

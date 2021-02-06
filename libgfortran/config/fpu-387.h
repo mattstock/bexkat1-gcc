@@ -1,5 +1,5 @@
 /* FPU-related code for x86 and x86_64 processors.
-   Copyright (C) 2005-2020 Free Software Foundation, Inc.
+   Copyright (C) 2005-2021 Free Software Foundation, Inc.
    Contributed by Francois-Xavier Coudert <coudert@clipper.ens.fr>
 
 This file is part of the GNU Fortran 95 runtime library (libgfortran).
@@ -85,7 +85,7 @@ struct fenv
   unsigned short int __data_selector;
   unsigned short int __unused5;
   unsigned int __mxcsr;
-};
+} __attribute__ ((gcc_struct));
 
 /* Check we can actually store the FPU state in the allocated size.  */
 _Static_assert (sizeof(struct fenv) <= (size_t) GFC_FPE_STATE_BUFFER_SIZE,

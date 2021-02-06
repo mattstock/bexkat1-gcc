@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 }
 
 func testMain(m *testing.M) int {
-	// Copy testdata into GOPATH/src/testarchive, along with a go.mod file
+	// Copy testdata into GOPATH/src/testplugin, along with a go.mod file
 	// declaring the same path.
 
 	GOPATH, err := ioutil.TempDir("", "plugin_test")
@@ -194,5 +194,19 @@ func TestIssue25756(t *testing.T) {
 			t.Parallel()
 			run(t, "./issue25756.exe")
 		})
+	}
+}
+
+func TestMethod(t *testing.T) {
+	// Exported symbol's method must be live.
+	goCmd(t, "build", "-buildmode=plugin", "-o", "plugin.so", "./method/plugin.go")
+	goCmd(t, "build", "-o", "method.exe", "./method/main.go")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "./method.exe")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s: %v\n%s", strings.Join(cmd.Args, " "), err, out)
 	}
 }

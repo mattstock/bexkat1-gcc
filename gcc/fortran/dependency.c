@@ -1,5 +1,5 @@
 /* Dependency analysis
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
    Contributed by Paul Brook <paul@nowt.org>
 
 This file is part of GCC.
@@ -30,6 +30,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "dependency.h"
 #include "constructor.h"
 #include "arith.h"
+#include "options.h"
 
 /* static declarations */
 /* Enums  */
@@ -2033,6 +2034,8 @@ ref_same_as_full_array (gfc_ref *full_ref, gfc_ref *ref)
     return false;
   if (ref->type != REF_ARRAY)
     return false;
+  if (ref->u.ar.type == AR_FULL)
+    return true;
   if (ref->u.ar.type != AR_SECTION)
     return false;
 
@@ -2140,9 +2143,17 @@ gfc_dep_resolver (gfc_ref *lref, gfc_ref *rref, gfc_reverse *reverse,
 	  return (fin_dep == GFC_DEP_OVERLAP) ? 1 : 0;
 
 	case REF_ARRAY:
-
-	  /* For now, treat all coarrays as dangerous.  */
-	  if (lref->u.ar.codimen || rref->u.ar.codimen)
+	  /* Coarrays: If there is a coindex, either the image differs and there
+	     is no overlap or the image is the same - then the normal analysis
+	     applies.  Hence, return early only if 'identical' is required and
+	     either ref is coindexed and more than one image can exist.  */
+	  if (identical && flag_coarray != GFC_FCOARRAY_SINGLE
+	      && ((lref->u.ar.codimen
+		   && lref->u.ar.dimen_type[lref->u.ar.dimen]
+		      != DIMEN_THIS_IMAGE)
+		  || (rref->u.ar.codimen
+		      && lref->u.ar.dimen_type[lref->u.ar.dimen]
+			 != DIMEN_THIS_IMAGE)))
 	    return 1;
 
 	  if (ref_same_as_full_array (lref, rref))

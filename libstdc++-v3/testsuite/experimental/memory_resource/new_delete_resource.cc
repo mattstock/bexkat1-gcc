@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Free Software Foundation, Inc.
+// Copyright (C) 2018-2021 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -17,13 +17,13 @@
 
 // { dg-do run { target c++14 } }
 // { dg-require-cstdint "" }
-// { dg-xfail-run-if "PR libstdc++/77691" { { i?86-*-solaris2.* x86_64-*-solaris2.* } && ilp32 } }
 
 #include <experimental/memory_resource>
 #include <cstdlib>
+#include <cstdint>
 #include <testsuite_hooks.h>
 
-#if defined __sun__ && defined __i386__
+#if (defined __sun__ || defined __VXWORKS__) && defined __i386__
 // See PR libstdc++/77691
 # define BAD_MAX_ALIGN_T 1
 #endif
@@ -128,7 +128,6 @@ test03()
 
   p = r1->allocate(2, alignof(char));
   VERIFY( bytes_allocated == 2 );
-  VERIFY( aligned<max_align_t>(p) );
   r1->deallocate(p, 2, alignof(char));
   VERIFY( bytes_allocated == 0 );
 

@@ -1,6 +1,6 @@
 // unordered_set implementation -*- C++ -*-
 
-// Copyright (C) 2010-2020 Free Software Foundation, Inc.
+// Copyright (C) 2010-2021 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -203,6 +203,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
        */
       unordered_set(unordered_set&& __uset,
 		    const allocator_type& __a)
+	noexcept( noexcept(_Hashtable(std::move(__uset._M_h), __a)) )
       : _M_h(std::move(__uset._M_h), __a)
       { }
 
@@ -1044,6 +1045,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
        */
       unordered_multiset(unordered_multiset&& __umset,
 			 const allocator_type& __a)
+	noexcept( noexcept(_Hashtable(std::move(__umset._M_h), __a)) )
       : _M_h(std::move(__umset._M_h), __a)
       { }
 

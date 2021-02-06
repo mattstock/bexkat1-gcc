@@ -1,4 +1,4 @@
-/* Copyright (C) 2002-2020 Free Software Foundation, Inc.
+/* Copyright (C) 2002-2021 Free Software Foundation, Inc.
    Contributed by Andy Vaught
    F2003 I/O support contributed by Jerry DeLisle
 
@@ -114,7 +114,7 @@ static char stdout_name[] = "stdout";
 static char stderr_name[] = "stderr";
 
 
-#ifdef HAVE_NEWLOCALE
+#ifdef HAVE_POSIX_2008_LOCALE
 locale_t c_locale;
 #else
 /* If we don't have POSIX 2008 per-thread locales, we need to use the
@@ -586,7 +586,7 @@ init_units (void)
 {
   gfc_unit *u;
 
-#ifdef HAVE_NEWLOCALE
+#ifdef HAVE_POSIX_2008_LOCALE
   c_locale = newlocale (0, "C", 0);
 #else
 #ifndef __GTHREAD_MUTEX_INIT
@@ -767,9 +767,12 @@ close_unit_1 (gfc_unit *u, int locked)
 void
 unlock_unit (gfc_unit *u)
 {
-  NOTE ("unlock_unit = %d", u->unit_number);
-  UNLOCK (&u->lock);
-  NOTE ("unlock_unit done");
+  if (u)
+    {
+      NOTE ("unlock_unit = %d", u->unit_number);
+      UNLOCK (&u->lock);
+      NOTE ("unlock_unit done");
+    }
 }
 
 /* close_unit()-- Close a unit.  The stream is closed, and any memory
@@ -800,7 +803,7 @@ close_units (void)
 
   free (newunits);
 
-#ifdef HAVE_FREELOCALE
+#ifdef HAVE_POSIX_2008_LOCALE
   freelocale (c_locale);
 #endif
 }

@@ -1,5 +1,5 @@
 /* Machine description for AArch64 architecture.
-   Copyright (C) 2009-2020 Free Software Foundation, Inc.
+   Copyright (C) 2009-2021 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
    This file is part of GCC.
@@ -136,6 +136,25 @@ enum aarch64_addr_query_type {
   ADDR_QUERY_ANY
 };
 
+/* Enumerates values that can be arbitrarily mixed into a calculation
+   in order to make the result of the calculation unique to its use case.
+
+   AARCH64_SALT_SSP_SET
+   AARCH64_SALT_SSP_TEST
+      Used when calculating the address of the stack protection canary value.
+      There is a separate value for setting and testing the canary, meaning
+      that these two operations produce unique addresses: they are different
+      from each other, and from all other address calculations.
+
+      The main purpose of this is to prevent the SET address being spilled
+      to the stack and reloaded for the TEST, since that would give an
+      attacker the opportunity to change the address of the expected
+      canary value.  */
+enum aarch64_salt_type {
+  AARCH64_SALT_SSP_SET,
+  AARCH64_SALT_SSP_TEST
+};
+
 /* A set of tuning parameters contains references to size and time
    cost models and vectors for address cost calculations, register
    move costs and memory move costs.  */
@@ -173,6 +192,29 @@ struct cpu_regmove_cost
   const int FP2FP;
 };
 
+struct simd_vec_cost
+{
+  const int int_stmt_cost;		/* Cost of any int vector operation,
+					   excluding load, store, permute,
+					   vector-to-scalar and
+					   scalar-to-vector operation.  */
+  const int fp_stmt_cost;		 /* Cost of any fp vector operation,
+					    excluding load, store, permute,
+					    vector-to-scalar and
+					    scalar-to-vector operation.  */
+  const int permute_cost;		 /* Cost of permute operation.  */
+  const int vec_to_scalar_cost;		 /* Cost of vec-to-scalar operation.  */
+  const int scalar_to_vec_cost;		 /* Cost of scalar-to-vector
+					    operation.  */
+  const int align_load_cost;	 /* Cost of aligned vector load.  */
+  const int unalign_load_cost;	 /* Cost of unaligned vector load.  */
+  const int unalign_store_cost;	 /* Cost of unaligned vector store.  */
+  const int store_cost;		 /* Cost of vector store.  */
+};
+
+typedef struct simd_vec_cost advsimd_vec_cost;
+typedef struct simd_vec_cost sve_vec_cost;
+
 /* Cost for vector insn classes.  */
 struct cpu_vector_cost
 {
@@ -182,24 +224,10 @@ struct cpu_vector_cost
 					    excluding load and store.  */
   const int scalar_load_cost;		 /* Cost of scalar load.  */
   const int scalar_store_cost;		 /* Cost of scalar store.  */
-  const int vec_int_stmt_cost;		 /* Cost of any int vector operation,
-					    excluding load, store, permute,
-					    vector-to-scalar and
-					    scalar-to-vector operation.  */
-  const int vec_fp_stmt_cost;		 /* Cost of any fp vector operation,
-					    excluding load, store, permute,
-					    vector-to-scalar and
-					    scalar-to-vector operation.  */
-  const int vec_permute_cost;		 /* Cost of permute operation.  */
-  const int vec_to_scalar_cost;		 /* Cost of vec-to-scalar operation.  */
-  const int scalar_to_vec_cost;		 /* Cost of scalar-to-vector
-					    operation.  */
-  const int vec_align_load_cost;	 /* Cost of aligned vector load.  */
-  const int vec_unalign_load_cost;	 /* Cost of unaligned vector load.  */
-  const int vec_unalign_store_cost;	 /* Cost of unaligned vector store.  */
-  const int vec_store_cost;		 /* Cost of vector store.  */
   const int cond_taken_branch_cost;	 /* Cost of taken branch.  */
   const int cond_not_taken_branch_cost;  /* Cost of not taken branch.  */
+  const advsimd_vec_cost *advsimd;	 /* Cost of Advanced SIMD operations.  */
+  const sve_vec_cost *sve;		 /* Cost of SVE operations.  */
 };
 
 /* Branch costs.  */
@@ -491,6 +519,7 @@ bool aarch64_emit_approx_div (rtx, rtx, rtx);
 bool aarch64_emit_approx_sqrt (rtx, rtx, bool);
 void aarch64_expand_call (rtx, rtx, rtx, bool);
 bool aarch64_expand_cpymem (rtx *);
+bool aarch64_expand_setmem (rtx *);
 bool aarch64_float_const_zero_rtx_p (rtx);
 bool aarch64_float_const_rtx_p (rtx);
 bool aarch64_function_arg_regno_p (unsigned);
@@ -578,6 +607,7 @@ int aarch64_vec_fpconst_pow_of_2 (rtx);
 rtx aarch64_eh_return_handler_rtx (void);
 rtx aarch64_mask_from_zextract_ops (rtx, rtx);
 const char *aarch64_output_move_struct (rtx *operands);
+rtx aarch64_return_addr_rtx (void);
 rtx aarch64_return_addr (int, rtx);
 rtx aarch64_simd_gen_const_vector_dup (machine_mode, HOST_WIDE_INT);
 bool aarch64_simd_mem_operand_p (rtx);
@@ -607,9 +637,9 @@ opt_machine_mode aarch64_ptrue_all_mode (rtx);
 rtx aarch64_convert_sve_data_to_pred (rtx, machine_mode, rtx);
 rtx aarch64_expand_sve_dupq (rtx, machine_mode, rtx);
 void aarch64_expand_mov_immediate (rtx, rtx);
+rtx aarch64_stack_protect_canary_mem (machine_mode, rtx, aarch64_salt_type);
 rtx aarch64_ptrue_reg (machine_mode);
 rtx aarch64_pfalse_reg (machine_mode);
-bool aarch64_sve_pred_dominates_p (rtx *, rtx);
 bool aarch64_sve_same_pred_for_ptest_p (rtx *, rtx *);
 void aarch64_emit_sve_pred_move (rtx, rtx, rtx);
 void aarch64_expand_sve_mem_move (rtx, rtx, machine_mode);
@@ -681,7 +711,7 @@ void aarch64_split_compare_and_swap (rtx op[]);
 
 void aarch64_split_atomic_op (enum rtx_code, rtx, rtx, rtx, rtx, rtx, rtx);
 
-bool aarch64_gen_adjusted_ldpstp (rtx *, bool, scalar_mode, RTX_CODE);
+bool aarch64_gen_adjusted_ldpstp (rtx *, bool, machine_mode, RTX_CODE);
 
 void aarch64_expand_sve_vec_cmp_int (rtx, rtx_code, rtx, rtx);
 bool aarch64_expand_sve_vec_cmp_float (rtx, rtx_code, rtx, rtx, bool);
@@ -732,7 +762,7 @@ int aarch64_ccmp_mode_to_code (machine_mode mode);
 
 bool extract_base_offset_in_addr (rtx mem, rtx *base, rtx *offset);
 bool aarch64_operands_ok_for_ldpstp (rtx *, bool, machine_mode);
-bool aarch64_operands_adjust_ok_for_ldpstp (rtx *, bool, scalar_mode);
+bool aarch64_operands_adjust_ok_for_ldpstp (rtx *, bool, machine_mode);
 void aarch64_swap_ldrstr_operands (rtx *, bool);
 
 extern void aarch64_asm_output_pool_epilogue (FILE *, const char *,
@@ -760,6 +790,7 @@ rtl_opt_pass *make_pass_fma_steering (gcc::context *);
 rtl_opt_pass *make_pass_track_speculation (gcc::context *);
 rtl_opt_pass *make_pass_tag_collision_avoidance (gcc::context *);
 rtl_opt_pass *make_pass_insert_bti (gcc::context *ctxt);
+rtl_opt_pass *make_pass_cc_fusion (gcc::context *ctxt);
 
 poly_uint64 aarch64_regmode_natural_size (machine_mode);
 
@@ -779,5 +810,10 @@ extern const atomic_ool_names aarch64_ool_ldclr_names;
 extern const atomic_ool_names aarch64_ool_ldeor_names;
 
 tree aarch64_resolve_overloaded_builtin_general (location_t, tree, void *);
+
+const char *aarch64_sls_barrier (int);
+const char *aarch64_indirect_call_asm (rtx);
+extern bool aarch64_harden_sls_retbr_p (void);
+extern bool aarch64_harden_sls_blr_p (void);
 
 #endif /* GCC_AARCH64_PROTOS_H */

@@ -1,5 +1,5 @@
 /* Perform simple optimizations to clean up the result of reload.
-   Copyright (C) 1987-2020 Free Software Foundation, Inc.
+   Copyright (C) 1987-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -591,6 +591,13 @@ reload_cse_simplify_operands (rtx_insn *insn, rtx testreg)
 	    }
 	}
     }
+
+  /* The loop below sets alternative_order[0] but -Wmaybe-uninitialized
+     can't know that.  Clear it here to avoid the warning.  */
+  alternative_order[0] = 0;
+  gcc_assert (!recog_data.n_alternatives
+	      || (which_alternative >= 0
+		  && which_alternative < recog_data.n_alternatives));
 
   /* Record all alternatives which are better or equal to the currently
      matching one in the alternative_order array.  */

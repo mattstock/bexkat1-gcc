@@ -1,5 +1,5 @@
 /* real.c - software floating point emulation.
-   Copyright (C) 1993-2020 Free Software Foundation, Inc.
+   Copyright (C) 1993-2021 Free Software Foundation, Inc.
    Contributed by Stephen L. Moshier (moshier@world.std.com).
    Re-written by Richard Henderson <rth@redhat.com>
 
@@ -1714,8 +1714,8 @@ real_to_decimal_for_mode (char *str, const REAL_VALUE_TYPE *r_orig,
 
 	  do_multiply (&u, &v, ten);
 
-	  /* Stop if we're now >= 1.  */
-	  if (REAL_EXP (&u) > 0)
+	  /* Stop if we're now >= 1 or zero.  */
+	  if (REAL_EXP (&u) > 0 || u.cl == rvc_zero)
 	    break;
 
 	  v = u;

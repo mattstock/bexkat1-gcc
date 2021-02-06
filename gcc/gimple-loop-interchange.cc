@@ -1,5 +1,5 @@
 /* Loop interchange.
-   Copyright (C) 2017-2020 Free Software Foundation, Inc.
+   Copyright (C) 2017-2021 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
 This file is part of GCC.
@@ -1940,7 +1940,10 @@ prepare_data_references (class loop *loop, vec<data_reference_p> *datarefs)
           delete bb_refs;
         }
       else if (bb_refs->is_empty ())
-	delete bb_refs;
+	{
+	  bb_refs->release ();
+	  delete bb_refs;
+	}
       else
 	bb->aux = bb_refs;
     }
@@ -1954,7 +1957,10 @@ prepare_data_references (class loop *loop, vec<data_reference_p> *datarefs)
 
       bb_refs = (vec<data_reference_p> *) bb->aux;
       if (loop_nest && flow_bb_inside_loop_p (loop_nest, bb))
-	datarefs->safe_splice (*bb_refs);
+	{
+	  datarefs->safe_splice (*bb_refs);
+	  bb_refs->release ();
+	}
       else
 	free_data_refs (*bb_refs);
 
@@ -2084,7 +2090,14 @@ pass_linterchange::execute (function *fun)
       loop_nest.release ();
     }
 
-  return changed_p ? (TODO_update_ssa_only_virtuals) : 0;
+  if (changed_p)
+    {
+      unsigned todo = TODO_update_ssa_only_virtuals;
+      todo |= loop_invariant_motion_in_fun (cfun, false);
+      scev_reset ();
+      return todo;
+    }
+  return 0;
 }
 
 } // anon namespace

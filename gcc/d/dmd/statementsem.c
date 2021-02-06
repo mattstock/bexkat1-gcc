@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (C) 1999-2019 by The D Language Foundation, All Rights Reserved
+ * Copyright (C) 1999-2020 by The D Language Foundation, All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -127,7 +127,7 @@ public:
     void visit(CompoundStatement *cs)
     {
         //printf("CompoundStatement::semantic(this = %p, sc = %p)\n", cs, sc);
-        for (size_t i = 0; i < cs->statements->dim; )
+        for (size_t i = 0; i < cs->statements->length; )
         {
             Statement *s = (*cs->statements)[i];
             if (s)
@@ -158,7 +158,7 @@ public:
                         sexception = semantic(sexception, sc);
                     if (sexception)
                     {
-                        if (i + 1 == cs->statements->dim && !sfinally)
+                        if (i + 1 == cs->statements->length && !sfinally)
                         {
                         }
                         else
@@ -172,7 +172,7 @@ public:
                              *      { sexception; throw __o; }
                              */
                             Statements *a = new Statements();
-                            for (size_t j = i + 1; j < cs->statements->dim; j++)
+                            for (size_t j = i + 1; j < cs->statements->length; j++)
                             {
                                 a->push((*cs->statements)[j]);
                             }
@@ -206,7 +206,7 @@ public:
                     }
                     else if (sfinally)
                     {
-                        if (0 && i + 1 == cs->statements->dim)
+                        if (0 && i + 1 == cs->statements->length)
                         {
                             cs->statements->push(sfinally);
                         }
@@ -218,7 +218,7 @@ public:
                              *      s; try { s1; s2; } finally { sfinally; }
                              */
                             Statements *a = new Statements();
-                            for (size_t j = i + 1; j < cs->statements->dim; j++)
+                            for (size_t j = i + 1; j < cs->statements->length; j++)
                             {
                                 a->push((*cs->statements)[j]);
                             }
@@ -241,7 +241,7 @@ public:
             }
             i++;
         }
-        for (size_t i = 0; i < cs->statements->dim; ++i)
+        for (size_t i = 0; i < cs->statements->length; ++i)
         {
         Lagain:
             Statement *s = (*cs->statements)[i];
@@ -263,12 +263,12 @@ public:
             {
                 cs->statements->remove(i);
                 cs->statements->insert(i, flt);
-                if (cs->statements->dim <= i)
+                if (cs->statements->length <= i)
                     break;
                 goto Lagain;
             }
         }
-        if (cs->statements->dim == 1)
+        if (cs->statements->length == 1)
         {
             result = (*cs->statements)[0];
             return;
@@ -284,7 +284,7 @@ public:
         scd->scontinue = uls;
 
         Statement *serror = NULL;
-        for (size_t i = 0; i < uls->statements->dim; i++)
+        for (size_t i = 0; i < uls->statements->length; i++)
         {
             Statement *s = (*uls->statements)[i];
             if (s)
@@ -634,7 +634,7 @@ public:
         Statements *stmts = (isDecl) ? NULL : new Statements();
         Dsymbols *decls = (isDecl) ? new Dsymbols() : NULL;
 
-        size_t dim = fs->parameters->dim;
+        size_t dim = fs->parameters->length;
         if (!needExpansion && dim == 2)
         {
             // Declare key
@@ -772,7 +772,7 @@ public:
                           Statements *statements, Dsymbols *declarations, Dsymbols *dbody)
     {
         Loc loc = fs->loc;
-        size_t dim = fs->parameters->dim;
+        size_t dim = fs->parameters->length;
         if (!needExpansion && (dim < 1 || dim > 2))
         {
             fs->error("only one (value) or two (key,value) arguments for tuple foreach");
@@ -795,7 +795,7 @@ public:
         if (fs->aggr->op == TOKtuple)       // expression tuple
         {
             te = (TupleExp *)fs->aggr;
-            n = te->exps->dim;
+            n = te->exps->length;
         }
         else if (fs->aggr->op == TOKtype)   // type tuple
         {
@@ -841,7 +841,7 @@ public:
         ScopeDsymbol *sym;
         Statement *s = fs;
         Loc loc = fs->loc;
-        size_t dim = fs->parameters->dim;
+        size_t dim = fs->parameters->length;
         TypeAArray *taa = NULL;
         Dsymbol *sapply = NULL;
 
@@ -897,25 +897,24 @@ public:
             {
                 if (FuncDeclaration *fd = sapplyOld->isFuncDeclaration())
                 {
-                    int fvarargs;  // ignored (opApply shouldn't take variadics)
-                    Parameters *fparameters = fd->getParameters(&fvarargs);
+                    ParameterList fparameters = fd->getParameterList();
 
-                    if (Parameter::dim(fparameters) == 1)
+                    if (fparameters.length() == 1)
                     {
                         // first param should be the callback function
-                        Parameter *fparam = Parameter::getNth(fparameters, 0);
+                        Parameter *fparam = fparameters[0];
                         if ((fparam->type->ty == Tpointer || fparam->type->ty == Tdelegate) &&
                             fparam->type->nextOf()->ty == Tfunction)
                         {
                             TypeFunction *tf = (TypeFunction *)fparam->type->nextOf();
-                            foreachParamCount = Parameter::dim(tf->parameters);
+                            foreachParamCount = tf->parameterList.length();
                             foundMismatch = true;
                         }
                     }
                 }
             }
 
-            //printf("dim = %d, parameters->dim = %d\n", dim, fs->parameters->dim);
+            //printf("dim = %d, parameters->length = %d\n", dim, fs->parameters->length);
             if (foundMismatch && dim != foreachParamCount)
             {
                 const char *plural = foreachParamCount > 1 ? "s" : "";
@@ -1128,7 +1127,7 @@ public:
                         !((*fs->parameters)[dim - 1]->storageClass & STCref))
                     {
                         ArrayLiteralExp *ale = (ArrayLiteralExp *)fs->aggr;
-                        size_t edim = ale->elements ? ale->elements->dim : 0;
+                        size_t edim = ale->elements ? ale->elements->length : 0;
                         Type *telem = (*fs->parameters)[dim - 1]->type;
 
                         // Bugzilla 12936: if telem has been specified explicitly,
@@ -1153,7 +1152,7 @@ public:
                         fs->key = new VarDeclaration(loc, Type::tsize_t, idkey, NULL);
                         fs->key->storage_class |= STCtemp;
                     }
-                    else if (fs->key->type->ty != Tsize_t)
+                    else if (fs->key->type->ty != Type::tsize_t->ty)
                     {
                         tmp_length = new CastExp(loc, tmp_length, fs->key->type);
                     }
@@ -1189,7 +1188,9 @@ public:
                     }
 
                     // T value = tmp[key];
-                    fs->value->_init = new ExpInitializer(loc, new IndexExp(loc, new VarExp(loc, tmp), new VarExp(loc, fs->key)));
+                    IndexExp *indexExp = new IndexExp(loc, new VarExp(loc, tmp), new VarExp(loc, fs->key));
+                    indexExp->indexIsInBounds = true; // disabling bounds checking in foreach statements.
+                    fs->value->_init = new ExpInitializer(loc, indexExp);
                     Statement *ds = new ExpStatement(loc, fs->value);
 
                     if (dim == 2)
@@ -1362,17 +1363,17 @@ public:
                         Expressions *exps = new Expressions();
                         exps->push(ve);
                         int pos = 0;
-                        while (exps->dim < dim)
+                        while (exps->length < dim)
                         {
                             pos = expandAliasThisTuples(exps, pos);
                             if (pos == -1)
                                 break;
                         }
-                        if (exps->dim != dim)
+                        if (exps->length != dim)
                         {
-                            const char *plural = exps->dim > 1 ? "s" : "";
+                            const char *plural = exps->length > 1 ? "s" : "";
                             fs->error("cannot infer argument types, expected %d argument%s, not %d",
-                                      exps->dim, plural, dim);
+                                      exps->length, plural, dim);
                             goto Lerror2;
                         }
 
@@ -1433,9 +1434,9 @@ public:
                             tfld = (TypeFunction *)tab->nextOf();
                         Lget:
                             //printf("tfld = %s\n", tfld->toChars());
-                            if (tfld->parameters->dim == 1)
+                            if (tfld->parameterList.parameters->length == 1)
                             {
-                                Parameter *p = Parameter::getNth(tfld->parameters, 0);
+                                Parameter *p = tfld->parameterList[0];
                                 if (p->type && p->type->ty == Tdelegate)
                                 {
                                     Type *t = p->type->semantic(loc, sc2);
@@ -1460,7 +1461,7 @@ public:
                         p->type = p->type->addStorageClass(p->storageClass);
                         if (tfld)
                         {
-                            Parameter *prm = Parameter::getNth(tfld->parameters, i);
+                            Parameter *prm = tfld->parameterList[i];
                             //printf("\tprm = %s%s\n", (prm->storageClass&STCref?"ref ":""), prm->ident->toChars());
                             stc = prm->storageClass & STCref;
                             id = p->ident;    // argument copy is not need.
@@ -1493,11 +1494,11 @@ public:
                             s = new ExpStatement(Loc(), v);
                             fs->_body = new CompoundStatement(loc, s, fs->_body);
                         }
-                        params->push(new Parameter(stc, p->type, id, NULL));
+                        params->push(new Parameter(stc, p->type, id, NULL, NULL));
                     }
                     // Bugzilla 13840: Throwable nested function inside nothrow function is acceptable.
                     StorageClass stc = mergeFuncAttrs(STCsafe | STCpure | STCnogc, fs->func);
-                    tfld = new TypeFunction(params, Type::tint32, 0, LINKd, stc);
+                    tfld = new TypeFunction(ParameterList(params), Type::tint32, LINKd, stc);
                     fs->cases = new Statements();
                     fs->gotos = new ScopeStatements();
                     FuncLiteralDeclaration *fld = new FuncLiteralDeclaration(loc, Loc(), tfld, TOKdelegate, fs);
@@ -1507,14 +1508,14 @@ public:
                     fld->tookAddressOf = 0;
 
                     // Resolve any forward referenced goto's
-                    for (size_t i = 0; i < fs->gotos->dim; i++)
+                    for (size_t i = 0; i < fs->gotos->length; i++)
                     {
                         GotoStatement *gs = (GotoStatement *)(*fs->gotos)[i]->statement;
                         if (!gs->label->statement)
                         {
                             // 'Promote' it to this scope, and replace with a return
                             fs->cases->push(gs);
-                            s = new ReturnStatement(Loc(), new IntegerExp(fs->cases->dim + 1));
+                            s = new ReturnStatement(Loc(), new IntegerExp(fs->cases->length + 1));
                             (*fs->gotos)[i]->statement = s;
                         }
                     }
@@ -1569,14 +1570,15 @@ public:
                         if (!fdapply[i])
                         {
                             params = new Parameters();
-                            params->push(new Parameter(0, Type::tvoid->pointerTo(), NULL, NULL));
-                            params->push(new Parameter(STCin, Type::tsize_t, NULL, NULL));
+                            params->push(new Parameter(0, Type::tvoid->pointerTo(), NULL, NULL, NULL));
+                            params->push(new Parameter(STCin, Type::tsize_t, NULL, NULL, NULL));
                             Parameters* dgparams = new Parameters;
-                            dgparams->push(new Parameter(0, Type::tvoidptr, NULL, NULL));
+                            dgparams->push(new Parameter(0, Type::tvoidptr, NULL, NULL, NULL));
                             if (dim == 2)
-                                dgparams->push(new Parameter(0, Type::tvoidptr, NULL, NULL));
-                            fldeTy[i] = new TypeDelegate(new TypeFunction(dgparams, Type::tint32, 0, LINKd));
-                            params->push(new Parameter(0, fldeTy[i], NULL, NULL));
+                                dgparams->push(new Parameter(0, Type::tvoidptr, NULL, NULL, NULL));
+                            fldeTy[i] = new TypeDelegate(new TypeFunction(ParameterList(dgparams),
+                                                                          Type::tint32, LINKd));
+                            params->push(new Parameter(0, fldeTy[i], NULL, NULL, NULL));
                             fdapply[i] = FuncDeclaration::genCfunc(params, Type::tint32, name[i]);
                         }
 
@@ -1585,8 +1587,8 @@ public:
                         d_uns64 keysize = taa->index->size();
                         if (keysize == SIZE_INVALID)
                             goto Lerror2;
-                        assert(keysize < UINT64_MAX - Target::ptrsize);
-                        keysize = (keysize + (Target::ptrsize- 1)) & ~(Target::ptrsize - 1);
+                        assert(keysize < UINT64_MAX - target.ptrsize);
+                        keysize = (keysize + (target.ptrsize - 1)) & ~(target.ptrsize - 1);
                         // paint delegate argument to the type runtime expects
                         if (!fldeTy[i]->equals(flde->type))
                         {
@@ -1635,13 +1637,14 @@ public:
                         FuncDeclaration *fdapply;
                         TypeDelegate *dgty;
                         params = new Parameters();
-                        params->push(new Parameter(STCin, tn->arrayOf(), NULL, NULL));
+                        params->push(new Parameter(STCin, tn->arrayOf(), NULL, NULL, NULL));
                         Parameters* dgparams = new Parameters;
-                        dgparams->push(new Parameter(0, Type::tvoidptr, NULL, NULL));
+                        dgparams->push(new Parameter(0, Type::tvoidptr, NULL, NULL, NULL));
                         if (dim == 2)
-                            dgparams->push(new Parameter(0, Type::tvoidptr, NULL, NULL));
-                        dgty = new TypeDelegate(new TypeFunction(dgparams, Type::tint32, 0, LINKd));
-                        params->push(new Parameter(0, dgty, NULL, NULL));
+                            dgparams->push(new Parameter(0, Type::tvoidptr, NULL, NULL, NULL));
+                        dgty = new TypeDelegate(new TypeFunction(ParameterList(dgparams),
+                                                                 Type::tint32, LINKd));
+                        params->push(new Parameter(0, dgty, NULL, NULL, NULL));
                         fdapply = FuncDeclaration::genCfunc(params, Type::tint32, fdname);
 
                         if (tab->ty == Tsarray)
@@ -1701,7 +1704,7 @@ public:
                     }
                     e = Expression::combine(e, ec);
 
-                    if (!fs->cases->dim)
+                    if (!fs->cases->length)
                     {
                         // Easy case, a clean exit from the loop
                         e = new CastExp(loc, e, Type::tvoid);   // Bugzilla 13899
@@ -1719,7 +1722,7 @@ public:
                         a->push(s);
 
                         // cases 2...
-                        for (size_t i = 0; i < fs->cases->dim; i++)
+                        for (size_t i = 0; i < fs->cases->length; i++)
                         {
                             s = (*fs->cases)[i];
                             s = new CaseStatement(Loc(), new IntegerExp(i + 2), s);
@@ -1968,7 +1971,7 @@ public:
             if (ifs->match->edtor)
             {
                 Statement *sdtor = new DtorExpStatement(ifs->loc, ifs->match->edtor, ifs->match);
-                sdtor = new OnScopeStatement(ifs->loc, TOKon_scope_exit, sdtor);
+                sdtor = new ScopeGuardStatement(ifs->loc, TOKon_scope_exit, sdtor);
                 ifs->ifbody = new CompoundStatement(ifs->loc, sdtor, ifs->ifbody);
                 ifs->match->storage_class |= STCnodtor;
             }
@@ -2023,7 +2026,7 @@ public:
         // If we can short-circuit evaluate the if statement, don't do the
         // semantic analysis of the skipped code.
         // This feature allows a limited form of conditional compilation.
-        if (cs->condition->include(sc, NULL))
+        if (cs->condition->include(sc))
         {
             DebugCondition *dc = cs->condition->isDebugCondition();
             if (dc)
@@ -2054,7 +2057,7 @@ public:
         {
             if (ps->args)
             {
-                for (size_t i = 0; i < ps->args->dim; i++)
+                for (size_t i = 0; i < ps->args->length; i++)
                 {
                     Expression *e = (*ps->args)[i];
 
@@ -2090,7 +2093,7 @@ public:
         }
         else if (ps->ident == Id::startaddress)
         {
-            if (!ps->args || ps->args->dim != 1)
+            if (!ps->args || ps->args->length != 1)
                 ps->error("function name expected for start address");
             else
             {
@@ -2125,9 +2128,9 @@ public:
         else if (ps->ident == Id::Pinline)
         {
             PINLINE inlining = PINLINEdefault;
-            if (!ps->args || ps->args->dim == 0)
+            if (!ps->args || ps->args->length == 0)
                 inlining = PINLINEdefault;
-            else if (!ps->args || ps->args->dim != 1)
+            else if (!ps->args || ps->args->length != 1)
             {
                 ps->error("boolean expression expected for pragma(inline)");
                 goto Lerror;
@@ -2261,7 +2264,7 @@ public:
             goto Lerror;
 
         // Resolve any goto case's with exp
-        for (size_t i = 0; i < ss->gotoCases.dim; i++)
+        for (size_t i = 0; i < ss->gotoCases.length; i++)
         {
             GotoCaseStatement *gcs = ss->gotoCases[i];
 
@@ -2275,7 +2278,7 @@ public:
             {
                 if (!scx->sw)
                     continue;
-                for (size_t j = 0; j < scx->sw->cases->dim; j++)
+                for (size_t j = 0; j < scx->sw->cases->length; j++)
                 {
                     CaseStatement *cs = (*scx->sw->cases)[j];
 
@@ -2304,13 +2307,13 @@ public:
                 ed = ds->isEnumDeclaration();
             if (ed)
             {
-                size_t dim = ed->members->dim;
+                size_t dim = ed->members->length;
                 for (size_t i = 0; i < dim; i++)
                 {
                     EnumMember *em = (*ed->members)[i]->isEnumMember();
                     if (em)
                     {
-                        for (size_t j = 0; j < ss->cases->dim; j++)
+                        for (size_t j = 0; j < ss->cases->length; j++)
                         {
                             CaseStatement *cs = (*ss->cases)[j];
                             if (cs->exp->equals(em->value()) ||
@@ -2329,7 +2332,7 @@ public:
                 needswitcherror = true;
         }
 
-        if (!sc->sw->sdefault && (!ss->isFinal || needswitcherror || global.params.useAssert))
+        if (!sc->sw->sdefault && (!ss->isFinal || needswitcherror || global.params.useAssert == CHECKENABLEon))
         {
             ss->hasNoDefault = 1;
 
@@ -2341,7 +2344,7 @@ public:
             CompoundStatement *cs;
             Statement *s;
 
-            if (global.params.useSwitchError &&
+            if (global.params.useSwitchError == CHECKENABLEon &&
                 global.params.checkAction != CHECKACTION_halt)
             {
                 if (global.params.checkAction == CHECKACTION_C)
@@ -2459,7 +2462,7 @@ public:
             }
 
         L1:
-            for (size_t i = 0; i < sw->cases->dim; i++)
+            for (size_t i = 0; i < sw->cases->length; i++)
             {
                 CaseStatement *cs2 = (*sw->cases)[i];
 
@@ -2475,7 +2478,7 @@ public:
             sw->cases->push(cs);
 
             // Resolve any goto case's with no exp to this case statement
-            for (size_t i = 0; i < sw->gotoCases.dim; )
+            for (size_t i = 0; i < sw->gotoCases.length; )
             {
                 GotoCaseStatement *gcs = sw->gotoCases[i];
 
@@ -2691,7 +2694,7 @@ public:
             {
                 assert(rs->caseDim == 0);
                 sc->fes->cases->push(rs);
-                result = new ReturnStatement(Loc(), new IntegerExp(sc->fes->cases->dim + 1));
+                result = new ReturnStatement(Loc(), new IntegerExp(sc->fes->cases->length + 1));
                 return;
             }
             if (fd->returnLabel)
@@ -2860,42 +2863,9 @@ public:
                  *    return x; return 3;  // ok, x can be a value
                  */
             }
-
-            // handle NRVO
-            if (fd->nrvo_can && rs->exp->op == TOKvar)
-            {
-                VarExp *ve = (VarExp *)rs->exp;
-                VarDeclaration *v = ve->var->isVarDeclaration();
-
-                if (tf->isref)
-                {
-                    // Function returns a reference
-                    if (!inferRef)
-                        fd->nrvo_can = 0;
-                }
-                else if (!v || v->isOut() || v->isRef())
-                    fd->nrvo_can = 0;
-                else if (fd->nrvo_var == NULL)
-                {
-                    if (!v->isDataseg() && !v->isParameter() && v->toParent2() == fd)
-                    {
-                        //printf("Setting nrvo to %s\n", v->toChars());
-                        fd->nrvo_var = v;
-                    }
-                    else
-                        fd->nrvo_can = 0;
-                }
-                else if (fd->nrvo_var != v)
-                    fd->nrvo_can = 0;
-            }
-            else //if (!exp->isLvalue())    // keep NRVO-ability
-                fd->nrvo_can = 0;
         }
         else
         {
-            // handle NRVO
-            fd->nrvo_can = 0;
-
             // infer return type
             if (fd->inferRetType)
             {
@@ -2972,8 +2942,8 @@ public:
                 sc->fes->cases->push(s);
 
                 // Immediately rewrite "this" return statement as:
-                //  return cases->dim+1;
-                rs->exp = new IntegerExp(sc->fes->cases->dim + 1);
+                //  return cases->length+1;
+                rs->exp = new IntegerExp(sc->fes->cases->length + 1);
                 if (e0)
                 {
                     result = new CompoundStatement(rs->loc, new ExpStatement(rs->loc, e0), rs);
@@ -2997,7 +2967,7 @@ public:
                 //  return exp;
                 // to:
                 //  vresult = exp; retrun caseDim;
-                rs->caseDim = sc->fes->cases->dim + 1;
+                rs->caseDim = sc->fes->cases->length + 1;
             }
         }
         if (rs->exp)
@@ -3039,7 +3009,7 @@ public:
                          * and 1 is break.
                          */
                         sc->fes->cases->push(bs);
-                        result = new ReturnStatement(Loc(), new IntegerExp(sc->fes->cases->dim + 1));
+                        result = new ReturnStatement(Loc(), new IntegerExp(sc->fes->cases->length + 1));
                         return;
                     }
                     break;                  // can't break to it
@@ -3126,7 +3096,7 @@ public:
                          * and 1 is break.
                          */
                         sc->fes->cases->push(cs);
-                        result = new ReturnStatement(Loc(), new IntegerExp(sc->fes->cases->dim + 1));
+                        result = new ReturnStatement(Loc(), new IntegerExp(sc->fes->cases->length + 1));
                         return;
                     }
                     break;                  // can't continue to it
@@ -3222,7 +3192,7 @@ public:
             cs->push(new ExpStatement(ss->loc, tmp));
 
             Parameters* args = new Parameters;
-            args->push(new Parameter(0, ClassDeclaration::object->type, NULL, NULL));
+            args->push(new Parameter(0, ClassDeclaration::object->type, NULL, NULL, NULL));
 
             FuncDeclaration *fdenter = FuncDeclaration::genCfunc(args, Type::tvoid, Id::monitorenter);
             Expression *e = new CallExp(ss->loc, new VarExp(ss->loc, fdenter, false), new VarExp(ss->loc, tmp));
@@ -3243,14 +3213,15 @@ public:
         else
         {
             /* Generate our own critical section, then rewrite as:
-             *  __gshared byte[CriticalSection.sizeof] critsec;
-             *  _d_criticalenter(critsec.ptr);
-             *  try { body } finally { _d_criticalexit(critsec.ptr); }
+             *  __gshared void* __critsec;
+             *  _d_criticalenter2(&__critsec);
+             *  try { body } finally { _d_criticalexit(__critsec); }
              */
             Identifier *id = Identifier::generateId("__critsec");
-            Type *t = Type::tint8->sarrayOf(Target::ptrsize + Target::critsecsize());
+            Type *t = Type::tvoidptr;
             VarDeclaration *tmp = new VarDeclaration(ss->loc, t, id, NULL);
             tmp->storage_class |= STCtemp | STCgshared | STCstatic;
+            Expression *tmpExp = new VarExp(ss->loc, tmp);
 
             Statements *cs = new Statements();
             cs->push(new ExpStatement(ss->loc, tmp));
@@ -3263,18 +3234,17 @@ public:
             cs->push(new ExpStatement(ss->loc, v));
 
             Parameters* args = new Parameters;
-            args->push(new Parameter(0, t->pointerTo(), NULL, NULL));
+            args->push(new Parameter(0, t->pointerTo(), NULL, NULL, NULL));
 
             FuncDeclaration *fdenter = FuncDeclaration::genCfunc(args, Type::tvoid, Id::criticalenter, STCnothrow);
-            Expression *e = new DotIdExp(ss->loc, new VarExp(ss->loc, tmp), Id::ptr);
+            Expression *e = new AddrExp(ss->loc, tmpExp);
             e = semantic(e, sc);
             e = new CallExp(ss->loc, new VarExp(ss->loc, fdenter, false), e);
             e->type = Type::tvoid;                  // do not run semantic on e
             cs->push(new ExpStatement(ss->loc, e));
 
             FuncDeclaration *fdexit = FuncDeclaration::genCfunc(args, Type::tvoid, Id::criticalexit, STCnothrow);
-            e = new DotIdExp(ss->loc, new VarExp(ss->loc, tmp), Id::ptr);
-            e = semantic(e, sc);
+            e = semantic(tmpExp, sc);
             e = new CallExp(ss->loc, new VarExp(ss->loc, fdexit, false), e);
             e->type = Type::tvoid;                  // do not run semantic on e
             Statement *s = new ExpStatement(ss->loc, e);
@@ -3429,7 +3399,7 @@ public:
         /* Even if body is empty, still do semantic analysis on catches
         */
         bool catchErrors = false;
-        for (size_t i = 0; i < tcs->catches->dim; i++)
+        for (size_t i = 0; i < tcs->catches->length; i++)
         {
             Catch *c = (*tcs->catches)[i];
             semantic(c, sc);
@@ -3480,7 +3450,7 @@ public:
 
         if (!(blockExit(tcs->_body, sc->func, false) & BEthrow) && ClassDeclaration::exception)
         {
-            for (size_t i = 0; i < tcs->catches->dim; i++)
+            for (size_t i = 0; i < tcs->catches->length; i++)
             {
                 Catch *c = (*tcs->catches)[i];
 
@@ -3496,7 +3466,7 @@ public:
             }
         }
 
-        if (tcs->catches->dim == 0)
+        if (tcs->catches->length == 0)
         {
             result = tcs->_body->hasCode() ? tcs->_body : NULL;
             return;
@@ -3543,7 +3513,7 @@ public:
         result = tfs;
     }
 
-    void visit(OnScopeStatement *oss)
+    void visit(ScopeGuardStatement *oss)
     {
         if (oss->tok != TOKon_scope_exit)
         {
@@ -3717,7 +3687,7 @@ public:
         sc = sc->push();
         sc->stc |= cas->stc;
 
-        for (size_t i = 0; i < cas->statements->dim; i++)
+        for (size_t i = 0; i < cas->statements->length; i++)
         {
             Statement *s = (*cas->statements)[i];
             (*cas->statements)[i] = s ? semantic(s, sc) : NULL;
@@ -3739,11 +3709,11 @@ public:
 
     void visit(ImportStatement *imps)
     {
-        for (size_t i = 0; i < imps->imports->dim; i++)
+        for (size_t i = 0; i < imps->imports->length; i++)
         {
             Import *s = (*imps->imports)[i]->isImport();
-            assert(!s->aliasdecls.dim);
-            for (size_t j = 0; j < s->names.dim; j++)
+            assert(!s->aliasdecls.length);
+            for (size_t j = 0; j < s->names.length; j++)
             {
                 Identifier *name = s->names[j];
                 Identifier *alias = s->aliases[j];
@@ -3766,7 +3736,7 @@ public:
                 Module::addDeferredSemantic2(s);     // Bugzilla 14666
                 sc->insert(s);
 
-                for (size_t j = 0; j < s->aliasdecls.dim; j++)
+                for (size_t j = 0; j < s->aliasdecls.length; j++)
                 {
                     sc->insert(s->aliasdecls[j]);
                 }
@@ -3829,7 +3799,7 @@ void semantic(Catch *c, Scope *sc)
         }
         else if (cd->isCPPclass())
         {
-            if (!Target::cppExceptions)
+            if (!target.cpp.exceptions)
             {
                 error(c->loc, "catching C++ class objects not supported for this target");
                 c->errors = true;

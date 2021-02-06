@@ -1,6 +1,6 @@
 // Components for manipulating non-owning sequences of characters -*- C++ -*-
 
-// Copyright (C) 2013-2020 Free Software Foundation, Inc.
+// Copyright (C) 2013-2021 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -40,9 +40,10 @@
 #include <iosfwd>
 #include <bits/char_traits.h>
 #include <bits/functional_hash.h>
-#include <bits/int_limits.h>
 #include <bits/range_access.h>
+#include <bits/ranges_base.h>
 #include <bits/ostream_insert.h>
+#include <ext/numeric_traits.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -207,8 +208,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       constexpr const_reference
       operator[](size_type __pos) const noexcept
       {
-	// TODO: Assert to restore in a way compatible with the constexpr.
-	// __glibcxx_assert(__pos < this->_M_len);
+	__glibcxx_assert(__pos < this->_M_len);
 	return *(this->_M_str + __pos);
       }
 
@@ -225,16 +225,14 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       constexpr const_reference
       front() const noexcept
       {
-	// TODO: Assert to restore in a way compatible with the constexpr.
-	// __glibcxx_assert(this->_M_len > 0);
+	__glibcxx_assert(this->_M_len > 0);
 	return *this->_M_str;
       }
 
       constexpr const_reference
       back() const noexcept
       {
-	// TODO: Assert to restore in a way compatible with the constexpr.
-	// __glibcxx_assert(this->_M_len > 0);
+	__glibcxx_assert(this->_M_len > 0);
 	return *(this->_M_str + this->_M_len - 1);
       }
 
@@ -354,6 +352,21 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       { return this->ends_with(basic_string_view(__x)); }
 #endif // C++20
 
+#if __cplusplus > 202002L
+#define __cpp_lib_string_contains 202011L
+      constexpr bool
+      contains(basic_string_view __x) const noexcept
+      { return this->find(__x) != npos; }
+
+      constexpr bool
+      contains(_CharT __x) const noexcept
+      { return this->find(__x) != npos; }
+
+      constexpr bool
+      contains(const _CharT* __x) const noexcept
+      { return this->find(__x) != npos; }
+#endif // C++23
+
       // [string.view.find], searching
 
       constexpr size_type
@@ -461,11 +474,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       static constexpr int
       _S_compare(size_type __n1, size_type __n2) noexcept
       {
+	using __limits = __gnu_cxx::__int_traits<int>;
 	const difference_type __diff = __n1 - __n2;
-	if (__diff > __detail::__int_limits<int>::max())
-	  return __detail::__int_limits<int>::max();
-	if (__diff < __detail::__int_limits<int>::min())
-	  return __detail::__int_limits<int>::min();
+	if (__diff > __limits::__max)
+	  return __limits::__max;
+	if (__diff < __limits::__min)
+	  return __limits::__min;
 	return static_cast<int>(__diff);
       }
 

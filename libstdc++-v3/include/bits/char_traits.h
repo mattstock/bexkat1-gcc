@@ -1,6 +1,6 @@
 // Character Traits for use by standard string and iostream -*- C++ -*-
 
-// Copyright (C) 1997-2020 Free Software Foundation, Inc.
+// Copyright (C) 1997-2021 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -196,7 +196,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       if (std::is_constant_evaluated())
 	{
 	  if (__s1 > __s2 && __s1 < __s2 + __n)
-	    std::copy_backward(__s2, __s2 + __n, __s1);
+	    std::copy_backward(__s2, __s2 + __n, __s1 + __n);
 	  else
 	    std::copy(__s2, __s2 + __n, __s1);
 	  return __s1;
@@ -236,7 +236,14 @@ namespace std _GLIBCXX_VISIBILITY(default)
 _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 #if __cplusplus >= 201703L
-#define __cpp_lib_constexpr_char_traits 201611
+
+#if __cplusplus == 201703L
+// Unofficial macro indicating P0426R1 support
+# define __cpp_lib_constexpr_char_traits 201611L
+#else
+// Also support P1032R1 in C++20
+# define __cpp_lib_constexpr_char_traits 201811L
+#endif
 
   /**
    *  @brief Determine whether the characters of a NULL-terminated

@@ -1,5 +1,5 @@
 /* ACLE support for AArch64 SVE
-   Copyright (C) 2018-2020 Free Software Foundation, Inc.
+   Copyright (C) 2018-2021 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -658,6 +658,7 @@ public:
 
 private:
   unsigned long m_old_isa_flags;
+  unsigned int m_old_maximum_field_alignment;
   bool m_old_general_regs_only;
   bool m_old_have_regs_of_mode[MAX_MACHINE_MODE];
 };

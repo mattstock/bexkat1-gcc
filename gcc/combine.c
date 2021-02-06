@@ -1,5 +1,5 @@
 /* Optimize by combining instructions for GNU compiler.
-   Copyright (C) 1987-2020 Free Software Foundation, Inc.
+   Copyright (C) 1987-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -544,7 +544,7 @@ combine_split_insns (rtx pattern, rtx_insn *insn)
   ret = split_insns (pattern, insn);
   nregs = max_reg_num ();
   if (nregs > reg_stat.length ())
-    reg_stat.safe_grow_cleared (nregs);
+    reg_stat.safe_grow_cleared (nregs, true);
   return ret;
 }
 
@@ -1172,7 +1172,7 @@ combine_instructions (rtx_insn *f, unsigned int nregs)
 
   rtl_hooks = combine_rtl_hooks;
 
-  reg_stat.safe_grow_cleared (nregs);
+  reg_stat.safe_grow_cleared (nregs, true);
 
   init_recog_no_volatile ();
 
@@ -2531,42 +2531,6 @@ reg_subword_p (rtx x, rtx reg)
 	 && GET_MODE_CLASS (GET_MODE (x)) == MODE_INT;
 }
 
-/* Delete the unconditional jump INSN and adjust the CFG correspondingly.
-   Note that the INSN should be deleted *after* removing dead edges, so
-   that the kept edge is the fallthrough edge for a (set (pc) (pc))
-   but not for a (set (pc) (label_ref FOO)).  */
-
-static void
-update_cfg_for_uncondjump (rtx_insn *insn)
-{
-  basic_block bb = BLOCK_FOR_INSN (insn);
-  gcc_assert (BB_END (bb) == insn);
-
-  purge_dead_edges (bb);
-
-  delete_insn (insn);
-  if (EDGE_COUNT (bb->succs) == 1)
-    {
-      rtx_insn *insn;
-
-      single_succ_edge (bb)->flags |= EDGE_FALLTHRU;
-
-      /* Remove barriers from the footer if there are any.  */
-      for (insn = BB_FOOTER (bb); insn; insn = NEXT_INSN (insn))
-	if (BARRIER_P (insn))
-	  {
-	    if (PREV_INSN (insn))
-	      SET_NEXT_INSN (PREV_INSN (insn)) = NEXT_INSN (insn);
-	    else
-	      BB_FOOTER (bb) = NEXT_INSN (insn);
-	    if (NEXT_INSN (insn))
-	      SET_PREV_INSN (NEXT_INSN (insn)) = PREV_INSN (insn);
-	  }
-	else if (LABEL_P (insn))
-	  break;
-    }
-}
-
 /* Return whether PAT is a PARALLEL of exactly N register SETs followed
    by an arbitrary number of CLOBBERs.  */
 static bool
@@ -2624,15 +2588,16 @@ can_split_parallel_of_n_reg_sets (rtx_insn *insn, int n)
   return true;
 }
 
-/* Return whether X is just a single set, with the source
+/* Return whether X is just a single_set, with the source
    a general_operand.  */
 static bool
-is_just_move (rtx x)
+is_just_move (rtx_insn *x)
 {
-  if (INSN_P (x))
-    x = PATTERN (x);
+  rtx set = single_set (x);
+  if (!set)
+    return false;
 
-  return (GET_CODE (x) == SET && general_operand (SET_SRC (x), VOIDmode));
+  return general_operand (SET_SRC (set), VOIDmode);
 }
 
 /* Callback function to count autoincs.  */
@@ -7664,6 +7629,24 @@ make_extraction (machine_mode mode, rtx inner, HOST_WIDE_INT pos,
       if (new_rtx != 0)
 	return gen_rtx_ASHIFT (mode, new_rtx, XEXP (inner, 1));
     }
+  else if (GET_CODE (inner) == MULT
+	   && CONST_INT_P (XEXP (inner, 1))
+	   && pos_rtx == 0 && pos == 0)
+    {
+      /* We're extracting the least significant bits of an rtx
+	 (mult X (const_int 2^C)), where LEN > C.  Extract the
+	 least significant (LEN - C) bits of X, giving an rtx
+	 whose mode is MODE, then multiply it by 2^C.  */
+      const HOST_WIDE_INT shift_amt = exact_log2 (INTVAL (XEXP (inner, 1)));
+      if (IN_RANGE (shift_amt, 1, len - 1))
+	{
+	  new_rtx = make_extraction (mode, XEXP (inner, 0),
+				     0, 0, len - shift_amt,
+				     unsignedp, in_dest, in_compare);
+	  if (new_rtx)
+	    return gen_rtx_MULT (mode, new_rtx, XEXP (inner, 1));
+	}
+    }
   else if (GET_CODE (inner) == TRUNCATE
 	   /* If trying or potentionally trying to extract
 	      bits outside of is_mode, don't look through
@@ -11002,8 +10985,11 @@ simplify_shift_const_1 (enum rtx_code code, machine_mode result_mode,
 		break;
 	      /* For ((int) (cstLL >> count)) >> cst2 just give up.  Queuing
 		 up outer sign extension (often left and right shift) is
-		 hardly more efficient than the original.  See PR70429.  */
-	      if (code == ASHIFTRT && int_mode != int_result_mode)
+		 hardly more efficient than the original.  See PR70429.
+		 Similarly punt for rotates with different modes.
+		 See PR97386.  */
+	      if ((code == ASHIFTRT || code == ROTATE)
+		  && int_mode != int_result_mode)
 		break;
 
 	      rtx count_rtx = gen_int_shift_amount (int_result_mode, count);

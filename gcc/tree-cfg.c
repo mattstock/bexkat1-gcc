@@ -1,5 +1,5 @@
 /* Control flow functions for trees.
-   Copyright (C) 2001-2020 Free Software Foundation, Inc.
+   Copyright (C) 2001-2021 Free Software Foundation, Inc.
    Contributed by Diego Novillo <dnovillo@redhat.com>
 
 This file is part of GCC.
@@ -181,14 +181,12 @@ init_empty_tree_cfg_for_function (struct function *fn)
   profile_status_for_fn (fn) = PROFILE_ABSENT;
   n_basic_blocks_for_fn (fn) = NUM_FIXED_BLOCKS;
   last_basic_block_for_fn (fn) = NUM_FIXED_BLOCKS;
-  vec_alloc (basic_block_info_for_fn (fn), initial_cfg_capacity);
   vec_safe_grow_cleared (basic_block_info_for_fn (fn),
-			 initial_cfg_capacity);
+			 initial_cfg_capacity, true);
 
   /* Build a mapping of labels to their associated blocks.  */
-  vec_alloc (label_to_block_map_for_fn (fn), initial_cfg_capacity);
   vec_safe_grow_cleared (label_to_block_map_for_fn (fn),
-			 initial_cfg_capacity);
+			 initial_cfg_capacity, true);
 
   SET_BASIC_BLOCK_FOR_FN (fn, ENTRY_BLOCK, ENTRY_BLOCK_PTR_FOR_FN (fn));
   SET_BASIC_BLOCK_FOR_FN (fn, EXIT_BLOCK, EXIT_BLOCK_PTR_FOR_FN (fn));
@@ -681,12 +679,8 @@ create_bb (void *h, void *e, basic_block after)
   /* Grow the basic block array if needed.  */
   if ((size_t) last_basic_block_for_fn (cfun)
       == basic_block_info_for_fn (cfun)->length ())
-    {
-      size_t new_size =
-	(last_basic_block_for_fn (cfun)
-	 + (last_basic_block_for_fn (cfun) + 3) / 4);
-      vec_safe_grow_cleared (basic_block_info_for_fn (cfun), new_size);
-    }
+    vec_safe_grow_cleared (basic_block_info_for_fn (cfun),
+			   last_basic_block_for_fn (cfun) + 1);
 
   /* Add the newly created block to the array.  */
   SET_BASIC_BLOCK_FOR_FN (cfun, last_basic_block_for_fn (cfun), bb);
@@ -1728,6 +1722,7 @@ group_case_labels_stmt (gswitch *stmt)
   int old_size = gimple_switch_num_labels (stmt);
   int i, next_index, new_size;
   basic_block default_bb = NULL;
+  hash_set<tree> *removed_labels = NULL;
 
   default_bb = gimple_switch_default_bb (cfun, stmt);
 
@@ -1744,8 +1739,11 @@ group_case_labels_stmt (gswitch *stmt)
       base_bb = label_to_block (cfun, CASE_LABEL (base_case));
 
       /* Discard cases that have the same destination as the default case or
-	 whose destiniation blocks have already been removed as unreachable.  */
-      if (base_bb == NULL || base_bb == default_bb)
+	 whose destination blocks have already been removed as unreachable.  */
+      if (base_bb == NULL
+	  || base_bb == default_bb
+	  || (removed_labels
+	      && removed_labels->contains (CASE_LABEL (base_case))))
 	{
 	  i++;
 	  continue;
@@ -1768,10 +1766,13 @@ group_case_labels_stmt (gswitch *stmt)
 	  /* Merge the cases if they jump to the same place,
 	     and their ranges are consecutive.  */
 	  if (merge_bb == base_bb
+	      && (removed_labels == NULL
+		  || !removed_labels->contains (CASE_LABEL (merge_case)))
 	      && wi::to_wide (CASE_LOW (merge_case)) == bhp1)
 	    {
-	      base_high = CASE_HIGH (merge_case) ?
-		  CASE_HIGH (merge_case) : CASE_LOW (merge_case);
+	      base_high
+		= (CASE_HIGH (merge_case)
+		   ? CASE_HIGH (merge_case) : CASE_LOW (merge_case));
 	      CASE_HIGH (base_case) = base_high;
 	      next_index++;
 	    }
@@ -1792,7 +1793,29 @@ group_case_labels_stmt (gswitch *stmt)
 	{
 	  edge base_edge = find_edge (gimple_bb (stmt), base_bb);
 	  if (base_edge != NULL)
-	    remove_edge_and_dominated_blocks (base_edge);
+	    {
+	      for (gimple_stmt_iterator gsi = gsi_start_bb (base_bb);
+		   !gsi_end_p (gsi); gsi_next (&gsi))
+		if (glabel *stmt = dyn_cast <glabel *> (gsi_stmt (gsi)))
+		  {
+		    if (FORCED_LABEL (gimple_label_label (stmt))
+			|| DECL_NONLOCAL (gimple_label_label (stmt)))
+		      {
+			/* Forced/non-local labels aren't going to be removed,
+			   but they will be moved to some neighbouring basic
+			   block. If some later case label refers to one of
+			   those labels, we should throw that case away rather
+			   than keeping it around and refering to some random
+			   other basic block without an edge to it.  */
+			if (removed_labels == NULL)
+			  removed_labels = new hash_set<tree>;
+			removed_labels->add (gimple_label_label (stmt));
+		      }
+		  }
+		else
+		  break;
+	      remove_edge_and_dominated_blocks (base_edge);
+	    }
 	  i = next_index;
 	  continue;
 	}
@@ -1809,6 +1832,7 @@ group_case_labels_stmt (gswitch *stmt)
   if (new_size < old_size)
     gimple_switch_set_num_labels (stmt, new_size);
 
+  delete removed_labels;
   return new_size < old_size;
 }
 
@@ -2864,35 +2888,6 @@ last_and_only_stmt (basic_block bb)
     return NULL;
 }
 
-/* Reinstall those PHI arguments queued in OLD_EDGE to NEW_EDGE.  */
-
-static void
-reinstall_phi_args (edge new_edge, edge old_edge)
-{
-  edge_var_map *vm;
-  int i;
-  gphi_iterator phis;
-
-  vec<edge_var_map> *v = redirect_edge_var_map_vector (old_edge);
-  if (!v)
-    return;
-
-  for (i = 0, phis = gsi_start_phis (new_edge->dest);
-       v->iterate (i, &vm) && !gsi_end_p (phis);
-       i++, gsi_next (&phis))
-    {
-      gphi *phi = phis.phi ();
-      tree result = redirect_edge_var_map_result (vm);
-      tree arg = redirect_edge_var_map_def (vm);
-
-      gcc_assert (result == gimple_phi_result (phi));
-
-      add_phi_arg (phi, arg, new_edge, redirect_edge_var_map_location (vm));
-    }
-
-  redirect_edge_var_map_clear (old_edge);
-}
-
 /* Returns the basic block after which the new basic block created
    by splitting edge EDGE_IN should be placed.  Tries to keep the new block
    near its "logical" location.  This is of most help to humans looking
@@ -2932,11 +2927,24 @@ gimple_split_edge (edge edge_in)
   new_bb = create_empty_bb (after_bb);
   new_bb->count = edge_in->count ();
 
-  e = redirect_edge_and_branch (edge_in, new_bb);
-  gcc_assert (e == edge_in);
-
+  /* We want to avoid re-allocating PHIs when we first
+     add the fallthru edge from new_bb to dest but we also
+     want to avoid changing PHI argument order when
+     first redirecting edge_in away from dest.  The former
+     avoids changing PHI argument order by adding them
+     last and then the redirection swapping it back into
+     place by means of unordered remove.
+     So hack around things by temporarily removing all PHIs
+     from the destination during the edge redirection and then
+     making sure the edges stay in order.  */
+  gimple_seq saved_phis = phi_nodes (dest);
+  unsigned old_dest_idx = edge_in->dest_idx;
+  set_phi_nodes (dest, NULL);
   new_edge = make_single_succ_edge (new_bb, dest, EDGE_FALLTHRU);
-  reinstall_phi_args (new_edge, e);
+  e = redirect_edge_and_branch (edge_in, new_bb);
+  gcc_assert (e == edge_in && new_edge->dest_idx == old_dest_idx);
+  /* set_phi_nodes sets the BB of the PHI nodes, so do it manually here.  */
+  dest->il.gimple.phi_nodes = saved_phis;
 
   return new_bb;
 }
@@ -3465,14 +3473,9 @@ verify_gimple_comparison (tree type, tree op0, tree op1, enum tree_code code)
   /* For comparisons we do not have the operations type as the
      effective type the comparison is carried out in.  Instead
      we require that either the first operand is trivially
-     convertible into the second, or the other way around.
-     Because we special-case pointers to void we allow
-     comparisons of pointers with the same mode as well.  */
+     convertible into the second, or the other way around.  */
   if (!useless_type_conversion_p (op0_type, op1_type)
-      && !useless_type_conversion_p (op1_type, op0_type)
-      && (!POINTER_TYPE_P (op0_type)
-	  || !POINTER_TYPE_P (op1_type)
-	  || TYPE_MODE (op0_type) != TYPE_MODE (op1_type)))
+      && !useless_type_conversion_p (op1_type, op0_type))
     {
       error ("mismatching comparison operand types");
       debug_generic_expr (op0_type);
@@ -3882,6 +3885,8 @@ verify_gimple_assign_binary (gassign *stmt)
         return false;
       }
 
+    case WIDEN_PLUS_EXPR:
+    case WIDEN_MINUS_EXPR:
     case PLUS_EXPR:
     case MINUS_EXPR:
       {
@@ -3935,7 +3940,7 @@ verify_gimple_assign_binary (gassign *stmt)
 	    /* Because we special-case pointers to void we allow difference
 	       of arbitrary pointers with the same mode.  */
 	    || TYPE_MODE (rhs1_type) != TYPE_MODE (rhs2_type)
-	    || TREE_CODE (lhs_type) != INTEGER_TYPE
+	    || !INTEGRAL_TYPE_P (lhs_type)
 	    || TYPE_UNSIGNED (lhs_type)
 	    || TYPE_PRECISION (lhs_type) != TYPE_PRECISION (rhs1_type))
 	  {
@@ -4002,6 +4007,10 @@ verify_gimple_assign_binary (gassign *stmt)
         return false;
       }
 
+    case VEC_WIDEN_MINUS_HI_EXPR:
+    case VEC_WIDEN_MINUS_LO_EXPR:
+    case VEC_WIDEN_PLUS_HI_EXPR:
+    case VEC_WIDEN_PLUS_LO_EXPR:
     case VEC_WIDEN_MULT_HI_EXPR:
     case VEC_WIDEN_MULT_LO_EXPR:
     case VEC_WIDEN_MULT_EVEN_EXPR:
@@ -4155,7 +4164,7 @@ verify_gimple_assign_ternary (gassign *stmt)
       return true;
     }
 
-  if (((rhs_code == VEC_COND_EXPR || rhs_code == COND_EXPR)
+  if ((rhs_code == COND_EXPR
        ? !is_gimple_condexpr (rhs1) : !is_gimple_val (rhs1))
       || !is_gimple_val (rhs2)
       || !is_gimple_val (rhs3))
@@ -4779,17 +4788,7 @@ verify_gimple_switch (gswitch *stmt)
 	  return true;
 	}
 
-      if (elt_type)
-	{
-	  if (TREE_TYPE (CASE_LOW (elt)) != elt_type
-	      || (CASE_HIGH (elt) && TREE_TYPE (CASE_HIGH (elt)) != elt_type))
-	    {
-	      error ("type mismatch for case label in switch statement");
-	      debug_generic_expr (elt);
-	      return true;
-	    }
-	}
-      else
+      if (! elt_type)
 	{
 	  elt_type = TREE_TYPE (CASE_LOW (elt));
 	  if (TYPE_PRECISION (index_type) < TYPE_PRECISION (elt_type))
@@ -4797,6 +4796,13 @@ verify_gimple_switch (gswitch *stmt)
 	      error ("type precision mismatch in switch statement");
 	      return true;
 	    }
+	}
+      if (TREE_TYPE (CASE_LOW (elt)) != elt_type
+          || (CASE_HIGH (elt) && TREE_TYPE (CASE_HIGH (elt)) != elt_type))
+	{
+	  error ("type mismatch for case label in switch statement");
+	  debug_generic_expr (elt);
+	  return true;
 	}
 
       if (prev_upper_bound)
@@ -6190,8 +6196,44 @@ gimple_split_block_before_cond_jump (basic_block bb)
 /* Return true if basic_block can be duplicated.  */
 
 static bool
-gimple_can_duplicate_bb_p (const_basic_block bb ATTRIBUTE_UNUSED)
+gimple_can_duplicate_bb_p (const_basic_block bb)
 {
+  gimple *last = last_stmt (CONST_CAST_BB (bb));
+
+  /* Do checks that can only fail for the last stmt, to minimize the work in the
+     stmt loop.  */
+  if (last) {
+    /* A transaction is a single entry multiple exit region.  It
+       must be duplicated in its entirety or not at all.  */
+    if (gimple_code (last) == GIMPLE_TRANSACTION)
+      return false;
+
+    /* An IFN_UNIQUE call must be duplicated as part of its group,
+       or not at all.  */
+    if (is_gimple_call (last)
+	&& gimple_call_internal_p (last)
+	&& gimple_call_internal_unique_p (last))
+      return false;
+  }
+
+  for (gimple_stmt_iterator gsi = gsi_start_bb (CONST_CAST_BB (bb));
+       !gsi_end_p (gsi); gsi_next (&gsi))
+    {
+      gimple *g = gsi_stmt (gsi);
+
+      /* An IFN_GOMP_SIMT_ENTER_ALLOC/IFN_GOMP_SIMT_EXIT call must be
+	 duplicated as part of its group, or not at all.
+	 The IFN_GOMP_SIMT_VOTE_ANY and IFN_GOMP_SIMT_XCHG_* are part of such a
+	 group, so the same holds there.  */
+      if (is_gimple_call (g)
+	  && (gimple_call_internal_p (g, IFN_GOMP_SIMT_ENTER_ALLOC)
+	      || gimple_call_internal_p (g, IFN_GOMP_SIMT_EXIT)
+	      || gimple_call_internal_p (g, IFN_GOMP_SIMT_VOTE_ANY)
+	      || gimple_call_internal_p (g, IFN_GOMP_SIMT_XCHG_BFLY)
+	      || gimple_call_internal_p (g, IFN_GOMP_SIMT_XCHG_IDX)))
+	return false;
+    }
+
   return true;
 }
 
@@ -7067,7 +7109,7 @@ move_block_to_fn (struct function *dest_cfun, basic_block bb,
   edge_iterator ei;
   edge e;
   gimple_stmt_iterator si;
-  unsigned old_len, new_len;
+  unsigned old_len;
 
   /* Remove BB from dominance structures.  */
   delete_from_dominance_info (CDI_DOMINATORS, bb);
@@ -7103,10 +7145,8 @@ move_block_to_fn (struct function *dest_cfun, basic_block bb,
 
   old_len = vec_safe_length (cfg->x_basic_block_info);
   if ((unsigned) cfg->x_last_basic_block >= old_len)
-    {
-      new_len = cfg->x_last_basic_block + (cfg->x_last_basic_block + 3) / 4;
-      vec_safe_grow_cleared (cfg->x_basic_block_info, new_len);
-    }
+    vec_safe_grow_cleared (cfg->x_basic_block_info,
+			   cfg->x_last_basic_block + 1);
 
   (*cfg->x_basic_block_info)[bb->index] = bb;
 
@@ -7179,10 +7219,7 @@ move_block_to_fn (struct function *dest_cfun, basic_block bb,
 
 	  old_len = vec_safe_length (cfg->x_label_to_block_map);
 	  if (old_len <= (unsigned) uid)
-	    {
-	      new_len = 3 * uid / 2 + 1;
-	      vec_safe_grow_cleared (cfg->x_label_to_block_map, new_len);
-	    }
+	    vec_safe_grow_cleared (cfg->x_label_to_block_map, uid + 1);
 
 	  (*cfg->x_label_to_block_map)[uid] = bb;
 	  (*cfun->cfg->x_label_to_block_map)[uid] = NULL;
@@ -7204,6 +7241,8 @@ move_block_to_fn (struct function *dest_cfun, basic_block bb,
       free_stmt_operands (cfun, stmt);
       push_cfun (dest_cfun);
       update_stmt (stmt);
+      if (is_gimple_call (stmt))
+	notice_special_calls (as_a <gcall *> (stmt));
       pop_cfun ();
     }
 
@@ -7933,14 +7972,19 @@ dump_function_to_file (tree fndecl, FILE *file, dump_flags_t flags)
 		  && decl_is_tm_clone (fndecl));
   struct function *fun = DECL_STRUCT_FUNCTION (fndecl);
 
-  if (DECL_ATTRIBUTES (fndecl) != NULL_TREE)
+  tree fntype = TREE_TYPE (fndecl);
+  tree attrs[] = { DECL_ATTRIBUTES (fndecl), TYPE_ATTRIBUTES (fntype) };
+
+  for (int i = 0; i != 2; ++i)
     {
+      if (!attrs[i])
+	continue;
+
       fprintf (file, "__attribute__((");
 
       bool first = true;
       tree chain;
-      for (chain = DECL_ATTRIBUTES (fndecl); chain;
-	   first = false, chain = TREE_CHAIN (chain))
+      for (chain = attrs[i]; chain; first = false, chain = TREE_CHAIN (chain))
 	{
 	  if (!first)
 	    fprintf (file, ", ");
@@ -7993,7 +8037,11 @@ dump_function_to_file (tree fndecl, FILE *file, dump_flags_t flags)
 	}
     }
   else
-    fprintf (file, "%s %s(", function_name (fun), tmclone ? "[tm-clone] " : "");
+    {
+      print_generic_expr (file, TREE_TYPE (fntype), dump_flags);
+      fprintf (file, " %s %s(", function_name (fun),
+	       tmclone ? "[tm-clone] " : "");
+    }
 
   arg = DECL_ARGUMENTS (fndecl);
   while (arg)

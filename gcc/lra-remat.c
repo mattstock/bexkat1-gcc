@@ -1,5 +1,5 @@
 /* Rematerialize pseudos values.
-   Copyright (C) 2014-2020 Free Software Foundation, Inc.
+   Copyright (C) 2014-2021 Free Software Foundation, Inc.
    Contributed by Vladimir Makarov <vmakarov@redhat.com>.
 
 This file is part of GCC.
@@ -1031,12 +1031,12 @@ update_scratch_ops (rtx_insn *remat_insn)
       if (! REG_P (*loc))
 	continue;
       int regno = REGNO (*loc);
-      if (! lra_former_scratch_p (regno))
+      if (! ira_former_scratch_p (regno))
 	continue;
       *loc = lra_create_new_reg (GET_MODE (*loc), *loc,
 				 lra_get_allocno_class (regno),
 				 "scratch pseudo copy");
-      lra_register_new_scratch_op (remat_insn, i, id->icode);
+      ira_register_new_scratch_op (remat_insn, i, id->icode);
     }
   
 }

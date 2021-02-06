@@ -1,5 +1,5 @@
 /* Common hooks for ARM.
-   Copyright (C) 1991-2020 Free Software Foundation, Inc.
+   Copyright (C) 1991-2021 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -19,6 +19,7 @@
 
 #define INCLUDE_LIST
 #define INCLUDE_VECTOR
+#define INCLUDE_ALGORITHM
 #include "config.h"
 #include "system.h"
 #include "coretypes.h"
@@ -31,7 +32,6 @@
 #include "flags.h"
 #include "sbitmap.h"
 #include "diagnostic.h"
-#include <algorithm>
 
 /* Set default optimization options.  */
 static const struct default_options arm_option_optimization_table[] =

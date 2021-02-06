@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012-2020 Free Software Foundation, Inc.
+ * Copyright (C) 2012-2021 Free Software Foundation, Inc.
  *
  * This file is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -39,7 +39,7 @@ struct fenv
   unsigned int __data_offset;
   unsigned short int __data_selector;
   unsigned short int __unused5;
-};
+} __attribute__ ((gcc_struct));
 
 #ifdef __SSE_MATH__
 # define __math_force_eval_div(x, y) \

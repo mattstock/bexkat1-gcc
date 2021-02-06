@@ -13,7 +13,21 @@ import (
 	"errors"
 	"runtime"
 	"syscall"
+	_ "unsafe" // for go:linkname
 )
+
+// registerLoadFromEmbeddedTZData is called by the time/tzdata package,
+// if it is imported.
+//go:linkname registerLoadFromEmbeddedTZData
+func registerLoadFromEmbeddedTZData(f func(string) (string, error)) {
+	loadFromEmbeddedTZData = f
+}
+
+// loadFromEmbeddedTZData is used to load a specific tzdata file
+// from tzdata information embedded in the binary itself.
+// This is set when the time/tzdata package is imported,
+// via registerLoadFromEmbeddedTzdata.
+var loadFromEmbeddedTZData func(zipname string) (string, error)
 
 // maxFileSize is the max permitted size of files read by readFile.
 // As reference, the zoneinfo.zip distributed by Go is ~350 KB,
@@ -76,6 +90,13 @@ func (d *dataIO) byte() (n byte, ok bool) {
 		return 0, false
 	}
 	return p[0], true
+}
+
+// read returns the read of the data in the buffer.
+func (d *dataIO) rest() []byte {
+	r := d.p
+	d.p = nil
+	return r
 }
 
 // Make a string by stopping at the first NUL
@@ -213,6 +234,12 @@ func LoadLocationFromTZData(name string, data []byte) (*Location, error) {
 		return nil, badData
 	}
 
+	var extend string
+	rest := d.rest()
+	if len(rest) > 2 && rest[0] == '\n' && rest[len(rest)-1] == '\n' {
+		extend = string(rest[1 : len(rest)-1])
+	}
+
 	// Now we can build up a useful data structure.
 	// First the zone information.
 	//	utcoff[4] isdst[1] nameindex[1]
@@ -289,7 +316,7 @@ func LoadLocationFromTZData(name string, data []byte) (*Location, error) {
 	}
 
 	// Committed to succeed.
-	l := &Location{zone: zone, tx: tx, name: name}
+	l := &Location{zone: zone, tx: tx, name: name, extend: extend}
 
 	// Fill in the cache with information about right now,
 	// since that will be the most common lookup.
@@ -298,10 +325,27 @@ func LoadLocationFromTZData(name string, data []byte) (*Location, error) {
 		if tx[i].when <= sec && (i+1 == len(tx) || sec < tx[i+1].when) {
 			l.cacheStart = tx[i].when
 			l.cacheEnd = omega
+			zoneIdx := tx[i].index
 			if i+1 < len(tx) {
 				l.cacheEnd = tx[i+1].when
+			} else if l.extend != "" {
+				// If we're at the end of the known zone transitions,
+				// try the extend string.
+				if name, _, estart, eend, ok := tzset(l.extend, l.cacheEnd, sec); ok {
+					l.cacheStart = estart
+					l.cacheEnd = eend
+					// Find the zone that is returned by tzset,
+					// the last transition is not always the correct zone.
+					for i, z := range l.zone {
+						if z.name == name {
+							zoneIdx = uint8(i)
+							break
+						}
+					}
+				}
 			}
-			l.cacheZone = &l.zone[tx[i].index]
+			l.cacheZone = &l.zone[zoneIdx]
+			break
 		}
 	}
 
@@ -486,6 +530,17 @@ func loadLocation(name string, sources []string) (z *Location, firstErr error) {
 			firstErr = err
 		}
 	}
+	if loadFromEmbeddedTZData != nil {
+		zonedata, err := loadFromEmbeddedTZData(name)
+		if err == nil {
+			if z, err = LoadLocationFromTZData(name, []byte(zonedata)); err == nil {
+				return z, nil
+			}
+		}
+		if firstErr == nil && err != syscall.ENOENT {
+			firstErr = err
+		}
+	}
 	if firstErr != nil {
 		return nil, firstErr
 	}
@@ -493,7 +548,7 @@ func loadLocation(name string, sources []string) (z *Location, firstErr error) {
 }
 
 // readFile reads and returns the content of the named file.
-// It is a trivial implementation of ioutil.ReadFile, reimplemented
+// It is a trivial implementation of os.ReadFile, reimplemented
 // here to avoid depending on io/ioutil or os.
 // It returns an error if name exceeds maxFileSize bytes.
 func readFile(name string) ([]byte, error) {

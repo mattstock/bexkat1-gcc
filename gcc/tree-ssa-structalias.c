@@ -1,5 +1,5 @@
 /* Tree based points-to analysis
-   Copyright (C) 2005-2020 Free Software Foundation, Inc.
+   Copyright (C) 2005-2021 Free Software Foundation, Inc.
    Contributed by Daniel Berlin <dberlin@dberlin.org>
 
    This file is part of GCC.
@@ -3851,6 +3851,23 @@ make_escape_constraint (tree op)
   make_constraint_to (escaped_id, op);
 }
 
+/* Make constraint necessary to make all indirect references
+   from VI escape.  */
+
+static void
+make_indirect_escape_constraint (varinfo_t vi)
+{
+  struct constraint_expr lhs, rhs;
+  /* escaped = *(VAR + UNKNOWN);  */
+  lhs.type = SCALAR;
+  lhs.var = escaped_id;
+  lhs.offset = 0;
+  rhs.type = DEREF;
+  rhs.var = vi->id;
+  rhs.offset = UNKNOWN_OFFSET;
+  process_constraint (new_constraint (lhs, rhs));
+}
+
 /* Add constraints to that the solution of VI is transitively closed.  */
 
 static void
@@ -4026,7 +4043,7 @@ handle_rhs_call (gcall *stmt, vec<ce_s> *results)
 	 set.  The argument would still get clobbered through the
 	 escape solution.  */
       if ((flags & EAF_NOCLOBBER)
-	   && (flags & EAF_NOESCAPE))
+	   && (flags & (EAF_NOESCAPE | EAF_NODIRECTESCAPE)))
 	{
 	  varinfo_t uses = get_call_use_vi (stmt);
 	  varinfo_t tem = new_var_info (NULL_TREE, "callarg", true);
@@ -4036,9 +4053,11 @@ handle_rhs_call (gcall *stmt, vec<ce_s> *results)
 	  if (!(flags & EAF_DIRECT))
 	    make_transitive_closure_constraints (tem);
 	  make_copy_constraint (uses, tem->id);
+	  if (!(flags & (EAF_NOESCAPE | EAF_DIRECT)))
+	    make_indirect_escape_constraint (tem);
 	  returns_uses = true;
 	}
-      else if (flags & EAF_NOESCAPE)
+      else if (flags & (EAF_NOESCAPE | EAF_NODIRECTESCAPE))
 	{
 	  struct constraint_expr lhs, rhs;
 	  varinfo_t uses = get_call_use_vi (stmt);
@@ -4061,6 +4080,8 @@ handle_rhs_call (gcall *stmt, vec<ce_s> *results)
 	  rhs.var = nonlocal_id;
 	  rhs.offset = 0;
 	  process_constraint (new_constraint (lhs, rhs));
+	  if (!(flags & (EAF_NOESCAPE | EAF_DIRECT)))
+	    make_indirect_escape_constraint (tem);
 	  returns_uses = true;
 	}
       else
@@ -4253,6 +4274,11 @@ handle_pure_call (gcall *stmt, vec<ce_s> *results)
   for (i = 0; i < gimple_call_num_args (stmt); ++i)
     {
       tree arg = gimple_call_arg (stmt, i);
+      int flags = gimple_call_arg_flags (stmt, i);
+
+      /* If the argument is not used we can ignore it.  */
+      if (flags & EAF_UNUSED)
+	continue;
       if (!uses)
 	{
 	  uses = get_call_use_vi (stmt);
@@ -4857,6 +4883,14 @@ find_func_aliases_for_call (struct function *fn, gcall *t)
 	 point for reachable memory of their arguments.  */
       else if (flags & (ECF_PURE|ECF_LOOPING_CONST_OR_PURE))
 	handle_pure_call (t, &rhsc);
+      /* If the call is to a replaceable operator delete and results
+	 from a delete expression as opposed to a direct call to
+	 such operator, then the effects for PTA (in particular
+	 the escaping of the pointer) can be ignored.  */
+      else if (fndecl
+	       && DECL_IS_OPERATOR_DELETE_P (fndecl)
+	       && gimple_call_from_new_or_delete (t))
+	;
       else
 	handle_rhs_call (t, &rhsc);
       if (gimple_call_lhs (t))
@@ -7964,7 +7998,7 @@ static bool
 associate_varinfo_to_alias (struct cgraph_node *node, void *data)
 {
   if ((node->alias
-       || (node->thunk.thunk_p
+       || (node->thunk
 	   && ! node->inlined_to))
       && node->analyzed
       && !node->ifunc_resolver)

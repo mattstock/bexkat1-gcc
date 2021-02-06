@@ -1,5 +1,5 @@
 /* decl.cc -- Lower D frontend declarations to GCC trees.
-   Copyright (C) 2006-2020 Free Software Foundation, Inc.
+   Copyright (C) 2006-2021 Free Software Foundation, Inc.
 
 GCC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -53,6 +53,10 @@ along with GCC; see the file COPYING3.  If not see
 #include "function.h"
 #include "debug.h"
 #include "tree-pretty-print.h"
+#include "tree-nested.h"
+#include "alloc-pool.h"
+#include "symbol-summary.h"
+#include "symtab-thunks.h"
 
 #include "d-tree.h"
 
@@ -63,12 +67,12 @@ const char *
 d_mangle_decl (Dsymbol *decl)
 {
   if (decl->isFuncDeclaration ())
-    return mangleExact ((FuncDeclaration *)decl);
+    return mangleExact ((FuncDeclaration *) decl);
   else
     {
       OutBuffer buf;
       mangleToBuffer (decl, &buf);
-      return buf.extractString ();
+      return buf.extractChars ();
     }
 }
 
@@ -101,7 +105,7 @@ gcc_attribute_p (Dsymbol *decl)
 {
   ModuleDeclaration *md = decl->getModule ()->md;
 
-  if (md && md->packages && md->packages->dim == 1)
+  if (md && md->packages && md->packages->length == 1)
     {
       if (!strcmp ((*md->packages)[0]->toChars (), "gcc")
 	  && !strcmp (md->id->toChars (), "attribute"))
@@ -129,6 +133,17 @@ public:
   DeclVisitor (void)
   {
     this->in_version_unittest_ = false;
+  }
+
+  /* Helper for generating code for the dsymbol AST class D.
+     Sets up the location of the symbol before lowering.  */
+
+  void build_dsymbol (Dsymbol *d)
+  {
+    location_t saved_location = input_location;
+    input_location = make_location_t (d->loc);
+    d->accept (this);
+    input_location = saved_location;
   }
 
   /* This should be overridden by each declaration class.  */
@@ -168,7 +183,7 @@ public:
     if (d->ident == NULL)
       {
 	/* Importing declaration list.  */
-	for (size_t i = 0; i < d->names.dim; i++)
+	for (size_t i = 0; i < d->names.length; i++)
 	  {
 	    AliasDeclaration *aliasdecl = d->aliasdecls[i];
 	    tree decl = build_import_decl (aliasdecl);
@@ -204,15 +219,14 @@ public:
 
   void visit (TupleDeclaration *d)
   {
-    for (size_t i = 0; i < d->objects->dim; i++)
+    for (size_t i = 0; i < d->objects->length; i++)
       {
 	RootObject *o = (*d->objects)[i];
-	if ((o->dyncast () == DYNCAST_EXPRESSION)
-	    && ((Expression *) o)->op == TOKdsymbol)
+	if (o->dyncast () == DYNCAST_EXPRESSION)
 	  {
-	    Declaration *d = ((DsymbolExp *) o)->s->isDeclaration ();
-	    if (d)
-	      d->accept (this);
+	    DsymbolExp *de = ((Expression *) o)->isDsymbolExp ();
+	    if (de != NULL && de->s->isDeclaration ())
+	      this->build_dsymbol (de->s);
 	  }
       }
   }
@@ -221,16 +235,13 @@ public:
 
   void visit (AttribDeclaration *d)
   {
-    Dsymbols *ds = d->include (NULL, NULL);
+    Dsymbols *ds = d->include (NULL);
 
     if (!ds)
       return;
 
-    for (size_t i = 0; i < ds->dim; i++)
-      {
-	Dsymbol *s = (*ds)[i];
-	s->accept (this);
-      }
+    for (size_t i = 0; i < ds->length; i++)
+      this->build_dsymbol ((*ds)[i]);
   }
 
   /* Pragmas are a way to pass special information to the compiler and to add
@@ -277,11 +288,8 @@ public:
     if (isError (d) || !d->members)
       return;
 
-    for (size_t i = 0; i < d->members->dim; i++)
-      {
-	Dsymbol *s = (*d->members)[i];
-	s->accept (this);
-      }
+    for (size_t i = 0; i < d->members->length; i++)
+      this->build_dsymbol ((*d->members)[i]);
   }
 
   /* Templates are D's approach to generic programming.  They have no members
@@ -308,14 +316,14 @@ public:
     TemplateInstance *ti = NULL;
 
     if (tb->ty == Tstruct)
-      ti = ((TypeStruct *) tb)->sym->isInstantiated ();
+      ti = tb->isTypeStruct ()->sym->isInstantiated ();
     else if (tb->ty == Tclass)
-      ti = ((TypeClass *) tb)->sym->isInstantiated ();
+      ti = tb->isTypeClass ()->sym->isInstantiated ();
 
     /* Return type is instantiated from this template declaration, walk over
        all members of the instance.  */
     if (ti && ti->tempdecl == d)
-      ti->accept (this);
+      this->build_dsymbol (ti);
   }
 
   /* Walk over all members in the instantiated template.  */
@@ -328,11 +336,8 @@ public:
     if (!d->needsCodegen ())
       return;
 
-    for (size_t i = 0; i < d->members->dim; i++)
-      {
-	Dsymbol *s = (*d->members)[i];
-	s->accept (this);
-      }
+    for (size_t i = 0; i < d->members->length; i++)
+      this->build_dsymbol ((*d->members)[i]);
   }
 
   /* Walk over all members in the mixin template scope.  */
@@ -342,11 +347,8 @@ public:
     if (isError (d)|| !d->members)
       return;
 
-    for (size_t i = 0; i < d->members->dim; i++)
-      {
-	Dsymbol *s = (*d->members)[i];
-	s->accept (this);
-      }
+    for (size_t i = 0; i < d->members->length; i++)
+      this->build_dsymbol ((*d->members)[i]);
   }
 
   /* Write out compiler generated TypeInfo, initializer and functions for the
@@ -391,24 +393,20 @@ public:
 
     d_finish_decl (d->sinit);
 
-    /* Put out the members.  */
-    for (size_t i = 0; i < d->members->dim; i++)
-      {
-	Dsymbol *member = (*d->members)[i];
-	/* There might be static ctors in the members, and they cannot
-	   be put in separate object files.  */
-	member->accept (this);
-      }
+    /* Put out the members.  There might be static constructors in the members
+       list, and they cannot be put in separate object files.  */
+    for (size_t i = 0; i < d->members->length; i++)
+      this->build_dsymbol ((*d->members)[i]);
 
     /* Put out xopEquals, xopCmp and xopHash.  */
     if (d->xeq && d->xeq != d->xerreq)
-      d->xeq->accept (this);
+      this->build_dsymbol (d->xeq);
 
     if (d->xcmp && d->xcmp != d->xerrcmp)
-      d->xcmp->accept (this);
+      this->build_dsymbol (d->xcmp);
 
     if (d->xhash)
-      d->xhash->accept (this);
+      this->build_dsymbol (d->xhash);
 
     d->semanticRun = PASSobj;
   }
@@ -420,7 +418,7 @@ public:
     bool has_errors = false;
 
     /* Finish semantic analysis of functions in vtbl[].  */
-    for (size_t i = d->vtblOffset (); i < d->vtbl.dim; i++)
+    for (size_t i = d->vtblOffset (); i < d->vtbl.length; i++)
       {
 	FuncDeclaration *fd = d->vtbl[i]->isFuncDeclaration ();
 
@@ -438,7 +436,7 @@ public:
 	/* The function fd is hidden from the view of the class.
 	   If it overlaps with any function in the vtbl[], then
 	   issue an error.  */
-	for (size_t j = 1; j < d->vtbl.dim; j++)
+	for (size_t j = 1; j < d->vtbl.length; j++)
 	  {
 	    if (j == i)
 	      continue;
@@ -454,26 +452,14 @@ public:
 
 	    if (fd->leastAsSpecialized (fd2) || fd2->leastAsSpecialized (fd))
 	      {
-		TypeFunction *tf = (TypeFunction *) fd->type;
-		if (tf->ty == Tfunction)
-		  {
-		    error_at (make_location_t (fd->loc), "use of %qs",
-			      fd->toPrettyChars ());
-		    inform (make_location_t (fd2->loc), "is hidden by %qs",
-			    fd2->toPrettyChars ());
-		    inform (make_location_t (d->loc),
-			    "use %<alias %s = %s.%s;%> to introduce base class "
-			    "overload set", fd->toChars (),
-			    fd->parent->toChars (), fd->toChars ());
-		  }
-		else
-		  {
-		    error_at (make_location_t (fd->loc), "use of %qs",
-			      fd->toPrettyChars ());
-		    inform (make_location_t (fd2->loc), "is hidden by %qs",
-			      fd2->toPrettyChars ());
-		  }
-
+		error_at (make_location_t (fd->loc), "use of %qs",
+			  fd->toPrettyChars ());
+		inform (make_location_t (fd2->loc), "is hidden by %qs",
+			fd2->toPrettyChars ());
+		inform (make_location_t (d->loc),
+			"use %<alias %s = %s.%s;%> to introduce base class "
+			"overload set", fd->toChars (),
+			fd->parent->toChars (), fd->toChars ());
 		has_errors = true;
 		break;
 	      }
@@ -502,11 +488,8 @@ public:
       return;
 
     /* Put out the members.  */
-    for (size_t i = 0; i < d->members->dim; i++)
-      {
-	Dsymbol *member = (*d->members)[i];
-	member->accept (this);
-      }
+    for (size_t i = 0; i < d->members->length; i++)
+      this->build_dsymbol ((*d->members)[i]);
 
     /* If something goes wrong during final semantic pass, don't bother with
        the rest as we may have incomplete info.  */
@@ -532,17 +515,17 @@ public:
     d_finish_decl (d->csym);
 
     /* Put out the vtbl[].  */
-    vec<constructor_elt, va_gc> *elms = NULL;
+    vec <constructor_elt, va_gc> *elms = NULL;
 
     /* First entry is ClassInfo reference.  */
     if (d->vtblOffset ())
       CONSTRUCTOR_APPEND_ELT (elms, size_zero_node, build_address (d->csym));
 
-    for (size_t i = d->vtblOffset (); i < d->vtbl.dim; i++)
+    for (size_t i = d->vtblOffset (); i < d->vtbl.length; i++)
       {
 	FuncDeclaration *fd = d->vtbl[i]->isFuncDeclaration ();
 
-	if (fd && (fd->fbody || !d->isAbstract()))
+	if (fd && (fd->fbody || !d->isAbstract ()))
 	  {
 	    CONSTRUCTOR_APPEND_ELT (elms, size_int (i),
 				    build_address (get_symbol_decl (fd)));
@@ -581,11 +564,8 @@ public:
       return;
 
     /* Put out the members.  */
-    for (size_t i = 0; i < d->members->dim; i++)
-      {
-	Dsymbol *member = (*d->members)[i];
-	member->accept (this);
-      }
+    for (size_t i = 0; i < d->members->length; i++)
+      this->build_dsymbol ((*d->members)[i]);
 
     /* Generate C symbols.  */
     d->csym = get_classinfo_decl (d);
@@ -594,7 +574,7 @@ public:
     if (have_typeinfo_p (Type::dtypeinfo))
       {
 	create_typeinfo (d->type, NULL);
-	d->type->vtinfo->accept (this);
+	this->build_dsymbol (d->type->vtinfo);
       }
 
     DECL_INITIAL (d->csym) = layout_classinfo (d);
@@ -631,7 +611,7 @@ public:
     if (have_typeinfo_p (Type::dtypeinfo))
       create_typeinfo (d->type, NULL);
 
-    TypeEnum *tc = (TypeEnum *) d->type;
+    TypeEnum *tc = d->type->isTypeEnum ();
     if (tc->sym->members && !d->type->isZeroInit ())
       {
 	/* Generate static initializer.  */
@@ -642,12 +622,12 @@ public:
 	  d_linkonce_linkage (d->sinit);
 
 	d_finish_decl (d->sinit);
-
-	/* Add this decl to the current binding level.  */
-	tree ctype = build_ctype (d->type);
-	if (TREE_CODE (ctype) == ENUMERAL_TYPE && TYPE_NAME (ctype))
-	  d_pushdecl (TYPE_NAME (ctype));
       }
+
+    /* Add this decl to the current binding level.  */
+    tree ctype = build_ctype (d->type);
+    if (TYPE_NAME (ctype))
+      d_pushdecl (TYPE_NAME (ctype));
 
     d->semanticRun = PASSobj;
   }
@@ -669,35 +649,17 @@ public:
 
     if (d->aliassym)
       {
-	d->toAlias ()->accept (this);
+	this->build_dsymbol (d->toAlias ());
 	return;
       }
 
-    /* Do not store variables we cannot take the address of,
-       but keep the values for purposes of debugging.  */
     if (!d->canTakeAddressOf ())
       {
-	/* Don't know if there is a good way to handle instantiations.  */
-	if (d->isInstantiated ())
-	  return;
-
-	/* Cannot make an expression out of a void initializer.  */
-	if (!d->_init || d->_init->isVoidInitializer ())
-	  return;
-
-	tree decl = get_symbol_decl (d);
-	Expression *ie = initializerToExpression (d->_init);
-
-	/* CONST_DECL was initially intended for enumerals and may be used for
-	   scalars in general, but not for aggregates.  Here a non-constant
-	   value is generated anyway so as the CONST_DECL only serves as a
-	   placeholder for the value, however the DECL itself should never be
-	   referenced in any generated code, or passed to the back-end.  */
+	/* Do not store variables we cannot take the address of,
+	   but keep the values for purposes of debugging.  */
 	if (!d->type->isscalar ())
-	  DECL_INITIAL (decl) = build_expr (ie, false);
-	else
 	  {
-	    DECL_INITIAL (decl) = build_expr (ie, true);
+	    tree decl = get_symbol_decl (d);
 	    d_pushdecl (decl);
 	    rest_of_decl_compilation (decl, 1, 0);
 	  }
@@ -721,18 +683,20 @@ public:
 	    return;
 	  }
 
-	if (d->_init && !d->_init->isVoidInitializer ())
+	if (d->_init)
 	  {
-	    Expression *e = initializerToExpression (d->_init, d->type);
-	    DECL_INITIAL (decl) = build_expr (e, true);
+	    /* Use the explicit initializer, this includes `void`.  */
+	    if (!d->_init->isVoidInitializer ())
+	      {
+		Expression *e = initializerToExpression (d->_init, d->type);
+		DECL_INITIAL (decl) = build_expr (e, true);
+	      }
 	  }
 	else
 	  {
-	    if (d->type->ty == Tstruct)
-	      {
-		StructDeclaration *sd = ((TypeStruct *) d->type)->sym;
-		DECL_INITIAL (decl) = layout_struct_initializer (sd);
-	      }
+	    /* Use default initializer for the type.  */
+	    if (TypeStruct *ts = d->type->isTypeStruct ())
+	      DECL_INITIAL (decl) = layout_struct_initializer (ts->sym);
 	    else
 	      {
 		Expression *e = d->type->defaultInitLiteral (d->loc);
@@ -756,33 +720,24 @@ public:
 	   a check for isVarDeclaration() in DeclarationExp codegen.  */
 	declare_local_var (d);
 
-	if (d->_init)
+	if (d->_init && !d->_init->isVoidInitializer ())
 	  {
 	    tree decl = get_symbol_decl (d);
 
-	    if (!d->_init->isVoidInitializer ())
-	      {
-		ExpInitializer *vinit = d->_init->isExpInitializer ();
-		Expression *ie = initializerToExpression (vinit);
-		tree exp = build_expr (ie);
+	    ExpInitializer *vinit = d->_init->isExpInitializer ();
+	    Expression *ie = initializerToExpression (vinit);
+	    tree exp = build_expr (ie);
 
-		/* Maybe put variable on list of things needing destruction.  */
-		if (d->needsScopeDtor ())
-		  {
-		    vec_safe_push (d_function_chain->vars_in_scope, decl);
-		    /* Force a TARGET_EXPR to add the corresponding cleanup.  */
-		    exp = force_target_expr (compound_expr (exp, decl));
-		    TARGET_EXPR_CLEANUP (exp) = build_expr (d->edtor);
-		  }
-
-		add_stmt (exp);
-	      }
-	    else if (d->size (d->loc) != 0)
+	    /* Maybe put variable on list of things needing destruction.  */
+	    if (d->needsScopeDtor ())
 	      {
-		/* Zero-length arrays do not have an initializer.  */
-		warning (OPT_Wuninitialized, "uninitialized variable '%s'",
-			 d->ident ? d->ident->toChars () : "(no name)");
+		vec_safe_push (d_function_chain->vars_in_scope, decl);
+		/* Force a TARGET_EXPR to add the corresponding cleanup.  */
+		exp = force_target_expr (compound_expr (exp, decl));
+		TARGET_EXPR_CLEANUP (exp) = build_expr (d->edtor);
 	      }
+
+	    add_stmt (exp);
 	  }
       }
 
@@ -824,9 +779,8 @@ public:
       return;
 
     /* Check if any errors occurred when running semantic.  */
-    if (d->type->ty == Tfunction)
+    if (TypeFunction *tf = d->type->isTypeFunction ())
       {
-	TypeFunction *tf = (TypeFunction *) d->type;
 	if (tf->next == NULL || tf->next->ty == Terror)
 	  return;
       }
@@ -887,7 +841,7 @@ public:
 
     /* Special arguments...  */
 
-    /* 'this' parameter:
+    /* `this' parameter:
        For nested functions, D still generates a vthis, but it
        should not be referenced in any expression.  */
     if (d->vthis)
@@ -917,7 +871,7 @@ public:
       }
 
     /* formal function parameters.  */
-    size_t n_parameters = d->parameters ? d->parameters->dim : 0;
+    size_t n_parameters = d->parameters ? d->parameters->length : 0;
 
     for (size_t i = 0; i < n_parameters; i++)
       {
@@ -967,27 +921,24 @@ public:
        Implemented by overriding all the RETURN_EXPRs and replacing all
        occurrences of VAR with the RESULT_DECL for the function.
        This is only worth doing for functions that can return in memory.  */
-    if (d->nrvo_can)
-      {
-	tree restype = TREE_TYPE (DECL_RESULT (fndecl));
+    tree resdecl = DECL_RESULT (fndecl);
 
-	if (!AGGREGATE_TYPE_P (restype))
-	  d->nrvo_can = 0;
+    if (TREE_ADDRESSABLE (TREE_TYPE (resdecl))
+	|| aggregate_value_p (TREE_TYPE (resdecl), fndecl))
+      {
+	/* Return non-trivial structs by invisible reference.  */
+	if (TREE_ADDRESSABLE (TREE_TYPE (resdecl)))
+	  {
+	    TREE_TYPE (resdecl) = build_reference_type (TREE_TYPE (resdecl));
+	    DECL_BY_REFERENCE (resdecl) = 1;
+	    TREE_ADDRESSABLE (resdecl) = 0;
+	    relayout_decl (resdecl);
+	    d->shidden = build_deref (resdecl);
+	  }
 	else
-	  d->nrvo_can = aggregate_value_p (restype, fndecl);
-      }
+	  d->shidden = resdecl;
 
-    if (d->nrvo_can)
-      {
-	tree resdecl = DECL_RESULT (fndecl);
-
-	TREE_TYPE (resdecl)
-	  = build_reference_type (TREE_TYPE (resdecl));
-	DECL_BY_REFERENCE (resdecl) = 1;
-	TREE_ADDRESSABLE (resdecl) = 0;
-	relayout_decl (resdecl);
-
-	if (d->nrvo_var)
+	if (d->nrvo_can && d->nrvo_var)
 	  {
 	    tree var = get_symbol_decl (d->nrvo_var);
 
@@ -995,11 +946,10 @@ public:
 	    DECL_NAME (resdecl) = DECL_NAME (var);
 	    /* Don't forget that we take its address.  */
 	    TREE_ADDRESSABLE (var) = 1;
-	    resdecl = build_deref (resdecl);
 
 	    SET_DECL_VALUE_EXPR (var, resdecl);
 	    DECL_HAS_VALUE_EXPR_P (var) = 1;
-	    SET_DECL_LANG_NRVO (var, resdecl);
+	    SET_DECL_LANG_NRVO (var, d->shidden);
 	  }
       }
 
@@ -1044,7 +994,7 @@ build_decl_tree (Dsymbol *d)
     input_location = make_location_t (Loc ("<no_file>", 1, 0));
 
   DeclVisitor v = DeclVisitor ();
-  d->accept (&v);
+  v.build_dsymbol (d);
 
   input_location = saved_location;
 }
@@ -1138,6 +1088,25 @@ get_symbol_decl (Declaration *decl)
 
       if (vd->storage_class & STCextern)
 	DECL_EXTERNAL (decl->csym) = 1;
+
+      /* CONST_DECL was initially intended for enumerals and may be used for
+	 scalars in general, but not for aggregates.  Here a non-constant
+	 value is generated anyway so as the CONST_DECL only serves as a
+	 placeholder for the value, however the DECL itself should never be
+	 referenced in any generated code, or passed to the back-end.  */
+      if (vd->storage_class & STCmanifest)
+	{
+	  /* Cannot make an expression out of a void initializer.  */
+	  if (vd->_init && !vd->_init->isVoidInitializer ())
+	    {
+	      Expression *ie = initializerToExpression (vd->_init);
+
+	      if (!vd->type->isscalar ())
+		DECL_INITIAL (decl->csym) = build_expr (ie, false);
+	      else
+		DECL_INITIAL (decl->csym) = build_expr (ie, true);
+	    }
+	}
     }
 
   /* Set the declaration mangled identifier if static.  */
@@ -1145,8 +1114,12 @@ get_symbol_decl (Declaration *decl)
     {
       tree mangled_name;
 
-      if (decl->mangleOverride)
-	mangled_name = get_identifier (decl->mangleOverride);
+      if (decl->mangleOverride.length)
+	{
+	  mangled_name =
+	    get_identifier_with_length (decl->mangleOverride.ptr,
+					decl->mangleOverride.length);
+	}
       else
 	mangled_name = get_identifier (d_mangle_decl (decl));
 
@@ -1229,7 +1202,7 @@ get_symbol_decl (Declaration *decl)
 	}
       else if (fd->isThis ())
 	{
-	  /* Add an extra argument for the 'this' parameter.  The handle type is
+	  /* Add an extra argument for the `this' parameter.  The handle type is
 	     used even if there is no debug info.  It is needed to make sure
 	     virtual member functions are not called statically.  */
 	  AggregateDeclaration *ad = fd->isMember2 ();
@@ -1250,11 +1223,11 @@ get_symbol_decl (Declaration *decl)
 	}
       else if (fd->isMain () || fd->isCMain ())
 	{
-	  /* The main function is named 'D main' to distinguish from C main.  */
+	  /* The main function is named `D main' to distinguish from C main.  */
 	  if (fd->isMain ())
 	    DECL_NAME (decl->csym) = get_identifier (fd->toPrettyChars (true));
 
-	  /* 'void main' is implicitly converted to returning an int.  */
+	  /* `void main' is implicitly converted to returning an int.  */
 	  newfntype = build_function_type (d_int_type, TYPE_ARG_TYPES (fntype));
 	}
 
@@ -1269,22 +1242,15 @@ get_symbol_decl (Declaration *decl)
 	}
 
       /* Miscellaneous function flags.  */
-      if (fd->isMember2 () || fd->isFuncLiteralDeclaration ())
-	{
-	  /* See grokmethod in cp/decl.c.  Maybe we shouldn't be setting inline
-	     flags without reason or proper handling.  */
-	  DECL_DECLARED_INLINE_P (decl->csym) = 1;
-	  DECL_NO_INLINE_WARNING_P (decl->csym) = 1;
-	}
 
-      /* In [pragma/inline], functions decorated with 'pragma(inline)' affects
+      /* In [pragma/inline], functions decorated with `pragma(inline)' affects
 	 whether they are inlined or not.  */
       if (fd->inlining == PINLINEalways)
 	DECL_DECLARED_INLINE_P (decl->csym) = 1;
       else if (fd->inlining == PINLINEnever)
 	DECL_UNINLINABLE (decl->csym) = 1;
 
-      /* Function was declared 'naked'.  */
+      /* Function was declared `naked'.  */
       if (fd->naked)
 	{
 	  insert_decl_attribute (decl->csym, "naked");
@@ -1319,8 +1285,8 @@ get_symbol_decl (Declaration *decl)
 	 all static chain passing is handled by the front-end.  Do this even
 	 if we are not emitting the body.  */
       struct cgraph_node *node = cgraph_node::get_create (decl->csym);
-      if (node->origin)
-	node->unnest ();
+      if (nested_function_origin (node))
+	unnest_function (node);
     }
 
   /* Mark compiler generated temporaries as artificial.  */
@@ -1336,9 +1302,9 @@ get_symbol_decl (Declaration *decl)
     TREE_THIS_VOLATILE (decl->csym) = 1;
 
   /* Protection attributes are used by the debugger.  */
-  if (decl->protection.kind == PROTprivate)
+  if (decl->protection.kind == Prot::private_)
     TREE_PRIVATE (decl->csym) = 1;
-  else if (decl->protection.kind == PROTprotected)
+  else if (decl->protection.kind == Prot::protected_)
     TREE_PROTECTED (decl->csym) = 1;
 
   /* Likewise, so could the deprecated attribute.  */
@@ -1490,7 +1456,7 @@ get_decl_tree (Declaration *decl)
 			    DECL_LANG_FRAME_FIELD (t));
     }
 
-  /* Get the non-local 'this' value by going through parent link
+  /* Get the non-local `this' value by going through parent link
      of nested classes, this routine pretty much undoes what
      getRightThis in the frontend removes from codegen.  */
   if (vd->parent != fd && vd->isThisDeclaration ())
@@ -1505,6 +1471,11 @@ get_decl_tree (Declaration *decl)
 
       AggregateDeclaration *ad = fd->isThis ();
       gcc_assert (ad != NULL);
+
+      /* The parent function is for the same `this' declaration we are
+	 building a chain to.  Non-local declaration is inaccessible.  */
+      if (fd->vthis == vd)
+	return error_no_frame_access (fd);
 
       t = get_decl_tree (fd->vthis);
       Dsymbol *outer = fd;
@@ -1525,9 +1496,9 @@ get_decl_tree (Declaration *decl)
 	  fd = outer->isFuncDeclaration ();
 	  while (fd != NULL)
 	    {
-	      /* If outer function creates a closure, then the 'this'
+	      /* If outer function creates a closure, then the `this'
 		 value would be the closure pointer, and the real
-		 'this' the first field of that closure.  */
+		 `this' the first field of that closure.  */
 	      tree ff = get_frameinfo (fd);
 	      if (FRAMEINFO_CREATES_FRAME (ff))
 		{
@@ -1693,7 +1664,7 @@ finish_thunk (tree thunk, tree function)
 	  resolve_unique_section (thunk, 0, flag_function_sections);
 
 	  /* Output the thunk into the same section as function.  */
-	  set_decl_section_name (thunk, DECL_SECTION_NAME (fn));
+	  set_decl_section_name (thunk, fn);
 	  symtab_node::get (thunk)->implicit_section
 	    = symtab_node::get (fn)->implicit_section;
 	}
@@ -1723,26 +1694,6 @@ finish_thunk (tree thunk, tree function)
 
   if (DECL_ONE_ONLY (function))
     thunk_node->add_to_same_comdat_group (funcn);
-
-  /* Target assemble_mi_thunk doesn't work across section boundaries
-     on many targets, instead force thunk to be expanded in gimple.  */
-  if (DECL_EXTERNAL (function))
-    {
-      /* cgraph::expand_thunk writes over current_function_decl, so if this
-	 could ever be in use by the codegen pass, we want to know about it.  */
-      gcc_assert (current_function_decl == NULL_TREE);
-
-      if (!stdarg_p (TREE_TYPE (thunk)))
-	{
-	  thunk_node->create_edge (funcn, NULL, thunk_node->count);
-	  thunk_node->expand_thunk (false, true);
-	}
-
-      /* Tell the back-end to not bother inlining the function, this is
-	 assumed not to work as it could be referencing symbols outside
-	 of the current compilation unit.  */
-      DECL_UNINLINABLE (function) = 1;
-    }
 }
 
 /* Return a thunk to DECL.  Thunks adjust the incoming `this' pointer by OFFSET.
@@ -1819,12 +1770,11 @@ make_thunk (FuncDeclaration *decl, int offset)
 
   DECL_CONTEXT (thunk) = d_decl_context (decl);
 
-  /* Thunks inherit the public access of the function they are targetting.
-     When the function is outside the current compilation unit however, then the
-     thunk must be kept private to not conflict.  */
-  TREE_PUBLIC (thunk) = TREE_PUBLIC (function) && !DECL_EXTERNAL (function);
-
-  DECL_EXTERNAL (thunk) = 0;
+  /* Thunks inherit the public access of the function they are targeting.
+     Thunks are connected to the definitions of the functions, so thunks are
+     not produced for external functions.  */
+  TREE_PUBLIC (thunk) = TREE_PUBLIC (function);
+  DECL_EXTERNAL (thunk) = DECL_EXTERNAL (function);
 
   /* Thunks are always addressable.  */
   TREE_ADDRESSABLE (thunk) = 1;
@@ -1836,18 +1786,31 @@ make_thunk (FuncDeclaration *decl, int offset)
   DECL_COMDAT (thunk) = DECL_COMDAT (function);
   DECL_WEAK (thunk) = DECL_WEAK (function);
 
-  tree target_name = DECL_ASSEMBLER_NAME (function);
-  unsigned identlen = IDENTIFIER_LENGTH (target_name) + 14;
-  const char *ident = XNEWVEC (const char, identlen);
-  snprintf (CONST_CAST (char *, ident), identlen,
-	    "_DT%u%s", offset, IDENTIFIER_POINTER (target_name));
+  /* When the thunk is for an extern C++ function, let C++ do the thunk
+     generation and just reference the symbol as extern, instead of
+     forcing a D local thunk to be emitted.  */
+  const char *ident;
+
+  if (decl->linkage == LINKcpp)
+    ident = target.cpp.thunkMangle (decl, offset);
+  else
+    {
+      tree target_name = DECL_ASSEMBLER_NAME (function);
+      unsigned identlen = IDENTIFIER_LENGTH (target_name) + 14;
+      ident = XNEWVEC (const char, identlen);
+
+      snprintf (CONST_CAST (char *, ident), identlen,
+		"_DTi%u%s", offset, IDENTIFIER_POINTER (target_name));
+    }
 
   DECL_NAME (thunk) = get_identifier (ident);
   SET_DECL_ASSEMBLER_NAME (thunk, DECL_NAME (thunk));
 
   d_keep (thunk);
+  free (CONST_CAST (char *, ident));
 
-  finish_thunk (thunk, function);
+  if (!DECL_EXTERNAL (function))
+    finish_thunk (thunk, function);
 
   /* Add it to the list of thunks associated with the function.  */
   DECL_LANG_THUNKS (thunk) = NULL_TREE;
@@ -1921,10 +1884,10 @@ start_function (FuncDeclaration *fd)
   else
     cfun->function_end_locus = DECL_SOURCE_LOCATION (fndecl);
 
-  cfun->language = ggc_cleared_alloc<language_function> ();
+  cfun->language = ggc_cleared_alloc <language_function> ();
   cfun->language->function = fd;
 
-  /* Default chain value is 'null' unless parent found.  */
+  /* Default chain value is `null' unless parent found.  */
   cfun->language->static_chain = null_pointer_node;
 
   /* Find module for this function.  */
@@ -2016,42 +1979,6 @@ mark_needed (tree decl)
     }
 }
 
-/* Get the offset to the BC's vtbl[] initializer from the start of CD.
-   Returns "~0u" if the base class is not found in any vtable interfaces.  */
-
-unsigned
-base_vtable_offset (ClassDeclaration *cd, BaseClass *bc)
-{
-  unsigned csymoffset = Target::classinfosize;
-  unsigned interfacesize = int_size_in_bytes (vtbl_interface_type_node);
-  csymoffset += cd->vtblInterfaces->dim * interfacesize;
-
-  for (size_t i = 0; i < cd->vtblInterfaces->dim; i++)
-    {
-      BaseClass *b = (*cd->vtblInterfaces)[i];
-      if (b == bc)
-	return csymoffset;
-      csymoffset += b->sym->vtbl.dim * Target::ptrsize;
-    }
-
-  /* Check all overriding interface vtbl[]s.  */
-  for (ClassDeclaration *cd2 = cd->baseClass; cd2; cd2 = cd2->baseClass)
-    {
-      for (size_t k = 0; k < cd2->vtblInterfaces->dim; k++)
-	{
-	  BaseClass *bs = (*cd2->vtblInterfaces)[k];
-	  if (bs->fillVtbl (cd, NULL, 0))
-	    {
-	      if (bc == bs)
-		return csymoffset;
-	      csymoffset += bs->sym->vtbl.dim * Target::ptrsize;
-	    }
-	}
-    }
-
-  return ~0u;
-}
-
 /* Get the VAR_DECL of the vtable symbol for DECL.  If this does not yet exist,
    create it.  The vtable is accessible via ClassInfo, but since it is needed
    frequently (like for rtti comparisons), make it directly accessible.  */
@@ -2065,7 +1992,7 @@ get_vtable_decl (ClassDeclaration *decl)
   tree ident = mangle_internal_decl (decl, "__vtbl", "Z");
   /* Note: Using a static array type for the VAR_DECL, the DECL_INITIAL value
      will have a different type.  However the back-end seems to accept this.  */
-  tree type = build_ctype (Type::tvoidptr->sarrayOf (decl->vtbl.dim));
+  tree type = build_ctype (Type::tvoidptr->sarrayOf (decl->vtbl.length));
 
   decl->vtblsym = declare_extern_var (ident, type);
   DECL_LANG_SPECIFIC (decl->vtblsym) = build_lang_decl (NULL);
@@ -2121,7 +2048,7 @@ build_class_instance (ClassReferenceExp *exp)
 {
   ClassDeclaration *cd = exp->originalClass ();
   tree type = TREE_TYPE (build_ctype (exp->value->stype));
-  vec<constructor_elt, va_gc> *ve = NULL;
+  vec <constructor_elt, va_gc> *ve = NULL;
 
   /* The set base vtable field.  */
   tree vptr = build_address (get_vtable_decl (cd));
@@ -2135,7 +2062,7 @@ build_class_instance (ClassReferenceExp *exp)
       /* Anonymous vtable interface fields are laid out before the fields of
 	 each class.  The interface offset is used to determine where to put
 	 the classinfo offset reference.  */
-      for (size_t i = 0; i < bcd->vtblInterfaces->dim; i++)
+      for (size_t i = 0; i < bcd->vtblInterfaces->length; i++)
 	{
 	  BaseClass *bc = (*bcd->vtblInterfaces)[i];
 
@@ -2162,7 +2089,7 @@ build_class_instance (ClassReferenceExp *exp)
 
       /* Generate initial values of all fields owned by current class.
 	 Use both the name and offset to find the right field.  */
-      for (size_t i = 0; i < bcd->fields.dim; i++)
+      for (size_t i = 0; i < bcd->fields.length; i++)
 	{
 	  VarDeclaration *vfield = bcd->fields[i];
 	  int index = exp->findFieldIndexByName (vfield);
@@ -2218,7 +2145,7 @@ build_new_class_expr (ClassReferenceExp *expr)
 
 /* Get the VAR_DECL of the static initializer symbol for the struct/class DECL.
    If this does not yet exist, create it.  The static initializer data is
-   accessible via TypeInfo, and is also used in 'new class' and default
+   accessible via TypeInfo, and is also used in `new class' and default
    initializing struct literals.  */
 
 tree
@@ -2262,7 +2189,7 @@ layout_class_initializer (ClassDeclaration *cd)
   Expression *e = ne->ctfeInterpret ();
   gcc_assert (e->op == TOKclassreference);
 
-  return build_class_instance ((ClassReferenceExp *) e);
+  return build_class_instance (e->isClassReferenceExp ());
 }
 
 tree
@@ -2340,8 +2267,6 @@ build_type_decl (tree type, Dsymbol *dsym)
   if (TYPE_STUB_DECL (type))
     return;
 
-  gcc_assert (!POINTER_TYPE_P (type));
-
   /* If a templated type, use the template instance name, as that includes all
      template parameters.  */
   const char *name = dsym->parent->isTemplateInstance ()
@@ -2351,7 +2276,6 @@ build_type_decl (tree type, Dsymbol *dsym)
 			  get_identifier (name), type);
   SET_DECL_ASSEMBLER_NAME (decl, get_identifier (d_mangle_decl (dsym)));
   TREE_PUBLIC (decl) = 1;
-  DECL_ARTIFICIAL (decl) = 1;
   DECL_CONTEXT (decl) = d_decl_context (dsym);
 
   TYPE_CONTEXT (type) = DECL_CONTEXT (decl);
@@ -2360,9 +2284,14 @@ build_type_decl (tree type, Dsymbol *dsym)
   /* Not sure if there is a need for separate TYPE_DECLs in
      TYPE_NAME and TYPE_STUB_DECL.  */
   if (TREE_CODE (type) == ENUMERAL_TYPE || RECORD_OR_UNION_TYPE_P (type))
-    TYPE_STUB_DECL (type) = decl;
+    {
+      DECL_ARTIFICIAL (decl) = 1;
+      TYPE_STUB_DECL (type) = decl;
+    }
+  else if (type != TYPE_MAIN_VARIANT (type))
+    DECL_ORIGINAL_TYPE (decl) = TYPE_MAIN_VARIANT (type);
 
-  rest_of_decl_compilation (decl, SCOPE_FILE_SCOPE_P (decl), 0);
+  rest_of_decl_compilation (decl, DECL_FILE_SCOPE_P (decl), 0);
 }
 
 /* Create a declaration for field NAME of a given TYPE, setting the flags

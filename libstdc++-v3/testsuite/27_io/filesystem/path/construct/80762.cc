@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Free Software Foundation, Inc.
+// Copyright (C) 2018-2021 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -37,3 +37,9 @@ static_assert( !std::is_constructible_v<path, const volatile void*> );
 static_assert( !std::is_constructible_v<path, void*&> );
 static_assert( !std::is_constructible_v<path, void* const&> );
 static_assert( !std::is_constructible_v<path, const void* const&> );
+
+static_assert( !std::is_constructible_v<path, void, void> );
+static_assert( !std::is_constructible_v<path, void*, void*> );
+static_assert( !std::is_constructible_v<path, const void*, void*> );
+static_assert( !std::is_constructible_v<path, volatile void*, void*> );
+static_assert( !std::is_constructible_v<path, const volatile void*, void*> );

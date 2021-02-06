@@ -1,5 +1,5 @@
 ;; ARM Thumb-2 Machine Description
-;; Copyright (C) 2007-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2021 Free Software Foundation, Inc.
 ;; Written by CodeSourcery, LLC.
 ;;
 ;; This file is part of GCC.
@@ -744,6 +744,10 @@
       return \"%i5\\t%0, %1, %2, lsr #31\";
 
     output_asm_insn (\"cmp\\t%2, %3\", operands);
+
+    if (GET_CODE (operands[5]) == PLUS && TARGET_COND_ARITH)
+      return \"cinc\\t%0, %1, %d4\";
+
     if (GET_CODE (operands[5]) == AND)
       {
 	output_asm_insn (\"ite\\t%D4\", operands);
@@ -877,7 +881,7 @@
 		 [(match_operand:SI 1 "s_register_operand" "r")
 		  (match_operand:SI 2 "arm_rhs_operand" "rI")])))
    (clobber (reg:CC CC_REGNUM))]
-  "TARGET_THUMB2"
+  "TARGET_THUMB2 && !TARGET_COND_ARITH"
   "#"
   "&& reload_completed"
   [(const_int 0)]
@@ -938,6 +942,49 @@
    (set_attr "type" "multiple")]
 )
 
+(define_insn "*thumb2_csinv"
+  [(set (match_operand:SI 0 "arm_general_register_operand" "=r, r")
+        (if_then_else:SI
+         (match_operand 1 "arm_comparison_operation" "")
+         (not:SI (match_operand:SI 2 "arm_general_register_operand" "r, r"))
+         (match_operand:SI 3 "reg_or_zero_operand" "r, Pz")))]
+  "TARGET_COND_ARITH"
+  "@
+   csinv\\t%0, %3, %2, %D1
+   csinv\\t%0, zr, %2, %D1"
+  [(set_attr "type" "csel")
+   (set_attr "predicable" "no")]
+)
+
+(define_insn "*thumb2_csinc"
+  [(set (match_operand:SI 0 "arm_general_register_operand" "=r, r")
+        (if_then_else:SI
+         (match_operand 1 "arm_comparison_operation" "")
+         (plus:SI (match_operand:SI 2 "arm_general_register_operand" "r, r")
+                  (const_int 1))
+         (match_operand:SI 3 "reg_or_zero_operand" "r, Pz")))]
+  "TARGET_COND_ARITH"
+  "@
+   csinc\\t%0, %3, %2, %D1
+   csinc\\t%0, zr, %2, %D1"
+  [(set_attr "type" "csel")
+   (set_attr "predicable" "no")]
+)
+
+(define_insn "*thumb2_csneg"
+  [(set (match_operand:SI 0 "arm_general_register_operand" "=r, r")
+        (if_then_else:SI
+         (match_operand 1 "arm_comparison_operation" "")
+         (neg:SI (match_operand:SI 2 "arm_general_register_operand" "r, r"))
+         (match_operand:SI 3 "reg_or_zero_operand" "r, Pz")))]
+  "TARGET_COND_ARITH"
+  "@
+   csneg\\t%0, %3, %2, %D1
+   csneg\\t%0, zr, %2, %D1"
+  [(set_attr "type" "csel")
+   (set_attr "predicable" "no")]
+)
+
 (define_insn "*thumb2_movcond"
   [(set (match_operand:SI 0 "s_register_operand" "=Ts,Ts,Ts")
 	(if_then_else:SI
@@ -947,7 +994,7 @@
 	 (match_operand:SI 1 "arm_rhs_operand" "0,TsI,?TsI")
 	 (match_operand:SI 2 "arm_rhs_operand" "TsI,0,TsI")))
    (clobber (reg:CC CC_REGNUM))]
-  "TARGET_THUMB2"
+  "TARGET_THUMB2 && !TARGET_COND_ARITH"
   "*
   if (GET_CODE (operands[5]) == LT
       && (operands[4] == const0_rtx))
@@ -1214,7 +1261,9 @@
    (set_attr "shift" "1")
    (set_attr "length" "2")
    (set (attr "type") (if_then_else (match_operand 2 "const_int_operand" "")
-		      (const_string "alu_shift_imm")
+                        (if_then_else (match_operand 3 "alu_shift_operator_lsl_1_to_4")
+                          (const_string "alu_shift_imm_lsl_1to4")
+                          (const_string "alu_shift_imm_other"))
 		      (const_string "alu_shift_reg")))]
 )
 
@@ -1483,7 +1532,7 @@
   "orn%?\\t%0, %1, %2%S4"
   [(set_attr "predicable" "yes")
    (set_attr "shift" "2")
-   (set_attr "type" "alu_shift_imm")]
+   (set_attr "autodetect_type" "alu_shift_operator4")]
 )
 
 (define_peephole2
@@ -1555,8 +1604,11 @@
       using a certain 'count' register and (2) the loop count can be
       adjusted by modifying this register prior to the loop.
       ??? The possible introduction of a new block to initialize the
-      new IV can potentially affect branch optimizations.  */
-   if (optimize > 0 && flag_modulo_sched)
+      new IV can potentially affect branch optimizations.
+
+      Also used to implement the low over head loops feature, which is part of
+      the Armv8.1-M Mainline Low Overhead Branch (LOB) extension.  */
+   if (optimize > 0 && (flag_modulo_sched || TARGET_HAVE_LOB))
    {
      rtx s0;
      rtx bcomp;
@@ -1569,6 +1621,11 @@
        FAIL;
 
      s0 = operands [0];
+
+     /* Low over head loop instructions require the first operand to be LR.  */
+     if (TARGET_HAVE_LOB && arm_target_insn_ok_for_lob (operands [1]))
+       s0 = gen_rtx_REG (SImode, LR_REGNUM);
+
      if (TARGET_THUMB2)
        insn = emit_insn (gen_thumb2_addsi3_compare0 (s0, s0, GEN_INT (-1)));
      else
@@ -1582,8 +1639,9 @@
                                   gen_rtx_IF_THEN_ELSE (VOIDmode, bcomp,
                                                         loc_ref, pc_rtx)));
      DONE;
-   }else
-      FAIL;
+   }
+ else
+   FAIL;
  }")
 
 (define_insn "*clear_apsr"
@@ -1650,3 +1708,35 @@
   "TARGET_HAVE_MVE"
   "lsrl%?\\t%Q0, %R0, %1"
   [(set_attr "predicable" "yes")])
+
+;; Originally expanded by 'doloop_end'.
+(define_insn "*doloop_end_internal"
+  [(parallel [(set (pc)
+                   (if_then_else
+                       (ne (reg:SI LR_REGNUM) (const_int 1))
+                     (label_ref (match_operand 0 "" ""))
+                     (pc)))
+              (set (reg:SI LR_REGNUM)
+                   (plus:SI (reg:SI LR_REGNUM) (const_int -1)))])]
+  "TARGET_32BIT && TARGET_HAVE_LOB"
+  "le\t%|lr, %l0")
+
+(define_expand "doloop_begin"
+  [(match_operand 0 "" "")
+   (match_operand 1 "" "")]
+  "TARGET_32BIT && TARGET_HAVE_LOB"
+  {
+    if (REGNO (operands[0]) == LR_REGNUM)
+      {
+	emit_insn (gen_dls_insn (operands[0]));
+	DONE;
+      }
+    else
+      FAIL;
+  })
+
+(define_insn "dls_insn"
+  [(set (reg:SI LR_REGNUM)
+        (unspec:SI [(match_operand:SI 0 "s_register_operand" "r")] UNSPEC_DLS))]
+  "TARGET_32BIT && TARGET_HAVE_LOB"
+  "dls\t%|lr, %0")

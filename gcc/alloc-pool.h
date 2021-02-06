@@ -1,5 +1,5 @@
 /* Functions to support a pool of allocatable objects
-   Copyright (C) 1997-2020 Free Software Foundation, Inc.
+   Copyright (C) 1997-2021 Free Software Foundation, Inc.
    Contributed by Daniel Berlin <dan@cgsoftware.com>
 
 This file is part of GCC.
@@ -521,6 +521,12 @@ public:
     /* Call destructor.  */
     object->~T ();
 
+    m_allocator.remove (object);
+  }
+
+  inline void
+  remove_raw (void *object)
+  {
     m_allocator.remove (object);
   }
 

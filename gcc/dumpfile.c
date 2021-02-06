@@ -1,5 +1,5 @@
 /* Dump infrastructure for optimizations and intermediate representation.
-   Copyright (C) 2012-2020 Free Software Foundation, Inc.
+   Copyright (C) 2012-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -103,8 +103,9 @@ static struct dump_file_info dump_files[TDI_end] =
   DUMP_FILE_INFO (".gimple", "tree-gimple", DK_tree, 0),
   DUMP_FILE_INFO (".nested", "tree-nested", DK_tree, 0),
   DUMP_FILE_INFO (".lto-stream-out", "ipa-lto-stream-out", DK_ipa, 0),
+  DUMP_FILE_INFO (".profile-report", "profile-report", DK_ipa, 0),
 #define FIRST_AUTO_NUMBERED_DUMP 1
-#define FIRST_ME_AUTO_NUMBERED_DUMP 4
+#define FIRST_ME_AUTO_NUMBERED_DUMP 5
 
   DUMP_FILE_INFO (NULL, "lang-all", DK_lang, 0),
   DUMP_FILE_INFO (NULL, "tree-all", DK_tree, 0),
@@ -491,6 +492,14 @@ dump_loc (dump_flags_t dump_kind, FILE *dfile, location_t loc)
 static void
 dump_loc (dump_flags_t dump_kind, pretty_printer *pp, location_t loc)
 {
+  /* Disable warnings about missing quoting in GCC diagnostics for
+     the pp_printf calls.  Their format strings aren't used to format
+     diagnostics so don't need to follow GCC diagnostic conventions.  */
+#if __GNUC__ >= 10
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wformat-diag"
+#endif
+
   if (dump_kind)
     {
       if (LOCATION_LOCUS (loc) > BUILTINS_LOCATION)
@@ -506,6 +515,10 @@ dump_loc (dump_flags_t dump_kind, pretty_printer *pp, location_t loc)
       for (unsigned i = 0; i < get_dump_scope_depth (); i++)
 	pp_character (pp, ' ');
     }
+
+#if __GNUC__ >= 10
+#  pragma GCC diagnostic pop
+#endif
 }
 
 /* Implementation of dump_context member functions.  */
@@ -1117,8 +1130,12 @@ dump_context::begin_scope (const char *name,
   if (m_test_pp && apply_dump_filter_p (MSG_NOTE, m_test_pp_flags))
     ::dump_loc (MSG_NOTE, m_test_pp, src_loc);
 
+  /* Format multiple consecutive punctuation characters via %s to
+     avoid -Wformat-diag in the pp_printf call below whose output
+     isn't used for diagnostic output.  */
   pretty_printer pp;
-  pp_printf (&pp, "=== %s ===\n", name);
+  pp_printf (&pp, "%s %s %s", "===", name, "===");
+  pp_newline (&pp);
   optinfo_item *item
     = new optinfo_item (OPTINFO_ITEM_KIND_TEXT, UNKNOWN_LOCATION,
 			xstrdup (pp_formatted_text (&pp)));
@@ -1799,7 +1816,7 @@ parse_dump_option (const char *option_value, const char **pos_p)
       end_ptr = strchr (ptr, '-');
       eq_ptr = strchr (ptr, '=');
 
-      if (eq_ptr && !end_ptr)
+      if (eq_ptr && (!end_ptr || end_ptr > eq_ptr))
 	end_ptr = eq_ptr;
 
       if (!end_ptr)
@@ -2077,6 +2094,34 @@ enable_rtl_dump_file (void)
 			    NULL);
   return num_enabled > 0;
 }
+
+/* debug_dump_context's ctor.  Temporarily override the dump_context
+   (to forcibly enable output to stderr).  */
+
+debug_dump_context::debug_dump_context ()
+: m_context (),
+  m_saved (&dump_context::get ()),
+  m_saved_flags (dump_flags),
+  m_saved_pflags (pflags),
+  m_saved_file (dump_file)
+{
+  set_dump_file (stderr);
+  dump_context::s_current = &m_context;
+  pflags = dump_flags = MSG_ALL_KINDS | MSG_ALL_PRIORITIES;
+  dump_context::get ().refresh_dumps_are_enabled ();
+}
+
+/* debug_dump_context's dtor.  Restore the saved dump_context.  */
+
+debug_dump_context::~debug_dump_context ()
+{
+  set_dump_file (m_saved_file);
+  dump_context::s_current = m_saved;
+  dump_flags = m_saved_flags;
+  pflags = m_saved_pflags;
+  dump_context::get ().refresh_dumps_are_enabled ();
+}
+
 
 #if CHECKING_P
 

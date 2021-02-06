@@ -1,5 +1,5 @@
 /* Header file for libgcov-*.c.
-   Copyright (C) 1996-2020 Free Software Foundation, Inc.
+   Copyright (C) 1996-2021 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -85,6 +85,19 @@ typedef unsigned gcov_type_unsigned __attribute__ ((mode (QI)));
 #define GCOV_LOCKED 0
 #endif
 
+#ifndef GCOV_SUPPORTS_ATOMIC
+/* Detect whether target can support atomic update of profilers.  */
+#if __SIZEOF_LONG_LONG__ == 4 && __GCC_HAVE_SYNC_COMPARE_AND_SWAP_4
+#define GCOV_SUPPORTS_ATOMIC 1
+#else
+#if __SIZEOF_LONG_LONG__ == 8 && __GCC_HAVE_SYNC_COMPARE_AND_SWAP_8
+#define GCOV_SUPPORTS_ATOMIC 1
+#else
+#define GCOV_SUPPORTS_ATOMIC 0
+#endif
+#endif
+#endif
+
 /* In libgcov we need these functions to be extern, so prefix them with
    __gcov.  In libgcov they must also be hidden so that the instance in
    the executable is not also used in a DSO.  */
@@ -147,7 +160,7 @@ extern struct gcov_info *gcov_list;
 
 /* Poison these, so they don't accidentally slip in.  */
 #pragma GCC poison gcov_write_string gcov_write_tag gcov_write_length
-#pragma GCC poison gcov_time gcov_magic
+#pragma GCC poison gcov_time
 
 #ifdef HAVE_GAS_HIDDEN
 #define ATTRIBUTE_HIDDEN  __attribute__ ((__visibility__ ("hidden")))
@@ -203,7 +216,8 @@ struct gcov_info
   const struct gcov_fn_info *const *functions; /* pointer to pointers
                                                   to function information  */
 #else
-  const struct gcov_fn_info **functions;
+  struct gcov_fn_info **functions;
+  struct gcov_summary summary;
 #endif /* !IN_GCOV_TOOL */
 };
 
@@ -236,6 +250,8 @@ struct indirect_call_tuple
   
 /* Exactly one of these will be active in the process.  */
 extern struct gcov_master __gcov_master;
+extern struct gcov_kvp __gcov_kvp_pool[GCOV_PREALLOCATED_KVP];
+extern unsigned __gcov_kvp_pool_index;
 
 /* Dump a set of gcov objects.  */
 extern void __gcov_dump_one (struct gcov_root *) ATTRIBUTE_HIDDEN;
@@ -371,6 +387,145 @@ gcov_get_counter_target (void)
 
   return gcov_read_counter_mem ();
 #endif
+}
+
+/* Add VALUE to *COUNTER and make it with atomic operation
+   if USE_ATOMIC is true.  */
+
+static inline void
+gcov_counter_add (gcov_type *counter, gcov_type value,
+		  int use_atomic ATTRIBUTE_UNUSED)
+{
+#if GCOV_SUPPORTS_ATOMIC
+  if (use_atomic)
+    __atomic_fetch_add (counter, value, __ATOMIC_RELAXED);
+  else
+#endif
+    *counter += value;
+}
+
+/* Allocate gcov_kvp from statically pre-allocated pool,
+   or use heap otherwise.  */
+
+static inline struct gcov_kvp *
+allocate_gcov_kvp (void)
+{
+  struct gcov_kvp *new_node = NULL;
+
+#if !defined(IN_GCOV_TOOL) && !defined(L_gcov_merge_topn)
+  if (__gcov_kvp_pool_index < GCOV_PREALLOCATED_KVP)
+    {
+      unsigned index;
+#if GCOV_SUPPORTS_ATOMIC
+      index
+	= __atomic_fetch_add (&__gcov_kvp_pool_index, 1, __ATOMIC_RELAXED);
+#else
+      index = __gcov_kvp_pool_index++;
+#endif
+      if (index < GCOV_PREALLOCATED_KVP)
+	new_node = &__gcov_kvp_pool[index];
+    }
+#endif
+
+  if (new_node == NULL)
+    new_node = (struct gcov_kvp *)xcalloc (1, sizeof (struct gcov_kvp));
+
+  return new_node;
+}
+
+/* Add key value pair VALUE:COUNT to a top N COUNTERS.  When INCREMENT_TOTAL
+   is true, add COUNT to total of the TOP counter.  If USE_ATOMIC is true,
+   do it in atomic way.  Return true when the counter is full, otherwise
+   return false.  */
+
+static inline unsigned
+gcov_topn_add_value (gcov_type *counters, gcov_type value, gcov_type count,
+		     int use_atomic, int increment_total)
+{
+  if (increment_total)
+    {
+      /* In the multi-threaded mode, we can have an already merged profile
+	 with a negative total value.  In that case, we should bail out.  */
+      if (counters[0] < 0)
+	return 0;
+      gcov_counter_add (&counters[0], 1, use_atomic);
+    }
+
+  struct gcov_kvp *prev_node = NULL;
+  struct gcov_kvp *minimal_node = NULL;
+  struct gcov_kvp *current_node  = (struct gcov_kvp *)(intptr_t)counters[2];
+
+  while (current_node)
+    {
+      if (current_node->value == value)
+	{
+	  gcov_counter_add (&current_node->count, count, use_atomic);
+	  return 0;
+	}
+
+      if (minimal_node == NULL
+	  || current_node->count < minimal_node->count)
+	minimal_node = current_node;
+
+      prev_node = current_node;
+      current_node = current_node->next;
+    }
+
+  if (counters[1] == GCOV_TOPN_MAXIMUM_TRACKED_VALUES)
+    {
+      if (--minimal_node->count < count)
+	{
+	  minimal_node->value = value;
+	  minimal_node->count = count;
+	}
+
+      return 1;
+    }
+  else
+    {
+      struct gcov_kvp *new_node = allocate_gcov_kvp ();
+      if (new_node == NULL)
+	return 0;
+
+      new_node->value = value;
+      new_node->count = count;
+
+      int success = 0;
+      if (!counters[2])
+	{
+#if GCOV_SUPPORTS_ATOMIC
+	  if (use_atomic)
+	    {
+	      struct gcov_kvp **ptr = (struct gcov_kvp **)(intptr_t)&counters[2];
+	      success = !__sync_val_compare_and_swap (ptr, 0, new_node);
+	    }
+	  else
+#endif
+	    {
+	      counters[2] = (intptr_t)new_node;
+	      success = 1;
+	    }
+	}
+      else if (prev_node && !prev_node->next)
+	{
+#if GCOV_SUPPORTS_ATOMIC
+	  if (use_atomic)
+	    success = !__sync_val_compare_and_swap (&prev_node->next, 0,
+						    new_node);
+	  else
+#endif
+	    {
+	      prev_node->next = new_node;
+	      success = 1;
+	    }
+	}
+
+      /* Increment number of nodes.  */
+      if (success)
+	gcov_counter_add (&counters[1], 1, use_atomic);
+    }
+
+  return 0;
 }
 
 #endif /* !inhibit_libc */

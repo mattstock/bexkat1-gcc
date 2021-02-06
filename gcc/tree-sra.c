@@ -1,7 +1,7 @@
 /* Scalar Replacement of Aggregates (SRA) converts some structure
    references into scalar references, exposing them to the scalar
    optimizers.
-   Copyright (C) 2008-2020 Free Software Foundation, Inc.
+   Copyright (C) 2008-2021 Free Software Foundation, Inc.
    Contributed by Martin Jambor <mjambor@suse.cz>
 
 This file is part of GCC.
@@ -931,9 +931,19 @@ create_access (tree expr, gimple *stmt, bool write)
     }
   if (size == 0)
     return NULL;
+  if (offset < 0)
+    {
+      disqualify_candidate (base, "Encountered a negative offset access.");
+      return NULL;
+    }
   if (size < 0)
     {
       disqualify_candidate (base, "Encountered an unconstrained access.");
+      return NULL;
+    }
+  if (offset + size > tree_to_shwi (DECL_SIZE (base)))
+    {
+      disqualify_candidate (base, "Encountered an access beyond the base.");
       return NULL;
     }
 
@@ -1667,6 +1677,7 @@ build_ref_for_model (location_t loc, tree base, HOST_WIDE_INT offset,
 		     struct access *model, gimple_stmt_iterator *gsi,
 		     bool insert_after)
 {
+  gcc_assert (offset >= 0);
   if (TREE_CODE (model->expr) == COMPONENT_REF
       && DECL_BIT_FIELD (TREE_OPERAND (model->expr, 1)))
     {
@@ -1874,12 +1885,12 @@ maybe_add_sra_candidate (tree var)
       reject (var, "has incomplete type");
       return false;
     }
-  if (!tree_fits_uhwi_p (TYPE_SIZE (type)))
+  if (!tree_fits_shwi_p (TYPE_SIZE (type)))
     {
       reject (var, "type size not fixed");
       return false;
     }
-  if (tree_to_uhwi (TYPE_SIZE (type)) == 0)
+  if (tree_to_shwi (TYPE_SIZE (type)) == 0)
     {
       reject (var, "type size is zero");
       return false;
@@ -2758,6 +2769,9 @@ propagate_subaccesses_from_rhs (struct access *lacc, struct access *racc)
 	}
       if (!lacc->first_child && !racc->first_child)
 	{
+	  /* We are about to change the access type from aggregate to scalar,
+	     so we need to put the reverse flag onto the access, if any.  */
+	  const bool reverse = TYPE_REVERSE_STORAGE_ORDER (lacc->type);
 	  tree t = lacc->base;
 
 	  lacc->type = racc->type;
@@ -2772,9 +2786,12 @@ propagate_subaccesses_from_rhs (struct access *lacc, struct access *racc)
 	      lacc->expr = build_ref_for_model (EXPR_LOCATION (lacc->base),
 						lacc->base, lacc->offset,
 						racc, NULL, false);
+	      if (TREE_CODE (lacc->expr) == MEM_REF)
+		REF_REVERSE_STORAGE_ORDER (lacc->expr) = reverse;
 	      lacc->grp_no_warning = true;
 	      lacc->grp_same_access_path = false;
 	    }
+	  lacc->reverse = reverse;
 	}
       return ret;
     }

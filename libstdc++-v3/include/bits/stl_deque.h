@@ -1,6 +1,6 @@
 // Deque implementation -*- C++ -*-
 
-// Copyright (C) 2001-2020 Free Software Foundation, Inc.
+// Copyright (C) 2001-2021 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -352,9 +352,12 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       friend difference_type
       operator-(const _Self& __x, const _Self& __y) _GLIBCXX_NOEXCEPT
       {
-	return difference_type(_S_buffer_size())
-	  * (__x._M_node - __y._M_node - 1) + (__x._M_cur - __x._M_first)
-	  + (__y._M_last - __y._M_cur);
+	if (__builtin_expect(__x._M_node || __y._M_node, true))
+	  return difference_type(_S_buffer_size())
+	    * (__x._M_node - __y._M_node - 1) + (__x._M_cur - __x._M_first)
+	    + (__y._M_last - __y._M_cur);
+
+	return 0;
       }
 
       // _GLIBCXX_RESOLVE_LIB_DEFECTS
@@ -366,9 +369,12 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	operator-(const _Self& __x,
 		  const _Deque_iterator<_Tp, _RefR, _PtrR>& __y) _GLIBCXX_NOEXCEPT
 	{
-	  return difference_type(_S_buffer_size())
-	    * (__x._M_node - __y._M_node - 1) + (__x._M_cur - __x._M_first)
-	    + (__y._M_last - __y._M_cur);
+	  if (__builtin_expect(__x._M_node || __y._M_node, true))
+	    return difference_type(_S_buffer_size())
+	      * (__x._M_node - __y._M_node - 1) + (__x._M_cur - __x._M_first)
+	      + (__y._M_last - __y._M_cur);
+
+	  return 0;
 	}
 
       friend _Self
@@ -2156,6 +2162,9 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
       void
       _M_move_assign1(deque&& __x, /* always equal: */ false_type)
       {
+	if (_M_get_Tp_allocator() == __x._M_get_Tp_allocator())
+	  return _M_move_assign1(std::move(__x), true_type());
+
 	constexpr bool __move_storage =
 	  _Alloc_traits::_S_propagate_on_move_assign();
 	_M_move_assign2(std::move(__x), __bool_constant<__move_storage>());

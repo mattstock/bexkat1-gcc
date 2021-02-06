@@ -1,5 +1,5 @@
 /* Target-specific code for C family languages.
-   Copyright (C) 2015-2020 Free Software Foundation, Inc.
+   Copyright (C) 2015-2021 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -63,7 +63,8 @@ aarch64_define_unconditional_macros (cpp_reader *pfile)
      as interoperability with the same arm macro.  */
   builtin_define ("__ARM_ARCH_8A");
 
-  builtin_define_with_int_value ("__ARM_ARCH_PROFILE", 'A');
+  builtin_define_with_int_value ("__ARM_ARCH_PROFILE",
+      AARCH64_ISA_V8_R ? 'R' : 'A');
   builtin_define ("__ARM_FEATURE_CLZ");
   builtin_define ("__ARM_FEATURE_IDIV");
   builtin_define ("__ARM_FEATURE_UNALIGNED");
@@ -149,7 +150,7 @@ aarch64_update_cpp_builtins (cpp_reader *pfile)
 	bits = 0;
       builtin_define_with_int_value ("__ARM_FEATURE_SVE_BITS", bits);
     }
-  aarch64_def_or_undef (TARGET_SVE, "__ARM_FEATURE_SVE_VECTOR_OPERATIONS",
+  aarch64_def_or_undef (TARGET_SVE, "__ARM_FEATURE_SVE_VECTOR_OPERATORS",
 			pfile);
   aarch64_def_or_undef (TARGET_SVE_I8MM,
 			"__ARM_FEATURE_SVE_MATMUL_INT8", pfile);
@@ -177,6 +178,22 @@ aarch64_update_cpp_builtins (cpp_reader *pfile)
   aarch64_def_or_undef (TARGET_TME, "__ARM_FEATURE_TME", pfile);
   aarch64_def_or_undef (TARGET_RNG, "__ARM_FEATURE_RNG", pfile);
   aarch64_def_or_undef (TARGET_MEMTAG, "__ARM_FEATURE_MEMORY_TAGGING", pfile);
+
+  aarch64_def_or_undef (aarch64_bti_enabled (),
+			"__ARM_FEATURE_BTI_DEFAULT", pfile);
+
+  cpp_undef (pfile, "__ARM_FEATURE_PAC_DEFAULT");
+  if (aarch64_ra_sign_scope != AARCH64_FUNCTION_NONE)
+    {
+      int v = 0;
+      if (aarch64_ra_sign_key == AARCH64_KEY_A)
+	v |= 1;
+      if (aarch64_ra_sign_key == AARCH64_KEY_B)
+	v |= 2;
+      if (aarch64_ra_sign_scope == AARCH64_FUNCTION_ALL)
+	v |= 4;
+      builtin_define_with_int_value ("__ARM_FEATURE_PAC_DEFAULT", v);
+    }
 
   aarch64_def_or_undef (TARGET_I8MM, "__ARM_FEATURE_MATMUL_INT8", pfile);
   aarch64_def_or_undef (TARGET_BF16_SIMD,
@@ -225,12 +242,12 @@ aarch64_pragma_target_parse (tree args, tree pop_target)
   else
     {
       pop_target = pop_target ? pop_target : target_option_default_node;
-      cl_target_option_restore (&global_options,
+      cl_target_option_restore (&global_options, &global_options_set,
 				TREE_TARGET_OPTION (pop_target));
     }
 
   target_option_current_node
-    = build_target_option_node (&global_options);
+    = build_target_option_node (&global_options, &global_options_set);
 
   aarch64_reset_previous_fndecl ();
   /* For the definitions, ensure all newly defined macros are considered

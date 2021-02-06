@@ -1,5 +1,5 @@
 /* modules.cc -- D module initialization and termination.
-   Copyright (C) 2013-2020 Free Software Foundation, Inc.
+   Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
 GCC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -36,6 +36,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "stringpool.h"
 
 #include "d-tree.h"
+#include "d-target.h"
 
 
 /* D generates module information to inform the runtime library which modules
@@ -76,15 +77,15 @@ static tree stop_minfo_node;
 
 struct GTY(()) module_info
 {
-  vec<tree, va_gc> *ctors;
-  vec<tree, va_gc> *dtors;
-  vec<tree, va_gc> *ctorgates;
+  vec <tree, va_gc> *ctors;
+  vec <tree, va_gc> *dtors;
+  vec <tree, va_gc> *ctorgates;
 
-  vec<tree, va_gc> *sharedctors;
-  vec<tree, va_gc> *shareddtors;
-  vec<tree, va_gc> *sharedctorgates;
+  vec <tree, va_gc> *sharedctors;
+  vec <tree, va_gc> *shareddtors;
+  vec <tree, va_gc> *sharedctorgates;
 
-  vec<tree, va_gc> *unitTests;
+  vec <tree, va_gc> *unitTests;
 };
 
 /* These must match the values in libdruntime/object_.d.  */
@@ -122,8 +123,8 @@ static Module *current_module_decl;
 
 /* Static constructors and destructors (not D `static this').  */
 
-static GTY(()) vec<tree, va_gc> *static_ctor_list;
-static GTY(()) vec<tree, va_gc> *static_dtor_list;
+static GTY(()) vec <tree, va_gc> *static_ctor_list;
+static GTY(()) vec <tree, va_gc> *static_dtor_list;
 
 /* Returns an internal function identified by IDENT.  This is used
    by both module initialization and dso handlers.  */
@@ -147,7 +148,7 @@ get_internal_fn (tree ident)
 						   Identifier::idPool (name));
   fd->loc = Loc (mod->srcfile->toChars (), 1, 0);
   fd->parent = mod;
-  fd->protection.kind = PROTprivate;
+  fd->protection.kind = Prot::private_;
   fd->semanticRun = PASSsemantic3done;
 
   return fd;
@@ -180,8 +181,8 @@ build_internal_fn (tree ident, tree expr)
    all variables in GATES, then calls the list of functions in FUNCTIONS.  */
 
 static tree
-build_funcs_gates_fn (tree ident, vec<tree, va_gc> *functions,
-		      vec<tree, va_gc> *gates)
+build_funcs_gates_fn (tree ident, vec <tree, va_gc> *functions,
+		      vec <tree, va_gc> *gates)
 {
   tree expr_list = NULL_TREE;
 
@@ -365,7 +366,7 @@ build_dso_cdtor_fn (bool ctor_p)
   tree dso_type = get_compiler_dso_type ();
   tree dso = build_local_temp (dso_type);
 
-  vec<constructor_elt, va_gc> *ve = NULL;
+  vec <constructor_elt, va_gc> *ve = NULL;
   CONSTRUCTOR_APPEND_ELT (ve, NULL_TREE, build_integer_cst (1, size_type_node));
   CONSTRUCTOR_APPEND_ELT (ve, NULL_TREE, build_address (dso_slot_node));
   CONSTRUCTOR_APPEND_ELT (ve, NULL_TREE, build_address (start_minfo_node));
@@ -405,6 +406,10 @@ build_dso_registry_var (const char * name, tree type)
 static void
 register_moduleinfo (Module *decl, tree minfo)
 {
+  /* No defined minfo section for target.  */
+  if (targetdm.d_minfo_section == NULL)
+    return;
+
   if (!targetm_common.have_named_sections)
     sorry ("%<-fmoduleinfo%> is not supported on this target");
 
@@ -420,7 +425,8 @@ register_moduleinfo (Module *decl, tree minfo)
   DECL_EXTERNAL (mref) = 0;
   DECL_PRESERVE_P (mref) = 1;
 
-  set_decl_section_name (mref, "minfo");
+  set_decl_section_name (mref, targetdm.d_minfo_section);
+  symtab_node::get (mref)->implicit_section = true;
   d_pushdecl (mref);
   rest_of_decl_compilation (mref, 1, 0);
 
@@ -431,10 +437,12 @@ register_moduleinfo (Module *decl, tree minfo)
   if (!first_module)
     return;
 
-  start_minfo_node = build_dso_registry_var ("__start_minfo", ptr_type_node);
+  start_minfo_node = build_dso_registry_var (targetdm.d_minfo_start_name,
+					     ptr_type_node);
   rest_of_decl_compilation (start_minfo_node, 1, 0);
 
-  stop_minfo_node = build_dso_registry_var ("__stop_minfo", ptr_type_node);
+  stop_minfo_node = build_dso_registry_var (targetdm.d_minfo_end_name,
+					    ptr_type_node);
   rest_of_decl_compilation (stop_minfo_node, 1, 0);
 
   /* Declare dso_slot and dso_initialized.  */
@@ -465,7 +473,7 @@ register_moduleinfo (Module *decl, tree minfo)
    position.  No alignment is taken into account, all fields are packed.  */
 
 static void
-layout_moduleinfo_field (tree type, tree rec_type, HOST_WIDE_INT& offset)
+layout_moduleinfo_field (tree type, tree rec_type, HOST_WIDE_INT &offset)
 {
   tree field = create_field_decl (type, NULL, 1, 1);
   insert_aggregate_field (rec_type, field, offset);
@@ -506,8 +514,8 @@ layout_moduleinfo_fields (Module *decl, tree type)
 
   /* Array of module imports is laid out as a length field, followed by
      a static array of ModuleInfo pointers.  */
-  size_t aimports_dim = decl->aimports.dim;
-  for (size_t i = 0; i < decl->aimports.dim; i++)
+  size_t aimports_dim = decl->aimports.length;
+  for (size_t i = 0; i < decl->aimports.length; i++)
     {
       Module *mi = decl->aimports[i];
       if (!mi->needmoduleinfo)
@@ -523,16 +531,17 @@ layout_moduleinfo_fields (Module *decl, tree type)
 
   /* Array of local ClassInfo decls are laid out in the same way.  */
   ClassDeclarations aclasses;
-  for (size_t i = 0; i < decl->members->dim; i++)
+  for (size_t i = 0; i < decl->members->length; i++)
     {
       Dsymbol *member = (*decl->members)[i];
       member->addLocalClass (&aclasses);
     }
 
-  if (aclasses.dim)
+  if (aclasses.length)
     {
       layout_moduleinfo_field (size_type_node, type, offset);
-      layout_moduleinfo_field (make_array_type (Type::tvoidptr, aclasses.dim),
+      layout_moduleinfo_field (make_array_type (Type::tvoidptr,
+						aclasses.length),
 			       type, offset);
     }
 
@@ -556,14 +565,14 @@ layout_moduleinfo (Module *decl)
   ClassDeclarations aclasses;
   FuncDeclaration *sgetmembers;
 
-  for (size_t i = 0; i < decl->members->dim; i++)
+  for (size_t i = 0; i < decl->members->length; i++)
     {
       Dsymbol *member = (*decl->members)[i];
       member->addLocalClass (&aclasses);
     }
 
-  size_t aimports_dim = decl->aimports.dim;
-  for (size_t i = 0; i < decl->aimports.dim; i++)
+  size_t aimports_dim = decl->aimports.length;
+  for (size_t i = 0; i < decl->aimports.length; i++)
     {
       Module *mi = decl->aimports[i];
       if (!mi->needmoduleinfo)
@@ -589,7 +598,7 @@ layout_moduleinfo (Module *decl)
     flags |= MIunitTest;
   if (aimports_dim)
     flags |= MIimportedModules;
-  if (aclasses.dim)
+  if (aclasses.length)
     flags |= MIlocalClasses;
   if (!decl->needmoduleinfo)
     flags |= MIstandalone;
@@ -602,7 +611,7 @@ layout_moduleinfo (Module *decl)
   /* Put out the two named fields in a ModuleInfo decl:
 	uint flags;
 	uint index;  */
-  vec<constructor_elt, va_gc> *minit = NULL;
+  vec <constructor_elt, va_gc> *minit = NULL;
 
   CONSTRUCTOR_APPEND_ELT (minit, NULL_TREE,
 			  build_integer_cst (flags, d_uint_type));
@@ -648,11 +657,11 @@ layout_moduleinfo (Module *decl)
 
   if (flags & MIimportedModules)
     {
-      vec<constructor_elt, va_gc> *elms = NULL;
+      vec <constructor_elt, va_gc> *elms = NULL;
       tree satype = make_array_type (Type::tvoidptr, aimports_dim);
       size_t idx = 0;
 
-      for (size_t i = 0; i < decl->aimports.dim; i++)
+      for (size_t i = 0; i < decl->aimports.length; i++)
 	{
 	  Module *mi = decl->aimports[i];
 	  if (mi->needmoduleinfo)
@@ -670,17 +679,17 @@ layout_moduleinfo (Module *decl)
 
   if (flags & MIlocalClasses)
     {
-      vec<constructor_elt, va_gc> *elms = NULL;
-      tree satype = make_array_type (Type::tvoidptr, aclasses.dim);
+      vec <constructor_elt, va_gc> *elms = NULL;
+      tree satype = make_array_type (Type::tvoidptr, aclasses.length);
 
-      for (size_t i = 0; i < aclasses.dim; i++)
+      for (size_t i = 0; i < aclasses.length; i++)
 	{
 	  ClassDeclaration *cd = aclasses[i];
 	  CONSTRUCTOR_APPEND_ELT (elms, size_int (i),
 				  build_address (get_classinfo_decl (cd)));
 	}
 
-      CONSTRUCTOR_APPEND_ELT (minit, NULL_TREE, size_int (aclasses.dim));
+      CONSTRUCTOR_APPEND_ELT (minit, NULL_TREE, size_int (aclasses.length));
       CONSTRUCTOR_APPEND_ELT (minit, NULL_TREE,
 			      build_constructor (satype, elms));
     }
@@ -722,7 +731,7 @@ build_module_tree (Module *decl)
   /* Layout module members.  */
   if (decl->members)
     {
-      for (size_t i = 0; i < decl->members->dim; i++)
+      for (size_t i = 0; i < decl->members->length; i++)
 	{
 	  Dsymbol *s = (*decl->members)[i];
 	  build_decl_tree (s);

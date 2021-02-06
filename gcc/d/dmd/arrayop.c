@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (C) 1999-2019 by The D Language Foundation, All Rights Reserved
+ * Copyright (C) 1999-2020 by The D Language Foundation, All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -51,7 +51,7 @@ FuncDeclaration *buildArrayOp(Identifier *ident, BinExp *exp, Scope *sc)
     Parameter *p = (*fparams)[0];
     // foreach (i; 0 .. p.length)
     Statement *s1 = new ForeachRangeStatement(Loc(), TOKforeach,
-        new Parameter(0, NULL, Id::p, NULL),
+        new Parameter(0, NULL, Id::p, NULL, NULL),
         new IntegerExp(Loc(), 0, Type::tsize_t),
         new ArrayLengthExp(Loc(), new IdentifierExp(Loc(), p->ident)),
         new ExpStatement(Loc(), loopbody),
@@ -66,11 +66,11 @@ FuncDeclaration *buildArrayOp(Identifier *ident, BinExp *exp, Scope *sc)
 
     /* Construct the function
      */
-    TypeFunction *ftype = new TypeFunction(fparams, exp->e1->type, 0, LINKc, stc);
+    TypeFunction *ftype = new TypeFunction(ParameterList(fparams), exp->e1->type, LINKc, stc);
     //printf("fd: %s %s\n", ident->toChars(), ftype->toChars());
     FuncDeclaration *fd = new FuncDeclaration(Loc(), Loc(), ident, STCundefined, ftype);
     fd->fbody = fbody;
-    fd->protection = Prot(PROTpublic);
+    fd->protection = Prot(Prot::public_);
     fd->linkage = LINKc;
     fd->isArrayOp = 1;
 
@@ -203,7 +203,7 @@ Expression *arrayOp(BinExp *e, Scope *sc)
      */
     buf.writestring(e->type->toBasetype()->nextOf()->toBasetype()->mutableOf()->deco);
 
-    char *name = buf.peekString();
+    char *name = buf.peekChars();
     Identifier *ident = Identifier::idPool(name);
 
     FuncDeclaration **pFd = (FuncDeclaration **)dmd_aaGet(&arrayfuncs, (void *)ident);
@@ -421,8 +421,8 @@ Expression *buildArrayLoop(Expression *e, Parameters *fparams)
 
         void visit(Expression *e)
         {
-            Identifier *id = Identifier::generateId("c", fparams->dim);
-            Parameter *param = new Parameter(0, e->type, id, NULL);
+            Identifier *id = Identifier::generateId("c", fparams->length);
+            Parameter *param = new Parameter(0, e->type, id, NULL, NULL);
             fparams->shift(param);
             result = new IdentifierExp(Loc(), id);
         }
@@ -440,8 +440,8 @@ Expression *buildArrayLoop(Expression *e, Parameters *fparams)
 
         void visit(ArrayLiteralExp *e)
         {
-            Identifier *id = Identifier::generateId("p", fparams->dim);
-            Parameter *param = new Parameter(STCconst, e->type, id, NULL);
+            Identifier *id = Identifier::generateId("p", fparams->length);
+            Parameter *param = new Parameter(STCconst, e->type, id, NULL, NULL);
             fparams->shift(param);
             Expression *ie = new IdentifierExp(Loc(), id);
             Expression *index = new IdentifierExp(Loc(), Id::p);
@@ -450,8 +450,8 @@ Expression *buildArrayLoop(Expression *e, Parameters *fparams)
 
         void visit(SliceExp *e)
         {
-            Identifier *id = Identifier::generateId("p", fparams->dim);
-            Parameter *param = new Parameter(STCconst, e->type, id, NULL);
+            Identifier *id = Identifier::generateId("p", fparams->length);
+            Parameter *param = new Parameter(STCconst, e->type, id, NULL, NULL);
             fparams->shift(param);
             Expression *ie = new IdentifierExp(Loc(), id);
             Expression *index = new IdentifierExp(Loc(), Id::p);

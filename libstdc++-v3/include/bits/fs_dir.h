@@ -1,6 +1,6 @@
 // Filesystem directory utilities -*- C++ -*-
 
-// Copyright (C) 2014-2020 Free Software Foundation, Inc.
+// Copyright (C) 2014-2021 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -312,7 +312,7 @@ _GLIBCXX_BEGIN_NAMESPACE_CXX11
 #endif
 
   private:
-    friend class _Dir;
+    friend struct _Dir;
     friend class directory_iterator;
     friend class recursive_directory_iterator;
 

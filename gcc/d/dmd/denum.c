@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (C) 1999-2019 by The D Language Foundation, All Rights Reserved
+ * Copyright (C) 1999-2020 by The D Language Foundation, All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -13,6 +13,7 @@
 
 #include "errors.h"
 #include "enum.h"
+#include "attrib.h"
 #include "mtype.h"
 #include "scope.h"
 #include "id.h"
@@ -37,7 +38,7 @@ EnumDeclaration::EnumDeclaration(Loc loc, Identifier *id, Type *memtype)
     defaultval = NULL;
     sinit = NULL;
     isdeprecated = false;
-    protection = Prot(PROTundefined);
+    protection = Prot(Prot::undefined);
     parent = NULL;
     added = false;
     inuse = 0;
@@ -74,7 +75,7 @@ void EnumDeclaration::addMember(Scope *sc, ScopeDsymbol *sds)
 
     if (members)
     {
-        for (size_t i = 0; i < members->dim; i++)
+        for (size_t i = 0; i < members->length; i++)
         {
             EnumMember *em = (*members)[i]->isEnumMember();
             em->ed = this;
@@ -172,7 +173,7 @@ void EnumDeclaration::semantic(Scope *sc)
             errors = true;
             if (members)
             {
-                for (size_t i = 0; i < members->dim; i++)
+                for (size_t i = 0; i < members->length; i++)
                 {
                     Dsymbol *s = (*members)[i];
                     s->errors = true;               // poison all the members
@@ -188,7 +189,7 @@ void EnumDeclaration::semantic(Scope *sc)
     if (!members)               // enum ident : memtype;
         return;
 
-    if (members->dim == 0)
+    if (members->length == 0)
     {
         error("enum %s must have at least one member", toChars());
         errors = true;
@@ -210,7 +211,7 @@ void EnumDeclaration::semantic(Scope *sc)
 
     /* Each enum member gets the sce scope
      */
-    for (size_t i = 0; i < members->dim; i++)
+    for (size_t i = 0; i < members->length; i++)
     {
         EnumMember *em = (*members)[i]->isEnumMember();
         if (em)
@@ -246,7 +247,7 @@ void EnumDeclaration::semantic(Scope *sc)
             scopesym = this;
         }
 
-        for (size_t i = 0; i < members->dim; i++)
+        for (size_t i = 0; i < members->length; i++)
         {
             EnumMember *em = (*members)[i]->isEnumMember();
             if (em)
@@ -257,7 +258,7 @@ void EnumDeclaration::semantic(Scope *sc)
         }
     }
 
-    for (size_t i = 0; i < members->dim; i++)
+    for (size_t i = 0; i < members->length; i++)
     {
         EnumMember *em = (*members)[i]->isEnumMember();
         if (em)
@@ -314,7 +315,7 @@ Expression *EnumDeclaration::getMaxMinValue(Loc loc, Identifier *id)
         goto Lerrors;
     }
 
-    for (size_t i = 0; i < members->dim; i++)
+    for (size_t i = 0; i < members->length; i++)
     {
         EnumMember *em = (*members)[i]->isEnumMember();
         if (!em)
@@ -402,7 +403,7 @@ Expression *EnumDeclaration::getDefaultValue(Loc loc)
         goto Lerrors;
     }
 
-    for (size_t i = 0; i < members->dim; i++)
+    for (size_t i = 0; i < members->length; i++)
     {
         EnumMember *em = (*members)[i]->isEnumMember();
         if (em)
@@ -504,6 +505,18 @@ EnumMember::EnumMember(Loc loc, Identifier *id, Expression *value, Type *origTyp
     this->origType = origType;
 }
 
+EnumMember::EnumMember(Loc loc, Identifier *id, Expression *value, Type *memType,
+        StorageClass stc, UserAttributeDeclaration *uad, DeprecatedDeclaration *dd)
+    : VarDeclaration(loc, NULL, id ? id : Id::empty, new ExpInitializer(loc, value))
+{
+    this->ed = NULL;
+    this->origValue = value;
+    this->origType = memType;
+    this->storage_class = stc;
+    this->userAttribDecl = uad;
+    this->depdecl = dd;
+}
+
 Expression *&EnumMember::value()
 {
     return ((ExpInitializer*)_init)->exp;
@@ -536,6 +549,7 @@ void EnumMember::semantic(Scope *sc)
         return;
     }
     assert(ed);
+
     ed->semantic(sc);
     if (ed->errors)
         goto Lerrors;
@@ -550,10 +564,18 @@ void EnumMember::semantic(Scope *sc)
 
     semanticRun = PASSsemantic;
 
-    protection = ed->isAnonymous() ? ed->protection : Prot(PROTpublic);
+    protection = ed->isAnonymous() ? ed->protection : Prot(Prot::public_);
     linkage = LINKd;
-    storage_class = STCmanifest;
-    userAttribDecl = ed->isAnonymous() ? ed->userAttribDecl : NULL;
+    storage_class |= STCmanifest;
+
+    // https://issues.dlang.org/show_bug.cgi?id=9701
+    if (ed->isAnonymous())
+    {
+        if (userAttribDecl)
+            userAttribDecl->userAttribDecl = ed->userAttribDecl;
+        else
+            userAttribDecl = ed->userAttribDecl;
+    }
 
     // The first enum member is special
     bool first = (this == (*ed->members)[0]);
@@ -588,7 +610,7 @@ void EnumMember::semantic(Scope *sc)
                  * with the first member. If the following members were referenced
                  * during the first member semantic, their types should be unified.
                  */
-                for (size_t i = 0; i < ed->members->dim; i++)
+                for (size_t i = 0; i < ed->members->length; i++)
                 {
                     EnumMember *em = (*ed->members)[i]->isEnumMember();
                     if (!em || em == this || em->semanticRun < PASSsemanticdone || em->origType)
@@ -667,7 +689,7 @@ void EnumMember::semantic(Scope *sc)
          * and set this to be the previous value + 1
          */
         EnumMember *emprev = NULL;
-        for (size_t i = 0; i < ed->members->dim; i++)
+        for (size_t i = 0; i < ed->members->length; i++)
         {
             EnumMember *em = (*ed->members)[i]->isEnumMember();
             if (em)
@@ -743,6 +765,14 @@ void EnumMember::semantic(Scope *sc)
 Expression *EnumMember::getVarExp(Loc loc, Scope *sc)
 {
     semantic(sc);
+    if (errors)
+        return new ErrorExp();
+    checkDisabled(loc, sc);
+
+    if (depdecl && !depdecl->_scope)
+        depdecl->_scope = sc;
+    checkDeprecated(loc, sc);
+
     if (errors)
         return new ErrorExp();
     Expression *e = new VarExp(loc, this);

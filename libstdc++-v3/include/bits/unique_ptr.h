@@ -1,6 +1,6 @@
 // unique_ptr implementation -*- C++ -*-
 
-// Copyright (C) 2008-2020 Free Software Foundation, Inc.
+// Copyright (C) 2008-2021 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -39,6 +39,7 @@
 #include <bits/functional_hash.h>
 #if __cplusplus > 201703L
 # include <compare>
+# include <ostream>
 #endif
 
 namespace std _GLIBCXX_VISIBILITY(default)
@@ -934,7 +935,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       public __uniq_ptr_hash<unique_ptr<_Tp, _Dp>>
     { };
 
-#if __cplusplus > 201103L
+#if __cplusplus >= 201402L
   /// @relates unique_ptr @{
 #define __cpp_lib_make_unique 201304
 
@@ -968,10 +969,45 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   /// Disable std::make_unique for arrays of known bound
   template<typename _Tp, typename... _Args>
-    inline typename _MakeUniq<_Tp>::__invalid_type
+    typename _MakeUniq<_Tp>::__invalid_type
     make_unique(_Args&&...) = delete;
+
+#if __cplusplus > 201703L
+  /// std::make_unique_for_overwrite for single objects
+  template<typename _Tp>
+    inline typename _MakeUniq<_Tp>::__single_object
+    make_unique_for_overwrite()
+    { return unique_ptr<_Tp>(new _Tp); }
+
+  /// std::make_unique_for_overwrite for arrays of unknown bound
+  template<typename _Tp>
+    inline typename _MakeUniq<_Tp>::__array
+    make_unique_for_overwrite(size_t __n)
+    { return unique_ptr<_Tp>(new remove_extent_t<_Tp>[__n]); }
+
+  /// Disable std::make_unique_for_overwrite for arrays of known bound
+  template<typename _Tp, typename... _Args>
+    typename _MakeUniq<_Tp>::__invalid_type
+    make_unique_for_overwrite(_Args&&...) = delete;
+#endif // C++20
+
   // @} relates unique_ptr
-#endif
+#endif // C++14
+
+#if __cplusplus > 201703L && __cpp_concepts
+  // _GLIBCXX_RESOLVE_LIB_DEFECTS
+  // 2948. unique_ptr does not define operator<< for stream output
+  /// Stream output operator for unique_ptr
+  template<typename _CharT, typename _Traits, typename _Tp, typename _Dp>
+    inline basic_ostream<_CharT, _Traits>&
+    operator<<(basic_ostream<_CharT, _Traits>& __os,
+	       const unique_ptr<_Tp, _Dp>& __p)
+    requires requires { __os << __p.get(); }
+    {
+      __os << __p.get();
+      return __os;
+    }
+#endif // C++20
 
   // @} group pointer_abstractions
 

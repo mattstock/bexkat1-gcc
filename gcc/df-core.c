@@ -1,5 +1,5 @@
 /* Allocation for dataflow support routines.
-   Copyright (C) 1999-2020 Free Software Foundation, Inc.
+   Copyright (C) 1999-2021 Free Software Foundation, Inc.
    Originally contributed by Michael P. Hayes
              (m.hayes@elec.canterbury.ac.nz, mhayes@redhat.com)
    Major rewrite contributed by Danny Berlin (dberlin@dberlin.org)
@@ -1014,8 +1014,8 @@ df_worklist_dataflow_doublequeue (struct dataflow *dataflow,
   vec<int> last_change_age = vNULL;
   int prev_age;
 
-  last_visit_age.safe_grow_cleared (n_blocks);
-  last_change_age.safe_grow_cleared (n_blocks);
+  last_visit_age.safe_grow_cleared (n_blocks, true);
+  last_change_age.safe_grow_cleared (n_blocks, true);
 
   /* Double-queueing. Worklist is for the current iteration,
      and pending is for the next. */

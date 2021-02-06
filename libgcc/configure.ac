@@ -383,11 +383,11 @@ AC_COMPUTE_INT([glibc_version_minor], [__GLIBC_MINOR__],
 				      [glibc_version_minor=0])])
 AC_MSG_RESULT([$glibc_version_major.$glibc_version_minor])
 
-# Determine floating-point type for powerpc*-*-linux*.
+# Determine floating-point type for powerpc*-*-linux* or vxworks7*.
 # Single-precision-only FPRs are not a supported configuration for
 # this target, so are not allowed for in this test.
 case ${host} in
-powerpc*-*-linux*)
+powerpc*-*-linux* | powerpc*-*-vxworks7*)
   cat > conftest.c <<EOF
 #ifdef __powerpc64__
 ppc_fp_type=64
@@ -515,14 +515,12 @@ AC_SUBST(solaris_ld_v2_maps)
 # This is after config.host so we can augment tmake_file.
 case ${host} in
 xtensa*-*)
-  cat > conftest.c <<EOF
-	#ifdef __XTENSA_CALL0_ABI__
-	#error
-	#endif
-EOF
-  if AC_TRY_COMMAND(${CC-cc} -E -o conftest.i conftest.c 1>&AS_MESSAGE_LOG_FD); then
-      tmake_file="${tmake_file} xtensa/t-windowed"
-  fi
+  AC_COMPILE_IFELSE([AC_LANG_SOURCE(
+		     [#ifdef __XTENSA_CALL0_ABI__
+		      #error
+		      #endif
+		      ])],
+		      [tmake_file="${tmake_file} xtensa/t-windowed"])
   ;;
 esac
 

@@ -1,5 +1,5 @@
 /* Simplify intrinsic functions at compile-time.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
    Contributed by Andy Vaught & Katherine Holcomb
 
 This file is part of GCC.
@@ -220,6 +220,8 @@ static bool
 is_constant_array_expr (gfc_expr *e)
 {
   gfc_constructor *c;
+  bool array_OK = true;
+  mpz_t size;
 
   if (e == NULL)
     return true;
@@ -235,9 +237,39 @@ is_constant_array_expr (gfc_expr *e)
        c; c = gfc_constructor_next (c))
     if (c->expr->expr_type != EXPR_CONSTANT
 	  && c->expr->expr_type != EXPR_STRUCTURE)
+      {
+	array_OK = false;
+	break;
+      }
+
+  /* Check and expand the constructor.  */
+  if (!array_OK && gfc_init_expr_flag && e->rank == 1)
+    {
+      array_OK = gfc_reduce_init_expr (e);
+      /* gfc_reduce_init_expr resets the flag.  */
+      gfc_init_expr_flag = true;
+    }
+  else
+    return array_OK;
+
+  /* Recheck to make sure that any EXPR_ARRAYs have gone.  */
+  for (c = gfc_constructor_first (e->value.constructor);
+       c; c = gfc_constructor_next (c))
+    if (c->expr->expr_type != EXPR_CONSTANT
+	  && c->expr->expr_type != EXPR_STRUCTURE)
       return false;
 
-  return true;
+  /* Make sure that the array has a valid shape.  */
+  if (e->shape == NULL && e->rank == 1)
+    {
+      if (!gfc_array_size(e, &size))
+	return false;
+      e->shape = gfc_get_shape (1);
+      mpz_init_set (e->shape[0], size);
+      mpz_clear (size);
+    }
+
+  return array_OK;
 }
 
 /* Test for a size zero array.  */
@@ -4080,7 +4112,7 @@ simplify_bound_dim (gfc_expr *array, gfc_expr *kind, int d, int upper,
       || (coarray && d == as->rank + as->corank
 	  && (!upper || flag_coarray == GFC_FCOARRAY_SINGLE)))
     {
-      if (as->lower[d-1]->expr_type == EXPR_CONSTANT)
+      if (as->lower[d-1] && as->lower[d-1]->expr_type == EXPR_CONSTANT)
 	{
 	  gfc_free_expr (result);
 	  return gfc_copy_expr (as->lower[d-1]);
@@ -4924,6 +4956,8 @@ min_max_choose (gfc_expr *arg, gfc_expr *extremum, int sign, bool back_val)
   switch (arg->ts.type)
     {
       case BT_INTEGER:
+	if (extremum->ts.kind < arg->ts.kind)
+	  extremum->ts.kind = arg->ts.kind;
 	ret = mpz_cmp (arg->value.integer,
 		       extremum->value.integer) * sign;
 	if (ret > 0)
@@ -4931,6 +4965,8 @@ min_max_choose (gfc_expr *arg, gfc_expr *extremum, int sign, bool back_val)
 	break;
 
       case BT_REAL:
+	if (extremum->ts.kind < arg->ts.kind)
+	  extremum->ts.kind = arg->ts.kind;
 	if (mpfr_nan_p (extremum->value.real))
 	  {
 	    ret = 1;
@@ -6394,7 +6430,7 @@ gfc_simplify_is_contiguous (gfc_expr *array)
 
   if (gfc_is_not_contiguous (array))
     return gfc_get_logical_expr (gfc_default_logical_kind, &array->where, 0);
-    
+
   return NULL;
 }
 
@@ -6721,6 +6757,7 @@ gfc_simplify_reshape (gfc_expr *source, gfc_expr *shape_exp,
   unsigned long j;
   size_t nsource;
   gfc_expr *e, *result;
+  bool zerosize = false;
 
   /* Check that argument expression types are OK.  */
   if (!is_constant_array_expr (source)
@@ -6843,7 +6880,14 @@ gfc_simplify_reshape (gfc_expr *source, gfc_expr *shape_exp,
   result->rank = rank;
   result->shape = gfc_get_shape (rank);
   for (i = 0; i < rank; i++)
-    mpz_init_set_ui (result->shape[i], shape[i]);
+    {
+      mpz_init_set_ui (result->shape[i], shape[i]);
+      if (shape[i] == 0)
+	zerosize = true;
+    }
+
+  if (zerosize)
+    goto sizezero;
 
   while (nsource > 0 || npad > 0)
     {
@@ -6892,6 +6936,8 @@ inc:
 
       break;
     }
+
+sizezero:
 
   mpz_clear (index);
 

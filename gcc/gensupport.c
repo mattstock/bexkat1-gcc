@@ -1,5 +1,5 @@
 /* Support routines for the various generation passes.
-   Copyright (C) 2000-2020 Free Software Foundation, Inc.
+   Copyright (C) 2000-2021 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -1501,7 +1501,7 @@ alter_attrs_for_subst_insn (class queue_elem * elem, int n_dup)
 	case SET_ATTR:
 	  if (strchr (XSTR (sub, 1), ',') != NULL)
 	    XSTR (sub, 1) = duplicate_alternatives (XSTR (sub, 1), n_dup);
-	    break;
+	  break;
 
 	case SET_ATTR_ALTERNATIVE:
 	case SET:

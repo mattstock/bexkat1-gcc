@@ -1,4 +1,4 @@
-c Copyright (C) 1988-2020 Free Software Foundation, Inc.
+c Copyright (C) 1988-2021 Free Software Foundation, Inc.
 
 @c This is part of the GCC manual.
 @c For copying conditions, see the file gcc.texi.
@@ -55,7 +55,7 @@ extensions, accepted by GCC in C90 mode and in C++.
 * Designated Inits::    Labeling elements of initializers.
 * Case Ranges::         `case 1 ... 9' and such.
 * Cast to Union::       Casting to union type from any member of the union.
-* Mixed Declarations::  Mixing declarations and code.
+* Mixed Labels and Declarations::  Mixing declarations, labels and code.
 * Function Attributes:: Declaring that functions have no side effects,
                         or that they can never return.
 * Variable Attributes:: Specifying attributes of variables.
@@ -2353,15 +2353,17 @@ void hack (union foo);
 hack ((union foo) x);
 @end smallexample
 
-@node Mixed Declarations
-@section Mixed Declarations and Code
+@node Mixed Labels and Declarations
+@section Mixed Declarations, Labels and Code
 @cindex mixed declarations and code
 @cindex declarations, mixed with code
 @cindex code, mixed with declarations
 
 ISO C99 and ISO C++ allow declarations and code to be freely mixed
-within compound statements.  As an extension, GNU C also allows this in
-C90 mode.  For example, you could do:
+within compound statements.  ISO C2X allows labels to be
+placed before declarations and at the end of a compound statement.
+As an extension, GNU C also allows all this in C90 mode.  For example,
+you could do:
 
 @smallexample
 int i;
@@ -2446,6 +2448,7 @@ GCC plugins may provide their own attributes.
 * ARM Function Attributes::
 * AVR Function Attributes::
 * Blackfin Function Attributes::
+* BPF Function Attributes::
 * CR16 Function Attributes::
 * C-SKY Function Attributes::
 * Epiphany Function Attributes::
@@ -2497,8 +2500,8 @@ may be diagnosed by warnings such as @option{-Wstringop-overflow},
 The @code{access} attribute specifies that a function to whose by-reference
 arguments the attribute applies accesses the referenced object according to
 @var{access-mode}.  The @var{access-mode} argument is required and must be
-one of three names: @code{read_only}, @code{read_write}, or @code{write_only}.
-The remaining two are positional arguments.
+one of four names: @code{read_only}, @code{read_write}, @code{write_only},
+or @code{none}.  The remaining two are positional arguments.
 
 The required @var{ref-index} positional argument  denotes a function
 argument of pointer (or in C++, reference) type that is subject to
@@ -2527,7 +2530,7 @@ the @code{memcpy} function.
 
 @smallexample
 __attribute__ ((access (read_only, 1))) int puts (const char*);
-__attribute__ ((access (read_only, 1, 2))) void* memcpy (void*, const void*, size_t);
+__attribute__ ((access (read_only, 2, 3))) void* memcpy (void*, const void*, size_t);
 @end smallexample
 
 The @code{read_write} access mode applies to arguments of pointer types
@@ -2554,6 +2557,14 @@ function.
 __attribute__ ((access (write_only, 1), access (read_only, 2))) char* strcpy (char*, const char*);
 __attribute__ ((access (write_only, 1, 2), access (read_write, 3))) int fgets (char*, int, FILE*);
 @end smallexample
+
+The access mode @code{none} specifies that the pointer to which it applies
+is not used to access the referenced object at all.  Unless the pointer is
+null the pointed-to object must exist and have at least the size as denoted
+by the @var{size-index} argument.  The object need not be initialized.
+The mode is intended to be used as a means to help validate the expected
+object size, for example in functions that call @code{__builtin_object_size}.
+@xref{Object Size Checking}.
 
 @item alias ("@var{target}")
 @cindex @code{alias} function attribute
@@ -3222,20 +3233,115 @@ this reason the attribute is not allowed on types to annotate indirect
 calls.
 
 @item malloc
+@item malloc (@var{deallocator})
+@item malloc (@var{deallocator}, @var{ptr-index})
 @cindex @code{malloc} function attribute
 @cindex functions that behave like malloc
-This tells the compiler that a function is @code{malloc}-like, i.e.,
-that the pointer @var{P} returned by the function cannot alias any
+Attribute @code{malloc} indicates that a function is @code{malloc}-like,
+i.e., that the pointer @var{P} returned by the function cannot alias any
 other pointer valid when the function returns, and moreover no
 pointers to valid objects occur in any storage addressed by @var{P}.
 
-Using this attribute can improve optimization.  Compiler predicts
-that a function with the attribute returns non-null in most cases.
-Functions like
-@code{malloc} and @code{calloc} have this property because they return
-a pointer to uninitialized or zeroed-out storage.  However, functions
-like @code{realloc} do not have this property, as they can return a
-pointer to storage containing pointers.
+Independently, the form of the attribute with one or two arguments
+associates @code{deallocator} as a suitable deallocation function for
+pointers returned from the @code{malloc}-like function.  @var{ptr-index}
+denotes the positional argument to which when the pointer is passed in
+calls to @code{deallocator} has the effect of deallocating it.
+
+Using the attribute with no arguments is designed to improve optimization.
+The compiler predicts that a function with the attribute returns non-null
+in most cases.  Functions like @code{malloc} and @code{calloc} have this
+property because they return a pointer to uninitialized or zeroed-out
+storage.  However, functions like @code{realloc} do not have this property,
+as they may return pointers to storage containing pointers to existing
+objects.
+
+Associating a function with a @var{deallocator} helps detect calls to
+mismatched allocation and deallocation functions and diagnose them under
+the control of options such as @option{-Wmismatched-dealloc}.  To indicate
+that an allocation function both satisifies the nonaliasing property and
+has a deallocator associated with it, both the plain form of the attribute
+and the one with the @var{deallocator} argument must be used.  The same
+function can be both an allocator and a deallocator.  Since inlining one
+of the associated functions but not the other could result in apparent
+mismatches, this form of attribute @code{malloc} is not accepted on inline
+functions.  For the same reason, using the attribute prevents both
+the allocation and deallocation functions from being expanded inline.
+
+For example, besides stating that the functions return pointers that do
+not alias any others, the following declarations make @code{fclose}
+a suitable deallocator for pointers returned from all functions except
+@code{popen}, and @code{pclose} as the only suitable deallocator for
+pointers returned from @code{popen}.  The deallocator functions must
+declared before they can be referenced in the attribute.
+
+@smallexample
+int fclose (FILE*);
+int pclose (FILE*);
+
+__attribute__ ((malloc, malloc (fclose (1))))
+  FILE* fdopen (int);
+__attribute__ ((malloc, malloc (fclose (1))))
+  FILE* fopen (const char*, const char*);
+__attribute__ ((malloc, malloc (fclose (1))))
+  FILE* fmemopen(void *, size_t, const char *);
+__attribute__ ((malloc, malloc (pclose (1))))
+  FILE* popen (const char*, const char*);
+__attribute__ ((malloc, malloc (fclose (1))))
+  FILE* tmpfile (void);
+@end smallexample
+
+The warnings guarded by @option{-fanalyzer} respect allocation and
+deallocation pairs marked with the @code{malloc}.  In particular:
+
+@itemize @bullet
+
+@item
+The analyzer will emit a @option{-Wanalyzer-mismatching-deallocation}
+diagnostic if there is an execution path in which the result of an
+allocation call is passed to a different deallocator.
+
+@item
+The analyzer will emit a @option{-Wanalyzer-double-free}
+diagnostic if there is an execution path in which a value is passed
+more than once to a deallocation call.
+
+@item
+The analyzer will consider the possibility that an allocation function
+could fail and return NULL.  It will emit
+@option{-Wanalyzer-possible-null-dereference} and
+@option{-Wanalyzer-possible-null-argument} diagnostics if there are
+execution paths in which an unchecked result of an allocation call is
+dereferenced or passed to a function requiring a non-null argument.
+If the allocator always returns non-null, use
+@code{__attribute__ ((returns_nonnull))} to suppress these warnings.
+For example:
+@smallexample
+char *xstrdup (const char *)
+  __attribute__((malloc (free), returns_nonnull));
+@end smallexample
+
+@item
+The analyzer will emit a @option{-Wanalyzer-use-after-free}
+diagnostic if there is an execution path in which the memory passed
+by pointer to a deallocation call is used after the deallocation.
+
+@item
+The analyzer will emit a @option{-Wanalyzer-malloc-leak} diagnostic if
+there is an execution path in which the result of an allocation call
+is leaked (without being passed to the deallocation function).
+
+@item
+The analyzer will emit a @option{-Wanalyzer-free-of-non-heap} diagnostic
+if a deallocation function is used on a global or on-stack variable.
+
+@end itemize
+
+The analyzer assumes that deallocators can gracefully handle the @code{NULL}
+pointer.  If this is not the case, the deallocator can be marked with
+@code{__attribute__((nonnull))} so that @option{-fanalyzer} can emit
+a @option{-Wanalyzer-possible-null-argument} diagnostic for code paths
+in which the deallocator is called with NULL.
 
 @item no_icf
 @cindex @code{no_icf} function attribute
@@ -3671,6 +3777,10 @@ This attribute adds stack protection code to the function if
 flags @option{-fstack-protector}, @option{-fstack-protector-strong}
 or @option{-fstack-protector-explicit} are set.
 
+@item no_stack_protector
+@cindex @code{no_stack_protector} function attribute
+This attribute prevents stack protection code for the function.
+
 @item target (@var{string}, @dots{})
 @cindex @code{target} function attribute
 Multiple target back ends implement the @code{target} attribute
@@ -3715,6 +3825,7 @@ Function Attributes}, @ref{PowerPC Function Attributes},
 for details.
 
 @item symver ("@var{name2}@@@var{nodename}")
+@cindex @code{symver} function attribute
 On ELF targets this attribute creates a symbol version.  The @var{name2} part
 of the parameter is the actual name of the symbol by which it will be
 externally referenced.  The @code{nodename} portion should be the name of a
@@ -3732,13 +3843,19 @@ foo_v1 (void)
 Will produce a @code{.symver foo_v1, foo@@VERS_1} directive in the assembler
 output. 
 
-It's an error to define multiple version of a given symbol.  In such case
-an alias can be used.
+One can also define multiple version for a given symbol.
 
 @smallexample
-__attribute__ ((__symver__ ("foo@@VERS_2")))
-__attribute__ ((alias ("foo_v1")))
-int symver_foo_v1 (void);
+__attribute__ ((__symver__ ("foo@@VERS_2"), ("foo@@VERS_3")))
+int symver_foo_v1 (void)
+@{
+@}
+
+__attribute__ ((__symver__ ("bar@@VERS_2"))))
+__attribute__ ((__symver__ ("bar@@VERS_3"))))
+int symver_bar_v1 (void)
+@{
+@}
 @end smallexample
 
 This example creates an alias of @code{foo_v1} with symbol name
@@ -3793,6 +3910,14 @@ inline assembly.
 When applied to a member function of a C++ class template, the
 attribute also means that the function is instantiated if the
 class itself is instantiated.
+
+For ELF targets that support the GNU or FreeBSD OSABIs, this attribute
+will also save the function from linker garbage collection.  To support
+this behavior, functions that have not been placed in specific sections
+(e.g. by the @code{section} attribute, or the @code{-ffunction-sections}
+option), will be placed in new, unique sections.
+
+This additional functionality requires Binutils version 2.36 or later.
 
 @item visibility ("@var{visibility_type}")
 @cindex @code{visibility} function attribute
@@ -3976,6 +4101,92 @@ performing a link with relocatable output (i.e.@: @code{ld -r}) on them.
 A declaration to which @code{weakref} is attached and that is associated
 with a named @code{target} must be @code{static}.
 
+@item zero_call_used_regs ("@var{choice}")
+@cindex @code{zero_call_used_regs} function attribute
+
+The @code{zero_call_used_regs} attribute causes the compiler to zero
+a subset of all call-used registers@footnote{A ``call-used'' register
+is a register whose contents can be changed by a function call;
+therefore, a caller cannot assume that the register has the same contents
+on return from the function as it had before calling the function.  Such
+registers are also called ``call-clobbered'', ``caller-saved'', or
+``volatile''.} at function return.
+This is used to increase program security by either mitigating
+Return-Oriented Programming (ROP) attacks or preventing information leakage
+through registers.
+
+In order to satisfy users with different security needs and control the
+run-time overhead at the same time, the @var{choice} parameter provides a
+flexible way to choose the subset of the call-used registers to be zeroed.
+The three basic values of @var{choice} are:
+
+@itemize @bullet
+@item
+@samp{skip} doesn't zero any call-used registers.
+
+@item
+@samp{used} only zeros call-used registers that are used in the function.
+A ``used'' register is one whose content has been set or referenced in
+the function.
+
+@item
+@samp{all} zeros all call-used registers.
+@end itemize
+
+In addition to these three basic choices, it is possible to modify
+@samp{used} or @samp{all} as follows:
+
+@itemize @bullet
+@item
+Adding @samp{-gpr} restricts the zeroing to general-purpose registers.
+
+@item
+Adding @samp{-arg} restricts the zeroing to registers that can sometimes
+be used to pass function arguments.  This includes all argument registers
+defined by the platform's calling conversion, regardless of whether the
+function uses those registers for function arguments or not.
+@end itemize
+
+The modifiers can be used individually or together.  If they are used
+together, they must appear in the order above.
+
+The full list of @var{choice}s is therefore:
+
+@table @code
+@item skip
+doesn't zero any call-used register.
+
+@item used
+only zeros call-used registers that are used in the function.
+
+@item used-gpr
+only zeros call-used general purpose registers that are used in the function.
+
+@item used-arg
+only zeros call-used registers that are used in the function and pass arguments.
+
+@item used-gpr-arg
+only zeros call-used general purpose registers that are used in the function
+and pass arguments.
+
+@item all
+zeros all call-used registers.
+
+@item all-gpr
+zeros all call-used general purpose registers.
+
+@item all-arg
+zeros all call-used registers that pass arguments.
+
+@item all-gpr-arg
+zeros all call-used general purpose registers that pass
+arguments.
+@end table
+
+Of this list, @samp{used-arg}, @samp{used-gpr-arg}, @samp{all-arg},
+and @samp{all-gpr-arg} are mainly used for ROP mitigation.
+
+The default for the attribute is controlled by @option{-fzero-call-used-regs}.
 @end table
 
 @c This is the end of the target-independent attribute table
@@ -4065,6 +4276,12 @@ be used instead.
 Select the function scope on which branch protection will be applied.  The
 behavior and permissible arguments are the same as for the command-line option
 @option{-mbranch-protection=}.  The default value is @code{none}.
+
+@item outline-atomics
+@cindex @code{outline-atomics} function attribute, AArch64
+Enable or disable calls to out-of-line helpers to implement atomic operations.
+This corresponds to the behavior of the command line options
+@option{-moutline-atomics} and @option{-mno-outline-atomics}.
 
 @end table
 
@@ -4640,6 +4857,24 @@ attribute is present.
 Use this attribute to indicate that
 all registers except the stack pointer should be saved in the prologue
 regardless of whether they are used or not.
+@end table
+
+@node BPF Function Attributes
+@subsection BPF Function Attributes
+
+These function attributes are supported by the BPF back end:
+
+@table @code
+@item kernel_helper
+@cindex @code{kernel helper}, function attribute, BPF
+use this attribute to indicate the specified function declaration is a
+kernel helper.  The helper function is passed as an argument to the
+attribute.  Example:
+
+@smallexample
+int bpf_probe_read (void *dst, int size, const void *unsafe_ptr)
+  __attribute__ ((kernel_helper (4)));
+@end smallexample
 @end table
 
 @node CR16 Function Attributes
@@ -6029,9 +6264,10 @@ and for static member methods.
 On 32-bit and 64-bit x86 targets, you can use an ABI attribute
 to indicate which calling convention should be used for a function.  The
 @code{ms_abi} attribute tells the compiler to use the Microsoft ABI,
-while the @code{sysv_abi} attribute tells the compiler to use the ABI
-used on GNU/Linux and other systems.  The default is to use the Microsoft ABI
-when targeting Windows.  On all other systems, the default is the x86/AMD ABI.
+while the @code{sysv_abi} attribute tells the compiler to use the System V
+ELF ABI, which is used on GNU/Linux and other systems.  The default is to use
+the Microsoft ABI when targeting Windows.  On all other systems, the default
+is the System V ELF ABI.
 
 Note, the @code{ms_abi} attribute for Microsoft Windows 64-bit targets currently
 requires the @option{-maccumulate-outgoing-args} option.
@@ -6583,6 +6819,46 @@ Enable/disable the generation of the XSAVEOPT instructions.
 @cindex @code{target("xsaves")} function attribute, x86
 Enable/disable the generation of the XSAVES instructions.
 
+@item amx-tile
+@itemx no-amx-tile
+@cindex @code{target("amx-tile")} function attribute, x86
+Enable/disable the generation of the AMX-TILE instructions.
+
+@item amx-int8
+@itemx no-amx-int8
+@cindex @code{target("amx-int8")} function attribute, x86
+Enable/disable the generation of the AMX-INT8 instructions.
+
+@item amx-bf16
+@itemx no-amx-bf16
+@cindex @code{target("amx-bf16")} function attribute, x86
+Enable/disable the generation of the AMX-BF16 instructions.
+
+@item uintr
+@itemx no-uintr
+@cindex @code{target("uintr")} function attribute, x86
+Enable/disable the generation of the UINTR instructions.
+
+@item hreset
+@itemx no-hreset
+@cindex @code{target("hreset")} function attribute, x86
+Enable/disable the generation of the HRESET instruction.
+
+@item kl
+@itemx no-kl
+@cindex @code{target("kl")} function attribute, x86
+Enable/disable the generation of the KEYLOCKER instructions.
+
+@item widekl
+@itemx no-widekl
+@cindex @code{target("widekl")} function attribute, x86
+Enable/disable the generation of the WIDEKL instructions.
+
+@item avxvnni
+@itemx no-avxvnni
+@cindex @code{target("avxvnni")} function attribute, x86
+Enable/disable the generation of the AVXVNNI instructions.
+
 @item cld
 @itemx no-cld
 @cindex @code{target("cld")} function attribute, x86
@@ -6621,6 +6897,10 @@ Do/do not align destination of inlined string operations.
 Enable/disable the generation of RCPSS, RCPPS, RSQRTSS and RSQRTPS
 instructions followed an additional Newton-Raphson step instead of
 doing a floating-point division.
+
+@item general-regs-only
+@cindex @code{target("general-regs-only")} function attribute, x86
+Generate code which uses only the general registers.
 
 @item arch=@var{ARCH}
 @cindex @code{target("arch=@var{ARCH}")} function attribute, x86
@@ -6739,6 +7019,28 @@ nop sequence is generated.
 On x86 targets, the @code{fentry_section} attribute sets the name
 of the section to record function entry instrumentation calls in when
 enabled with @option{-pg -mrecord-mcount}
+
+@item prefer-vector-width=@var{OPT}
+@cindex @code{prefer-vector-width} function attribute, x86
+On x86 targets, the @code{prefer-vector-width} attribute informs the
+compiler to use @var{OPT}-bit vector width in instructions
+instead of the default on the selected platform.
+
+Valid @var{OPT} values are:
+
+@table @samp
+@item none
+No extra limitations applied to GCC other than defined by the selected platform.
+
+@item 128
+Prefer 128-bit vector width for instructions.
+
+@item 256
+Prefer 256-bit vector width for instructions.
+
+@item 512
+Prefer 512-bit vector width for instructions.
+@end table
 
 @end table
 
@@ -7200,6 +7502,14 @@ When applied to a static data member of a C++ class template, the
 attribute also means that the member is instantiated if the
 class itself is instantiated.
 
+For ELF targets that support the GNU or FreeBSD OSABIs, this attribute
+will also save the variable from linker garbage collection.  To support
+this behavior, variables that have not been placed in specific sections
+(e.g. by the @code{section} attribute, or the @code{-fdata-sections} option),
+will be placed in new, unique sections.
+
+This additional functionality requires Binutils version 2.36 or later.
+
 @item vector_size (@var{bytes})
 @cindex @code{vector_size} variable attribute
 This attribute specifies the vector size for the type of the declared
@@ -7249,9 +7559,49 @@ The @code{weak} attribute is described in
 @cindex @code{noinit} variable attribute
 Any data with the @code{noinit} attribute will not be initialized by
 the C runtime startup code, or the program loader.  Not initializing
-data in this way can reduce program startup times.  This attribute is
-specific to ELF targets and relies on the linker to place such data in
-the right location
+data in this way can reduce program startup times.
+
+This attribute is specific to ELF targets and relies on the linker
+script to place sections with the @code{.noinit} prefix in the right
+location.
+
+@item persistent
+@cindex @code{persistent} variable attribute
+Any data with the @code{persistent} attribute will not be initialized by
+the C runtime startup code, but will be initialized by the program
+loader.  This enables the value of the variable to @samp{persist}
+between processor resets.
+
+This attribute is specific to ELF targets and relies on the linker
+script to place the sections with the @code{.persistent} prefix in the
+right location.  Specifically, some type of non-volatile, writeable
+memory is required.
+
+@item objc_nullability (@var{nullability kind}) @r{(Objective-C and Objective-C++ only)}
+@cindex @code{objc_nullability} variable attribute
+This attribute applies to pointer variables only.  It allows marking the
+pointer with one of four possible values describing the conditions under
+which the pointer might have a @code{nil} value. In most cases, the
+attribute is intended to be an internal representation for property and
+method nullability (specified by language keywords); it is not recommended
+to use it directly.
+
+When @var{nullability kind} is @code{"unspecified"} or @code{0}, nothing is
+known about the conditions in which the pointer might be @code{nil}. Making
+this state specific serves to avoid false positives in diagnostics.
+
+When @var{nullability kind} is @code{"nonnull"} or @code{1}, the pointer has
+no meaning if it is @code{nil} and thus the compiler is free to emit
+diagnostics if it can be determined that the value will be @code{nil}.
+
+When @var{nullability kind} is @code{"nullable"} or @code{2}, the pointer might
+be @code{nil} and carry meaning as such.
+
+When @var{nullability kind} is @code{"resettable"} or @code{3} (used only in
+the context of property attribute lists) this describes the case in which a
+property setter may take the value @code{nil} (which perhaps causes the
+property to be reset in some manner to a default) but for which the property
+getter will never validly return @code{nil}.
 
 @end table
 
@@ -7646,23 +7996,6 @@ The @code{shared} attribute is only available on Microsoft Windows@.
 @subsection MSP430 Variable Attributes
 
 @table @code
-@item noinit
-@cindex @code{noinit} variable attribute, MSP430 
-Any data with the @code{noinit} attribute will not be initialised by
-the C runtime startup code, or the program loader.  Not initialising
-data in this way can reduce program startup times.
-
-@item persistent
-@cindex @code{persistent} variable attribute, MSP430 
-Any variable with the @code{persistent} attribute will not be
-initialised by the C runtime startup code.  Instead its value will be
-set once, when the application is loaded, and then never initialised
-again, even if the processor is reset or the program restarts.
-Persistent data is intended to be placed into FLASH RAM, where its
-value will be retained across resets.  The linker script being used to
-create the application should ensure that persistent data is correctly
-placed.
-
 @item upper
 @itemx either
 @cindex @code{upper} variable attribute, MSP430 
@@ -8342,6 +8675,12 @@ and caught in another, the class must have default visibility.
 Otherwise the two shared objects are unable to use the same
 typeinfo node and exception handling will break.
 
+@item objc_root_class @r{(Objective-C and Objective-C++ only)}
+@cindex @code{objc_root_class} type attribute
+This attribute marks a class as being a root class, and thus allows
+the compiler to elide any warnings about a missing superclass and to
+make additional checks for mandatory methods as needed.
+
 @end table
 
 To specify multiple attributes, separate them by commas within the
@@ -8461,7 +8800,8 @@ details of the exact syntax for using attributes.  Other attributes are
 available for functions (@pxref{Function Attributes}), variables 
 (@pxref{Variable Attributes}), enumerators (@pxref{Enumerator Attributes}),
 statements (@pxref{Statement Attributes}), and for types
-(@pxref{Type Attributes}).
+(@pxref{Type Attributes}). A label attribute followed
+by a declaration appertains to the label and not the declaration.
 
 This example uses the @code{cold} label attribute to indicate the 
 @code{ErrorHandling} branch is unlikely to be taken and that the
@@ -9357,7 +9697,7 @@ asm @var{asm-qualifiers} ( @var{AssemblerTemplate}
                  @r{[} : @var{Clobbers} @r{]} @r{]})
 
 asm @var{asm-qualifiers} ( @var{AssemblerTemplate} 
-                      : 
+                      : @var{OutputOperands}
                       : @var{InputOperands}
                       : @var{Clobbers}
                       : @var{GotoLabels})
@@ -9464,7 +9804,7 @@ there is no need for the output variables. Also, the optimizers may move
 code out of loops if they believe that the code will always return the same 
 result (i.e.@: none of its input values change between calls). Using the 
 @code{volatile} qualifier disables these optimizations. @code{asm} statements 
-that have no output operands, including @code{asm goto} statements, 
+that have no output operands and @code{asm goto} statements, 
 are implicitly volatile.
 
 This i386 code demonstrates a case that does not use (or require) the 
@@ -10323,9 +10663,6 @@ case, consider using the @code{__builtin_unreachable} intrinsic after the
 using the @code{hot} and @code{cold} label attributes (@pxref{Label 
 Attributes}).
 
-An @code{asm goto} statement cannot have outputs.
-This is due to an internal restriction of 
-the compiler: control transfer instructions cannot have outputs. 
 If the assembler code does modify anything, use the @code{"memory"} clobber 
 to force the 
 optimizers to flush all register values to memory and reload them if 
@@ -10333,6 +10670,13 @@ necessary after the @code{asm} statement.
 
 Also note that an @code{asm goto} statement is always implicitly
 considered volatile.
+
+Be careful when you set output operands inside @code{asm goto} only on
+some possible control flow paths.  If you don't set up the output on
+given path and never use it on this path, it is okay.  Otherwise, you
+should use @samp{+} constraint modifier meaning that the operand is
+input and output one.  With this modifier you will have the correct
+values on all possible paths from the @code{asm goto}.
 
 To reference a label in the assembler template,
 prefix it with @samp{%l} (lowercase @samp{L}) followed 
@@ -10376,6 +10720,41 @@ int frob(int x)
   return y;
 error:
   return -1;
+@}
+@end example
+
+The following example shows an @code{asm goto} that uses an output.
+
+@example
+int foo(int count)
+@{
+  asm goto ("dec %0; jb %l[stop]"
+            : "+r" (count)
+            :
+            :
+            : stop);
+  return count;
+stop:
+  return 0;
+@}
+@end example
+
+The following artificial example shows an @code{asm goto} that sets
+up an output only on one path inside the @code{asm goto}.  Usage of
+constraint modifier @code{=} instead of @code{+} would be wrong as
+@code{factor} is used on all paths from the @code{asm goto}.
+
+@example
+int foo(int inp)
+@{
+  int factor = 0;
+  asm goto ("cmp %1, 10; jb %l[lab]; mov 2, %0"
+            : "+r" (factor)
+            : "r" (inp)
+            :
+            : lab);
+lab:
+  return inp * factor; /* return 2 * inp or 0 if inp < 10 */
 @}
 @end example
 
@@ -10431,6 +10810,15 @@ for the @samp{att} and @samp{intel} dialects of assembler:
 @item @code{%3}
 @tab @code{$.L3}
 @tab @code{OFFSET FLAT:.L3}
+@item @code{%4}
+@tab @code{$8}
+@tab @code{8}
+@item @code{%5}
+@tab @code{%xmm0}
+@tab @code{xmm0}
+@item @code{%7}
+@tab @code{$0}
+@tab @code{0}
 @end multitable
 
 The table below shows the list of supported modifiers and their effects.
@@ -10447,17 +10835,32 @@ The table below shows the list of supported modifiers and their effects.
 @tab @code{%b0}
 @tab @code{%al}
 @tab @code{al}
+@item @code{B}
+@tab print the opcode suffix of b.
+@tab @code{%B0}
+@tab @code{b}
+@tab
 @item @code{c}
 @tab Require a constant operand and print the constant expression with no punctuation.
 @tab @code{%c1}
 @tab @code{2}
 @tab @code{2}
+@item @code{d}
+@tab print duplicated register operand for AVX instruction.
+@tab @code{%d5}
+@tab @code{%xmm0, %xmm0}
+@tab @code{xmm0, xmm0}
 @item @code{E}
 @tab Print the address in Double Integer (DImode) mode (8 bytes) when the target is 64-bit.
 Otherwise mode is unspecified (VOIDmode).
 @tab @code{%E1}
 @tab @code{%(rax)}
 @tab @code{[rax]}
+@item @code{g}
+@tab Print the V16SFmode name of the register.
+@tab @code{%g0}
+@tab @code{%zmm0}
+@tab @code{zmm0}
 @item @code{h}
 @tab Print the QImode name for a ``high'' register.
 @tab @code{%h0}
@@ -10479,6 +10882,16 @@ high 8 bytes of SSE values. For a memref in (%rax), it generates
 @tab @code{%l3}
 @tab @code{.L3}
 @tab @code{.L3}
+@item @code{L}
+@tab print the opcode suffix of l.
+@tab @code{%L0}
+@tab @code{l}
+@tab
+@item @code{N}
+@tab print maskz.
+@tab @code{%N7}
+@tab @code{@{z@}}
+@tab @code{@{z@}}
 @item @code{p}
 @tab Print raw symbol name (without syntax-specific prefixes).
 @tab @code{%p2}
@@ -10494,20 +10907,76 @@ issue the bare constant. See @code{p} above.
 @tab @code{%q0}
 @tab @code{%rax}
 @tab @code{rax}
+@item @code{Q}
+@tab print the opcode suffix of q.
+@tab @code{%Q0}
+@tab @code{q}
+@tab
+@item @code{R}
+@tab print embedded rounding and sae.
+@tab @code{%R4}
+@tab @code{@{rn-sae@}, }
+@tab @code{, @{rn-sae@}}
+@item @code{r}
+@tab print only sae.
+@tab @code{%r4}
+@tab @code{@{sae@}, }
+@tab @code{, @{sae@}}
+@item @code{s}
+@tab print a shift double count, followed by the assemblers argument
+delimiterprint the opcode suffix of s.
+@tab @code{%s1}
+@tab @code{$2, }
+@tab @code{2, }
+@item @code{S}
+@tab print the opcode suffix of s.
+@tab @code{%S0}
+@tab @code{s}
+@tab
+@item @code{t}
+@tab print the V8SFmode name of the register.
+@tab @code{%t5}
+@tab @code{%ymm0}
+@tab @code{ymm0}
+@item @code{T}
+@tab print the opcode suffix of t.
+@tab @code{%T0}
+@tab @code{t}
+@tab
+@item @code{V}
+@tab print naked full integer register name without %.
+@tab @code{%V0}
+@tab @code{eax}
+@tab @code{eax}
 @item @code{w}
 @tab Print the HImode name of the register.
 @tab @code{%w0}
 @tab @code{%ax}
 @tab @code{ax}
+@item @code{W}
+@tab print the opcode suffix of w.
+@tab @code{%W0}
+@tab @code{w}
+@tab
+@item @code{x}
+@tab print the V4SFmode name of the register.
+@tab @code{%x5}
+@tab @code{%xmm0}
+@tab @code{xmm0}
+@item @code{y}
+@tab print "st(0)" instead of "st" as a register.
+@tab @code{%y6}
+@tab @code{%st(0)}
+@tab @code{st(0)}
 @item @code{z}
 @tab Print the opcode suffix for the size of the current integer operand (one of @code{b}/@code{w}/@code{l}/@code{q}).
 @tab @code{%z0}
 @tab @code{l}
 @tab 
+@item @code{Z}
+@tab Like @code{z}, with special suffixes for x87 instructions.
 @end multitable
 
-@code{V} is a special modifier which prints the name of the full integer
-register without @code{%}.
 
 @anchor{x86floatingpointasmoperands}
 @subsubsection x86 Floating-Point @code{asm} Operands
@@ -10602,6 +11071,42 @@ for the compiler to know that @code{fyl2xp1} pops both inputs.
 @smallexample
 asm ("fyl2xp1" : "=t" (result) : "0" (x), "u" (y) : "st(1)");
 @end smallexample
+
+@anchor{msp430Operandmodifiers}
+@subsubsection MSP430 Operand Modifiers
+
+The list below describes the supported modifiers and their effects for MSP430.
+
+@multitable @columnfractions .10 .90
+@headitem Modifier @tab Description
+@item @code{A} @tab Select low 16-bits of the constant/register/memory operand.
+@item @code{B} @tab Select high 16-bits of the constant/register/memory
+operand.
+@item @code{C} @tab Select bits 32-47 of the constant/register/memory operand.
+@item @code{D} @tab Select bits 48-63 of the constant/register/memory operand.
+@item @code{H} @tab Equivalent to @code{B} (for backwards compatibility).
+@item @code{I} @tab Print the inverse (logical @code{NOT}) of the constant
+value.
+@item @code{J} @tab Print an integer without a @code{#} prefix.
+@item @code{L} @tab Equivalent to @code{A} (for backwards compatibility).
+@item @code{O} @tab Offset of the current frame from the top of the stack.
+@item @code{Q} @tab Use the @code{A} instruction postfix.
+@item @code{R} @tab Inverse of condition code, for unsigned comparisons.
+@item @code{W} @tab Subtract 16 from the constant value.
+@item @code{X} @tab Use the @code{X} instruction postfix.
+@item @code{Y} @tab Subtract 4 from the constant value.
+@item @code{Z} @tab Subtract 1 from the constant value.
+@item @code{b} @tab Append @code{.B}, @code{.W} or @code{.A} to the
+instruction, depending on the mode.
+@item @code{d} @tab Offset 1 byte of a memory reference or constant value.
+@item @code{e} @tab Offset 3 bytes of a memory reference or constant value.
+@item @code{f} @tab Offset 5 bytes of a memory reference or constant value.
+@item @code{g} @tab Offset 7 bytes of a memory reference or constant value.
+@item @code{p} @tab Print the value of 2, raised to the power of the given
+constant.  Used to select the specified bit position.
+@item @code{r} @tab Inverse of condition code, for signed comparisons.
+@item @code{x} @tab Equivialent to @code{X}, but only for pointers.
+@end multitable
 
 @lowersections
 @include md.texi
@@ -11055,18 +11560,31 @@ The @var{level} argument must be a constant integer.
 
 On some machines it may be impossible to determine the return address of
 any function other than the current one; in such cases, or when the top
-of the stack has been reached, this function returns @code{0} or a
-random value.  In addition, @code{__builtin_frame_address} may be used
+of the stack has been reached, this function returns an unspecified
+value.  In addition, @code{__builtin_frame_address} may be used
 to determine if the top of the stack has been reached.
 
 Additional post-processing of the returned value may be needed, see
 @code{__builtin_extract_return_addr}.
+
+The stored representation of the return address in memory may be different
+from the address returned by @code{__builtin_return_address}.  For example,
+on AArch64 the stored address may be mangled with return address signing
+whereas the address returned by @code{__builtin_return_address} is not.
 
 Calling this function with a nonzero argument can have unpredictable
 effects, including crashing the calling program.  As a result, calls
 that are considered unsafe are diagnosed when the @option{-Wframe-address}
 option is in effect.  Such calls should only be made in debugging
 situations.
+
+On targets where code addresses are representable as @code{void *},
+@smallexample
+void *addr = __builtin_extract_return_addr (__builtin_return_address (0));
+@end smallexample
+gives the code address where the current function would return.  For example,
+such an address may be used with @code{dladdr} or other interfaces that work
+with code addresses.
 @end deftypefn
 
 @deftypefn {Built-in Function} {void *} __builtin_extract_return_addr (void *@var{addr})
@@ -12577,7 +13095,7 @@ Outside strict ISO C mode (@option{-ansi}, @option{-std=c90},
 @code{j1f}, @code{j1l}, @code{j1}, @code{jnf}, @code{jnl}, @code{jn},
 @code{lgammaf_r}, @code{lgammal_r}, @code{lgamma_r}, @code{mempcpy},
 @code{pow10f}, @code{pow10l}, @code{pow10}, @code{printf_unlocked},
-@code{rindex}, @code{roundeven}, @code{roundevenf}, @code{roudnevenl},
+@code{rindex}, @code{roundeven}, @code{roundevenf}, @code{roundevenl},
 @code{scalbf}, @code{scalbl}, @code{scalb},
 @code{signbit}, @code{signbitf}, @code{signbitl}, @code{signbitd32},
 @code{signbitd64}, @code{signbitd128}, @code{significandf},
@@ -13176,6 +13694,34 @@ initializers of variables usable in constant expressions.   For more details
 refer to the latest revision of the C++ standard.
 @end deftypefn
 
+@deftypefn {Built-in Function} void __builtin_clear_padding (@var{ptr})
+The built-in function @code{__builtin_clear_padding} function clears
+padding bits inside of the object representation of object pointed by
+@var{ptr}, which has to be a pointer.  The value representation of the
+object is not affected.  The type of the object is assumed to be the type
+the pointer points to.  Inside of a union, the only cleared bits are
+bits that are padding bits for all the union members.
+
+This built-in-function is useful if the padding bits of an object might
+have intederminate values and the object representation needs to be
+bitwise compared to some other object, for example for atomic operations.
+@end deftypefn
+
+@deftypefn {Built-in Function} @var{type} __builtin_bit_cast (@var{type}, @var{arg})
+The @code{__builtin_bit_cast} function is available only
+in C++.  The built-in is intended to be used by implementations of
+the @code{std::bit_cast} C++ template function.  Programs should make
+use of the latter function rather than invoking the built-in directly.
+
+This built-in function allows reinterpreting the bits of the @var{arg}
+argument as if it had type @var{type}.  @var{type} and the type of the
+@var{arg} argument need to be trivially copyable types with the same size.
+When manifestly constant-evaluated, it performs extra diagnostics required
+for @code{std::bit_cast} and returns a constant expression if @var{arg}
+is a constant expression.  For more details
+refer to the latest revision of the C++ standard.
+@end deftypefn
+
 @deftypefn {Built-in Function} long __builtin_expect (long @var{exp}, long @var{c})
 @opindex fprofile-arcs
 You may use @code{__builtin_expect} to provide the compiler with
@@ -13557,6 +14103,18 @@ to be a signaling NaN@.  The @code{nans} function is proposed by
 @uref{http://www.open-std.org/jtc1/sc22/wg14/www/docs/n965.htm,,WG14 N965}.
 @end deftypefn
 
+@deftypefn {Built-in Function} _Decimal32 __builtin_nansd32 (const char *str)
+Similar to @code{__builtin_nans}, except the return type is @code{_Decimal32}.
+@end deftypefn
+
+@deftypefn {Built-in Function} _Decimal64 __builtin_nansd64 (const char *str)
+Similar to @code{__builtin_nans}, except the return type is @code{_Decimal64}.
+@end deftypefn
+
+@deftypefn {Built-in Function} _Decimal128 __builtin_nansd128 (const char *str)
+Similar to @code{__builtin_nans}, except the return type is @code{_Decimal128}.
+@end deftypefn
+
 @deftypefn {Built-in Function} float __builtin_nansf (const char *str)
 Similar to @code{__builtin_nans}, except the return type is @code{float}.
 @end deftypefn
@@ -13688,13 +14246,19 @@ exactly 8 bits.
 
 @deftypefn {Built-in Function} uint32_t __builtin_bswap32 (uint32_t x)
 Similar to @code{__builtin_bswap16}, except the argument and return types
-are 32 bit.
+are 32-bit.
 @end deftypefn
 
 @deftypefn {Built-in Function} uint64_t __builtin_bswap64 (uint64_t x)
 Similar to @code{__builtin_bswap32}, except the argument and return types
-are 64 bit.
+are 64-bit.
 @end deftypefn
+
+@deftypefn {Built-in Function} uint128_t __builtin_bswap128 (uint128_t x)
+Similar to @code{__builtin_bswap64}, except the argument and return types
+are 128-bit.  Only supported on targets when 128-bit types are supported.
+@end deftypefn
+
 
 @deftypefn {Built-in Function} Pmode __builtin_extend_pointer (void * x)
 On targets where the user visible pointer size is smaller than the size
@@ -13734,7 +14298,6 @@ instructions, but allow the compiler to schedule those calls.
 * AVR Built-in Functions::
 * Blackfin Built-in Functions::
 * BPF Built-in Functions::
-* BPF Kernel Helpers::
 * FR-V Built-in Functions::
 * MIPS DSP Built-in Functions::
 * MIPS Paired-Single Support::
@@ -13748,6 +14311,9 @@ instructions, but allow the compiler to schedule those calls.
 * PowerPC AltiVec/VSX Built-in Functions::
 * PowerPC Hardware Transactional Memory Built-in Functions::
 * PowerPC Atomic Memory Operation Functions::
+* PowerPC Matrix-Multiply Assist Built-in Functions::
+* PRU Built-in Functions::
+* RISC-V Built-in Functions::
 * RX Built-in Functions::
 * S/390 System z Built-in Functions::
 * SH Built-in Functions::
@@ -13770,6 +14336,11 @@ unsigned int __builtin_aarch64_get_fpcr ()
 void __builtin_aarch64_set_fpcr (unsigned int)
 unsigned int __builtin_aarch64_get_fpsr ()
 void __builtin_aarch64_set_fpsr (unsigned int)
+
+unsigned long long __builtin_aarch64_get_fpcr64 ()
+void __builtin_aarch64_set_fpcr64 (unsigned long long)
+unsigned long long __builtin_aarch64_get_fpsr64 ()
+void __builtin_aarch64_set_fpsr64 (unsigned long long)
 @end smallexample
 
 @node Alpha Built-in Functions
@@ -14550,12 +15121,12 @@ long long __builtin_arm_wzero ()
 
 GCC implements extensions for C as described in the ARM C Language
 Extensions (ACLE) specification, which can be found at
-@uref{http://infocenter.arm.com/help/topic/com.arm.doc.ihi0053c/IHI0053C_acle_2_0.pdf}.
+@uref{https://developer.arm.com/documentation/ihi0053/latest/}.
 
 As a part of ACLE, GCC implements extensions for Advanced SIMD as described in
 the ARM C Language Extensions Specification.  The complete list of Advanced SIMD
 intrinsics can be found at
-@uref{http://infocenter.arm.com/help/topic/com.arm.doc.ihi0073a/IHI0073A_arm_neon_intrinsics_ref.pdf}.
+@uref{https://developer.arm.com/documentation/ihi0073/latest/}.
 The built-in intrinsics for the Advanced SIMD extension are available when
 NEON is enabled.
 
@@ -14586,7 +15157,7 @@ void __builtin_arm_set_fpscr (unsigned int)
 GCC implements the ARMv8-M Security Extensions as described in the ARMv8-M
 Security Extensions: Requirements on Development Tools Engineering
 Specification, which can be found at
-@uref{http://infocenter.arm.com/help/topic/com.arm.doc.ecm0359818/ECM0359818_armv8m_security_extensions_reqs_on_dev_tools_1_0.pdf}.
+@uref{https://developer.arm.com/documentation/ecm0359818/latest/}.
 
 As part of the Security Extensions GCC implements two new function attributes:
 @code{cmse_nonsecure_entry} and @code{cmse_nonsecure_call}.
@@ -14747,158 +15318,6 @@ Load 16-bits from the @code{struct sk_buff} packet data pointed by the register 
 @deftypefn {Built-in Function} unsigned long long __builtin_bpf_load_word (unsigned long long @var{offset})
 Load 32-bits from the @code{struct sk_buff} packet data pointed by the register @code{%r6} and return it.
 @end deftypefn
-
-@node BPF Kernel Helpers
-@subsection BPF Kernel Helpers
-
-These built-in functions are available for calling kernel helpers, and
-they are available depending on the kernel version selected as the
-CPU.
-
-Rather than using the built-ins directly, it is preferred for programs
-to include @file{bpf-helpers.h} and use the wrappers defined there.
-
-For a full description of what the helpers do, the arguments they
-take, and the returned value, see the
-@file{linux/include/uapi/linux/bpf.h} in a Linux source tree.
-
-@smallexample
-void *__builtin_bpf_helper_map_lookup_elem (void *map, void *key)
-int   __builtin_bpf_helper_map_update_elem (void *map, void *key,
-                                            void *value,
-                                            unsigned long long flags)
-int   __builtin_bpf_helper_map_delete_elem (void *map, const void *key)
-int   __builtin_bpf_helper_map_push_elem (void *map, const void *value,
-                                          unsigned long long flags)
-int   __builtin_bpf_helper_map_pop_elem (void *map, void *value)
-int   __builtin_bpf_helper_map_peek_elem (void *map, void *value)
-int __builtin_bpf_helper_clone_redirect (void *skb,
-                                         unsigned int ifindex,
-                                         unsigned long long flags)
-int __builtin_bpf_helper_skb_get_tunnel_key (void *ctx, void *key, int size, int flags)
-int __builtin_bpf_helper_skb_set_tunnel_key (void *ctx, void *key, int size, int flags)
-int __builtin_bpf_helper_skb_get_tunnel_opt (void *ctx, void *md, int size)
-int __builtin_bpf_helper_skb_set_tunnel_opt (void *ctx, void *md, int size)
-int __builtin_bpf_helper_skb_get_xfrm_state (void *ctx, int index, void *state,
-				     int size, int flags)
-static unsigned long long __builtin_bpf_helper_skb_cgroup_id (void *ctx)
-static unsigned long long __builtin_bpf_helper_skb_ancestor_cgroup_id
-                                         (void *ctx, int level)
-int __builtin_bpf_helper_skb_vlan_push (void *ctx, __be16 vlan_proto, __u16 vlan_tci)
-int __builtin_bpf_helper_skb_vlan_pop (void *ctx)
-int __builtin_bpf_helper_skb_ecn_set_ce (void *ctx)
-
-int __builtin_bpf_helper_skb_load_bytes (void *ctx, int off, void *to, int len)
-int __builtin_bpf_helper_skb_load_bytes_relative (void *ctx, int off, void *to, int len, __u32 start_header)
-int __builtin_bpf_helper_skb_store_bytes (void *ctx, int off, void *from, int len, int flags)
-int __builtin_bpf_helper_skb_under_cgroup (void *ctx, void *map, int index)
-int __builtin_bpf_helper_skb_change_head (void *, int len, int flags)
-int __builtin_bpf_helper_skb_pull_data (void *, int len)
-int __builtin_bpf_helper_skb_change_proto (void *ctx, __be16 proto, __u64 flags)
-int __builtin_bpf_helper_skb_change_type (void *ctx, __u32 type)
-int __builtin_bpf_helper_skb_change_tail (void *ctx, __u32 len, __u64 flags)
-int __builtin_bpf_helper_skb_adjust_room (void *ctx, __s32 len_diff, __u32 mode,
-    				  unsigned long long flags)
-@end smallexample
-
-Other helpers:
-
-@smallexample
-int __builtin_bpf_helper_probe_read (void *dst, unsigned int size, void *src)
-unsigned long long __builtin_bpf_helper_ktime_get_ns (void)
-int __builtin_bpf_helper_trace_printk (const char *fmt, unsigned int fmt_size, ...)
-void __builtin_bpf_helper_tail_call (void *ctx, void *prog_array_map, unsigned int index)
-unsigned int __builtin_bpf_helper_get_smp_processor_id (void)
-unsigned long long __builtin_bpf_helper_get_current_pid_tgid (void)
-unsigned long long __builtin_bpf_helper_get_current_uid_gid (void)
-int __builtin_bpf_helper_get_current_comm (void *buf, unsigned int size_of_buf)
-unsigned long long __builtin_bpf_helper_perf_event_read (void *map, unsigned long long flags)
-
-int __builtin_bpf_helper_redirect (unsigned int ifindex, unsigned long long flags)
-int __builtin_bpf_helper_redirect_map (void *map, unsigned int key, unsigned long long flags)
-int __builtin_bpf_helper_perf_event_output (void *ctx,void *map, unsigned long long flags, void *data, unsigned long long size)
-int __builtin_bpf_helper_get_stackid (void *ctx, void *map, unsigned long long flags)
-int __builtin_bpf_helper_probe_write_user (void *dst, const void *src, unsigned int len)
-int __builtin_bpf_helper_current_task_under_cgroup (void *map, unsigned int index)
-
-static unsigned long long __builtin_bpf_helper_get_prandom_u32 (void)
-int __builtin_bpf_helper_xdp_adjust_head (void *ctx, int offset)
-int __builtin_bpf_helper_xdp_adjust_meta (void *ctx, int offset)
-int __builtin_bpf_helper_get_socket_cookie (void *ctx)
-int __builtin_bpf_helper_setsockopt (void *ctx, int level, int optname, void *optval,
-			     int optlen)
-int __builtin_bpf_helper_getsockopt (void *ctx, int level, int optname, void *optval,
-			     int optlen)
-int __builtin_bpf_helper_sock_ops_cb_flags_set (void *ctx, int flags)
-int __builtin_bpf_helper_sk_redirect_map (void *ctx, void *map, int key, int flags)
-int __builtin_bpf_helper_sk_redirect_hash (void *ctx, void *map, void *key, int flags)
-int __builtin_bpf_helper_sock_map_update (void *map, void *key, void *value,
-				  unsigned long long flags)
-int __builtin_bpf_helper_sock_hash_update (void *map, void *key, void *value,
-				   unsigned long long flags)
-int __builtin_bpf_helper_perf_event_read_value (void *map, unsigned long long flags,
-					void *buf, unsigned int buf_size)
-int __builtin_bpf_helper_perf_prog_read_value (void *ctx, void *buf,
-				       unsigned int buf_size)
-
-int __builtin_bpf_helper_override_return (void *ctx, unsigned long rc)
-int __builtin_bpf_helper_msg_redirect_map (void *ctx, void *map, int key, int flags)
-int __builtin_bpf_helper_msg_redirect_hash (void *ctx,
-				    void *map, void *key, int flags)
-int __builtin_bpf_helper_msg_apply_bytes (void *ctx, int len)
-int __builtin_bpf_helper_msg_cork_bytes (void *ctx, int len)
-int __builtin_bpf_helper_msg_pull_data (void *ctx, int start, int end, int flags)
-int __builtin_bpf_helper_msg_push_data (void *ctx, int start, int end, int flags)
-int __builtin_bpf_helper_msg_pop_data (void *ctx, int start, int cut, int flags)
-int __builtin_bpf_helper_bind (void *ctx, void *addr, int addr_len)
-int __builtin_bpf_helper_xdp_adjust_tail (void *ctx, int offset)
-int __builtin_bpf_helper_sk_select_reuseport (void *ctx, void *map, void *key, __u32 flags)
-int __builtin_bpf_helper_get_stack (void *ctx, void *buf, int size, int flags)
-int __builtin_bpf_helper_fib_lookup (void *ctx, struct bpf_fib_lookup *params,
-			     int plen, __u32 flags)
-
-int __builtin_bpf_helper_lwt_push_encap (void *ctx, unsigned int type, void *hdr,
-				 unsigned int len)
-int __builtin_bpf_helper_lwt_seg6_store_bytes (void *ctx, unsigned int offset,
-				       void *from, unsigned int len)
-int __builtin_bpf_helper_lwt_seg6_action (void *ctx, unsigned int action, void *param,
-				  unsigned int param_len)
-int __builtin_bpf_helper_lwt_seg6_adjust_srh (void *ctx, unsigned int offset,
-				      unsigned int len)
-int __builtin_bpf_helper_rc_repeat (void *ctx)
-int __builtin_bpf_helper_rc_keydown (void *ctx, unsigned int protocol,
-			     unsigned long long scancode, unsigned int toggle)
-static unsigned long long __builtin_bpf_helper_get_current_cgroup_id (void)
-static void *__builtin_bpf_helper_get_local_storage (void *map, unsigned long long flags)
-static struct bpf_sock *__builtin_bpf_helper_sk_lookup_tcp (void *ctx, void *tuple, int size, unsigned long long netns_id, unsigned long long flags)
-static struct bpf_sock *__builtin_bpf_helper_sk_lookup_udp (void *ctx, void *tuple, int size, unsigned long long netns_id, unsigned long long flags)
-int __builtin_bpf_helper_sk_release (struct bpf_sock *sk)
-int __builtin_bpf_helper_rc_pointer_rel (void *ctx, int rel_x, int rel_y)
-static void __builtin_bpf_helper_spin_lock (struct bpf_spin_lock *lock)
-static void __builtin_bpf_helper_spin_unlock (struct bpf_spin_lock *lock)
-
-static struct bpf_sock *__builtin_bpf_helper_sk_fullsock (struct bpf_sock *sk)
-static struct bpf_tcp_sock *__builtin_bpf_helper_tcp_sock (struct bpf_sock *sk)
-static struct bpf_sock *__builtin_bpf_helper_get_listener_sock (struct bpf_sock *sk)
-
-int __builtin_bpf_helper_l3_csum_replace (void *ctx, int off, int from, int to, int flags)
-int __builtin_bpf_helper_l4_csum_replace (void *ctx, int off, int from, int to, int flags)
-int __builtin_bpf_helper_csum_diff (void *from, int from_size, void *to, int to_size, int seed)
-
-static unsigned int __builtin_bpf_helper_get_cgroup_classid (void *ctx)
-static unsigned int __builtin_bpf_helper_get_route_realm (void *ctx)
-static unsigned int __builtin_bpf_helper_get_hash_recalc (void *ctx)
-static unsigned long long __builtin_bpf_helper_get_current_task (void *ctx)
-
-static long long __builtin_bpf_helper_csum_update (void *ctx, __u32 csum)
-static void __builtin_bpf_helper_set_hash_invalid (void *ctx)
-int __builtin_bpf_helper_get_numa_node_id (void)
-int __builtin_bpf_helper_probe_read_str (void *ctx, __u32 size,
-				 const void *unsafe_ptr)
-static unsigned int __builtin_bpf_helper_get_socket_uid (void *ctx)
-static unsigned int __builtin_bpf_helper_set_hash (void *ctx, __u32 hash)
-@end smallexample
-
 
 @node FR-V Built-in Functions
 @subsection FR-V Built-in Functions
@@ -16980,6 +17399,7 @@ implementing assertions.
 * Basic PowerPC Built-in Functions Available on ISA 2.06::
 * Basic PowerPC Built-in Functions Available on ISA 2.07::
 * Basic PowerPC Built-in Functions Available on ISA 3.0::
+* Basic PowerPC Built-in Functions Available on ISA 3.1::
 @end menu
 
 This section describes PowerPC built-in functions that do not require
@@ -17011,6 +17431,8 @@ issues a warning.
 The following CPU names can be detected:
 
 @table @samp
+@item power10
+IBM POWER10 Server CPU.
 @item power9
 IBM POWER9 Server CPU.
 @item power8
@@ -17087,6 +17509,8 @@ CPU supports ISA 2.06 (eg, POWER7)
 CPU supports ISA 2.07 (eg, POWER8)
 @item arch_3_00
 CPU supports ISA 3.0 (eg, POWER9)
+@item arch_3_1
+CPU supports ISA 3.1 (eg, POWER10)
 @item archpmu
 CPU supports the set of compatible performance monitoring events.
 @item booke
@@ -17120,6 +17544,8 @@ CPU supports icache snooping capabilities.
 CPU supports 128-bit IEEE binary floating point instructions.
 @item isel
 CPU supports the integer select instruction.
+@item mma
+CPU supports the matrix-multiply assist instructions.
 @item mmu
 CPU has a memory management unit.
 @item notb
@@ -17533,6 +17959,88 @@ the FPSCR.  The instruction is a lower latency version of the @code{mffs}
 instruction.  If the @code{mffsl} instruction is not available, then the
 builtin uses the older @code{mffs} instruction to read the FPSCR.
 
+@node Basic PowerPC Built-in Functions Available on ISA 3.1
+@subsubsection Basic PowerPC Built-in Functions Available on ISA 3.1
+
+The basic built-in functions described in this section are
+available on the PowerPC family of processors starting with ISA 3.1.
+Unless specific options are explicitly disabled on the
+command line, specifying option @option{-mcpu=power10} has the effect of
+enabling all the same options as for @option{-mcpu=power9}.
+
+The following built-in functions are available on Linux 64-bit systems
+that use a future architecture instruction set (@option{-mcpu=power10}):
+
+@smallexample
+@exdent unsigned long long int
+@exdent __builtin_cfuged (unsigned long long int, unsigned long long int)
+@end smallexample
+Perform a 64-bit centrifuge operation, as if implemented by the
+@code{cfuged} instruction.
+@findex __builtin_cfuged
+
+@smallexample
+@exdent unsigned long long int
+@exdent __builtin_cntlzdm (unsigned long long int, unsigned long long int)
+@end smallexample
+Perform a 64-bit count leading zeros operation under mask, as if
+implemented by the @code{cntlzdm} instruction.
+@findex __builtin_cntlzdm
+
+@smallexample
+@exdent unsigned long long int
+@exdent __builtin_cnttzdm (unsigned long long int, unsigned long long int)
+@end smallexample
+Perform a 64-bit count trailing zeros operation under mask, as if
+implemented by the @code{cnttzdm} instruction.
+@findex __builtin_cnttzdm
+
+@smallexample
+@exdent unsigned long long int
+@exdent __builtin_pdepd (unsigned long long int, unsigned long long int)
+@end smallexample
+Perform a 64-bit parallel bits deposit operation, as if implemented by the
+@code{pdepd} instruction.
+@findex __builtin_pdepd
+
+@smallexample
+@exdent unsigned long long int
+@exdent __builtin_pextd (unsigned long long int, unsigned long long int)
+@end smallexample
+Perform a 64-bit parallel bits extract operation, as if implemented by the
+@code{pextd} instruction.
+@findex __builtin_pextd
+
+@smallexample
+@exdent vector signed __int128 vsx_xl_sext (signed long long, signed char *);
+@exdent vector signed __int128 vsx_xl_sext (signed long long, signed short *);
+@exdent vector signed __int128 vsx_xl_sext (signed long long, signed int *);
+@exdent vector signed __int128 vsx_xl_sext (signed long long, signed long long *);
+@exdent vector unsigned __int128 vsx_xl_zext (signed long long, unsigned char *);
+@exdent vector unsigned __int128 vsx_xl_zext (signed long long, unsigned short *);
+@exdent vector unsigned __int128 vsx_xl_zext (signed long long, unsigned int *);
+@exdent vector unsigned __int128 vsx_xl_zext (signed long long, unsigned long long *);
+@end smallexample
+
+Load (and sign extend) to an __int128 vector, as if implemented by the ISA 3.1
+@code{lxvrbx} @code{lxvrhx} @code{lxvrwx} @code{lxvrdx} instructions.
+@findex vsx_xl_sext
+@findex vsx_xl_zext
+
+@smallexample
+@exdent void vec_xst_trunc (vector signed __int128, signed long long, signed char *);
+@exdent void vec_xst_trunc (vector signed __int128, signed long long, signed short *);
+@exdent void vec_xst_trunc (vector signed __int128, signed long long, signed int *);
+@exdent void vec_xst_trunc (vector signed __int128, signed long long, signed long long *);
+@exdent void vec_xst_trunc (vector unsigned __int128, signed long long, unsigned char *);
+@exdent void vec_xst_trunc (vector unsigned __int128, signed long long, unsigned short *);
+@exdent void vec_xst_trunc (vector unsigned __int128, signed long long, unsigned int *);
+@exdent void vec_xst_trunc (vector unsigned __int128, signed long long, unsigned long long *);
+@end smallexample
+
+Truncate and store the rightmost element of a vector, as if implemented by the
+ISA 3.1 @code{stxvrbx} @code{stxvrhx} @code{stxvrwx} @code{stxvrdx} instructions.
+@findex vec_xst_trunc
 
 @node PowerPC AltiVec/VSX Built-in Functions
 @subsection PowerPC AltiVec/VSX Built-in Functions
@@ -17645,6 +18153,7 @@ briefly described below.
 * PowerPC AltiVec Built-in Functions Available on ISA 2.06::
 * PowerPC AltiVec Built-in Functions Available on ISA 2.07::
 * PowerPC AltiVec Built-in Functions Available on ISA 3.0::
+* PowerPC AltiVec Built-in Functions Available on ISA 3.1::
 @end menu
 
 @node PowerPC AltiVec Built-in Functions on ISA 2.05
@@ -19999,15 +20508,28 @@ __int128 vec_vsubuqm (__int128, __int128);
 __uint128 vec_vsubuqm (__uint128, __uint128);
 
 vector __int128 __builtin_bcdadd (vector __int128, vector __int128, const int);
+vector unsigned char __builtin_bcdadd (vector unsigned char, vector unsigned char,
+                                       const int);
 int __builtin_bcdadd_lt (vector __int128, vector __int128, const int);
+int __builtin_bcdadd_lt (vector unsigned char, vector unsigned char, const int);
 int __builtin_bcdadd_eq (vector __int128, vector __int128, const int);
+int __builtin_bcdadd_eq (vector unsigned char, vector unsigned char, const int);
 int __builtin_bcdadd_gt (vector __int128, vector __int128, const int);
+int __builtin_bcdadd_gt (vector unsigned char, vector unsigned char, const int);
 int __builtin_bcdadd_ov (vector __int128, vector __int128, const int);
+int __builtin_bcdadd_ov (vector unsigned char, vector unsigned char, const int);
+
 vector __int128 __builtin_bcdsub (vector __int128, vector __int128, const int);
+vector unsigned char __builtin_bcdsub (vector unsigned char, vector unsigned char,
+                                       const int);
 int __builtin_bcdsub_lt (vector __int128, vector __int128, const int);
+int __builtin_bcdsub_lt (vector unsigned char, vector unsigned char, const int);
 int __builtin_bcdsub_eq (vector __int128, vector __int128, const int);
+int __builtin_bcdsub_eq (vector unsigned char, vector unsigned char, const int);
 int __builtin_bcdsub_gt (vector __int128, vector __int128, const int);
+int __builtin_bcdsub_gt (vector unsigned char, vector unsigned char, const int);
 int __builtin_bcdsub_ov (vector __int128, vector __int128, const int);
+int __builtin_bcdsub_ov (vector unsigned char, vector unsigned char, const int);
 @end smallexample
 
 @node PowerPC AltiVec Built-in Functions Available on ISA 3.0
@@ -20043,6 +20565,13 @@ bool scalar_test_data_class (__ieee128 source, const int condition);
 bool scalar_test_neg (float source);
 bool scalar_test_neg (double source);
 bool scalar_test_neg (__ieee128 source);
+
+vector _uint128_t vec_msum (vector unsigned long long,
+			    vector unsigned long long,
+			    vector _uint128_t);
+vector _int128_t vec_msum (vector signed long long,
+			   vector signed long long,
+			   vector _int128_t);
 @end smallexample
 
 The @code{scalar_extract_exp} and @code{scalar_extract_sig}
@@ -20062,6 +20591,9 @@ Note that the sign of the significand is not represented in the result
 returned from the @code{scalar_extract_sig} function.  Use the
 @code{scalar_test_neg} function to test the sign of its @code{double}
 argument.
+The @code{vec_msum} functions perform a vector multiply-sum, returning
+the result of arg1*arg2+arg3.  ISA 3.0 adds support for vec_msum returning
+a vector int128 result.
 
 The @code{scalar_insert_exp}
 functions require a 64-bit environment supporting ISA 3.0 or later.
@@ -20687,6 +21219,628 @@ void vec_xst (vector char, int, char *);
 void vec_xst (vector unsigned char, int, vector unsigned char *);
 void vec_xst (vector unsigned char, int, unsigned char *);
 @end smallexample
+
+@node PowerPC AltiVec Built-in Functions Available on ISA 3.1
+@subsubsection PowerPC AltiVec Built-in Functions Available on ISA 3.1
+
+The following additional built-in functions are also available for the
+PowerPC family of processors, starting with ISA 3.1 (@option{-mcpu=power10}):
+
+
+@smallexample
+@exdent vector unsigned long long int
+@exdent vec_cfuge (vector unsigned long long int, vector unsigned long long int)
+@end smallexample
+Perform a vector centrifuge operation, as if implemented by the
+@code{vcfuged} instruction.
+@findex vec_cfuge
+
+@smallexample
+@exdent vector unsigned long long int
+@exdent vec_cntlzm (vector unsigned long long int, vector unsigned long long int)
+@end smallexample
+Perform a vector count leading zeros under bit mask operation, as if
+implemented by the @code{vclzdm} instruction.
+@findex vec_cntlzm
+
+@smallexample
+@exdent vector unsigned long long int
+@exdent vec_cnttzm (vector unsigned long long int, vector unsigned long long int)
+@end smallexample
+Perform a vector count trailing zeros under bit mask operation, as if
+implemented by the @code{vctzdm} instruction.
+@findex vec_cnttzm
+
+@smallexample
+@exdent vector signed char
+@exdent vec_clrl (vector signed char a, unsigned int n)
+@exdent vector unsigned char
+@exdent vec_clrl (vector unsigned char a, unsigned int n)
+@end smallexample
+Clear the left-most @code{(16 - n)} bytes of vector argument @code{a}, as if
+implemented by the @code{vclrlb} instruction on a big-endian target
+and by the @code{vclrrb} instruction on a little-endian target.  A
+value of @code{n} that is greater than 16 is treated as if it equaled 16.
+@findex vec_clrl
+
+@smallexample
+@exdent vector signed char
+@exdent vec_clrr (vector signed char a, unsigned int n)
+@exdent vector unsigned char
+@exdent vec_clrr (vector unsigned char a, unsigned int n)
+@end smallexample
+Clear the right-most @code{(16 - n)} bytes of vector argument @code{a}, as if
+implemented by the @code{vclrrb} instruction on a big-endian target
+and by the @code{vclrlb} instruction on a little-endian target.  A
+value of @code{n} that is greater than 16 is treated as if it equaled 16.
+@findex vec_clrr
+
+@smallexample
+@exdent vector unsigned long long int
+@exdent vec_gnb (vector unsigned __int128, const unsigned char)
+@end smallexample
+Perform a 128-bit vector gather  operation, as if implemented by the
+@code{vgnb} instruction.  The second argument must be a literal
+integer value between 2 and 7 inclusive.
+@findex vec_gnb
+
+
+Vector Extract
+
+@smallexample
+@exdent vector unsigned long long int
+@exdent vec_extractl (vector unsigned char, vector unsigned char, unsigned int)
+@exdent vector unsigned long long int
+@exdent vec_extractl (vector unsigned short, vector unsigned short, unsigned int)
+@exdent vector unsigned long long int
+@exdent vec_extractl (vector unsigned int, vector unsigned int, unsigned int)
+@exdent vector unsigned long long int
+@exdent vec_extractl (vector unsigned long long, vector unsigned long long, unsigned int)
+@end smallexample
+Extract an element from two concatenated vectors starting at the given byte index
+in natural-endian order, and place it zero-extended in doubleword 1 of the result
+according to natural element order.  If the byte index is out of range for the
+data type, the intrinsic will be rejected.
+For little-endian, this output will match the placement by the hardware
+instruction, i.e., dword[0] in RTL notation.  For big-endian, an additional
+instruction is needed to move it from the "left" doubleword to the  "right" one.
+For little-endian, semantics matching the @code{vextdubvrx},
+@code{vextduhvrx}, @code{vextduwvrx} instruction will be generated, while for
+big-endian, semantics matching the @code{vextdubvlx}, @code{vextduhvlx},
+@code{vextduwvlx} instructions
+will be generated.  Note that some fairly anomalous results can be generated if
+the byte index is not aligned on an element boundary for the element being
+extracted.  This is a limitation of the bi-endian vector programming model is
+consistent with the limitation on @code{vec_perm}.
+@findex vec_extractl
+
+@smallexample
+@exdent vector unsigned long long int
+@exdent vec_extracth (vector unsigned char, vector unsigned char, unsigned int)
+@exdent vector unsigned long long int
+@exdent vec_extracth (vector unsigned short, vector unsigned short,
+unsigned int)
+@exdent vector unsigned long long int
+@exdent vec_extracth (vector unsigned int, vector unsigned int, unsigned int)
+@exdent vector unsigned long long int
+@exdent vec_extracth (vector unsigned long long, vector unsigned long long,
+unsigned int)
+@end smallexample
+Extract an element from two concatenated vectors starting at the given byte
+index.  The index is based on big endian order for a little endian system.
+Similarly, the index is based on little endian order for a big endian system.
+The extraced elements are zero-extended and put in doubleword 1
+according to natural element order.  If the byte index is out of range for the
+data type, the intrinsic will be rejected.  For little-endian, this output
+will match the placement by the hardware instruction (vextdubvrx, vextduhvrx,
+vextduwvrx, vextddvrx) i.e., dword[0] in RTL
+notation.  For big-endian, an additional instruction is needed to move it
+from the "left" doubleword to the "right" one.  For little-endian, semantics
+matching the @code{vextdubvlx}, @code{vextduhvlx}, @code{vextduwvlx}
+instructions will be generated, while for big-endian, semantics matching the
+@code{vextdubvrx}, @code{vextduhvrx}, @code{vextduwvrx} instructions will
+be generated.  Note that some fairly anomalous
+results can be generated if the byte index is not aligned on the
+element boundary for the element being extracted.  This is a
+limitation of the bi-endian vector programming model consistent with the
+limitation on @code{vec_perm}.
+@findex vec_extracth
+@smallexample
+@exdent vector unsigned long long int
+@exdent vec_pdep (vector unsigned long long int, vector unsigned long long int)
+@end smallexample
+Perform a vector parallel bits deposit operation, as if implemented by
+the @code{vpdepd} instruction.
+@findex vec_pdep
+
+Vector Insert
+
+@smallexample
+@exdent vector unsigned char
+@exdent vec_insertl (unsigned char, vector unsigned char, unsigned int);
+@exdent vector unsigned short
+@exdent vec_insertl (unsigned short, vector unsigned short, unsigned int);
+@exdent vector unsigned int
+@exdent vec_insertl (unsigned int, vector unsigned int, unsigned int);
+@exdent vector unsigned long long
+@exdent vec_insertl (unsigned long long, vector unsigned long long,
+unsigned int);
+@exdent vector unsigned char
+@exdent vec_insertl (vector unsigned char, vector unsigned char, unsigned int;
+@exdent vector unsigned short
+@exdent vec_insertl (vector unsigned short, vector unsigned short,
+unsigned int);
+@exdent vector unsigned int
+@exdent vec_insertl (vector unsigned int, vector unsigned int, unsigned int);
+@end smallexample
+
+Let src be the first argument, when the first argument is a scalar, or the
+rightmost element of the left doubleword of the first argument, when the first
+argument is a vector.  Insert the source into the destination at the position
+given by the third argument, using natural element order in the second
+argument.  The rest of the second argument is unchanged.  If the byte
+index is greater than 14 for halfwords, greater than 12 for words, or
+greater than 8 for doublewords the result is undefined.   For little-endian,
+the generated code will be semantically equivalent to @code{vins[bhwd]rx}
+instructions.  Similarly for big-endian it will be semantically equivalent
+to @code{vins[bhwd]lx}.  Note that some fairly anomalous results can be
+generated if the byte index is not aligned on an element boundary for the
+type of element being inserted.
+@findex vec_insertl
+
+@smallexample
+@exdent vector unsigned char
+@exdent vec_inserth (unsigned char, vector unsigned char, unsigned int);
+@exdent vector unsigned short
+@exdent vec_inserth (unsigned short, vector unsigned short, unsigned int);
+@exdent vector unsigned int
+@exdent vec_inserth (unsigned int, vector unsigned int, unsigned int);
+@exdent vector unsigned long long
+@exdent vec_inserth (unsigned long long, vector unsigned long long,
+unsigned int);
+@exdent vector unsigned char
+@exdent vec_inserth (vector unsigned char, vector unsigned char, unsigned int);
+@exdent vector unsigned short
+@exdent vec_inserth (vector unsigned short, vector unsigned short,
+unsigned int);
+@exdent vector unsigned int
+@exdent vec_inserth (vector unsigned int, vector unsigned int, unsigned int);
+@end smallexample
+
+Let src be the first argument, when the first argument is a scalar, or the
+rightmost element of the first argument, when the first argument is a vector.
+Insert src into the second argument at the position identified by the third
+argument, using opposite element order in the second argument, and leaving the
+rest of the second argument unchanged.  If the byte index is greater than 14
+for halfwords, 12 for words, or 8 for doublewords, the intrinsic will be
+rejected. Note that the underlying hardware instruction uses the same register
+for the second argument and the result.
+For little-endian, the code generation will be semantically equivalent to
+@code{vins[bhwd]lx}, while for big-endian it will be semantically equivalent to
+@code{vins[bhwd]rx}.
+Note that some fairly anomalous results can be generated if the byte index is
+not aligned on an element boundary for the sort of element being inserted.
+@findex vec_inserth
+
+Vector Replace Element
+@smallexample
+@exdent vector signed int vec_replace_elt (vector signed int, signed int,
+const int);
+@exdent vector unsigned int vec_replace_elt (vector unsigned int,
+unsigned int, const int);
+@exdent vector float vec_replace_elt (vector float, float, const int);
+@exdent vector signed long long vec_replace_elt (vector signed long long,
+signed long long, const int);
+@exdent vector unsigned long long vec_replace_elt (vector unsigned long long,
+unsigned long long, const int);
+@exdent vector double rec_replace_elt (vector double, double, const int);
+@end smallexample
+The third argument (constrained to [0,3]) identifies the natural-endian
+element number of the first argument that will be replaced by the second
+argument to produce the result.  The other elements of the first argument will
+remain unchanged in the result.
+
+If it's desirable to insert a word at an unaligned position, use
+vec_replace_unaligned instead.
+
+@findex vec_replace_element
+
+Vector Replace Unaligned
+@smallexample
+@exdent vector unsigned char vec_replace_unaligned (vector unsigned char,
+signed int, const int);
+@exdent vector unsigned char vec_replace_unaligned (vector unsigned char,
+unsigned int, const int);
+@exdent vector unsigned char vec_replace_unaligned (vector unsigned char,
+float, const int);
+@exdent vector unsigned char vec_replace_unaligned (vector unsigned char,
+signed long long, const int);
+@exdent vector unsigned char vec_replace_unaligned (vector unsigned char,
+unsigned long long, const int);
+@exdent vector unsigned char vec_replace_unaligned (vector unsigned char,
+double, const int);
+@end smallexample
+
+The second argument replaces a portion of the first argument to produce the
+result, with the rest of the first argument unchanged in the result.  The
+third argument identifies the byte index (using left-to-right, or big-endian
+order) where the high-order byte of the second argument will be placed, with
+the remaining bytes of the second argument placed naturally "to the right"
+of the high-order byte.
+
+The programmer is responsible for understanding the endianness issues involved
+with the first argument and the result.
+@findex vec_replace_unaligned
+
+Vector Shift Left Double Bit Immediate
+@smallexample
+@exdent vector signed char vec_sldb (vector signed char, vector signed char,
+const unsigned int);
+@exdent vector unsigned char vec_sldb (vector unsigned char,
+vector unsigned char, const unsigned int);
+@exdent vector signed short vec_sldb (vector signed short, vector signed short,
+const unsigned int);
+@exdent vector unsigned short vec_sldb (vector unsigned short,
+vector unsigned short, const unsigned int);
+@exdent vector signed int vec_sldb (vector signed int, vector signed int,
+const unsigned int);
+@exdent vector unsigned int vec_sldb (vector unsigned int, vector unsigned int,
+const unsigned int);
+@exdent vector signed long long vec_sldb (vector signed long long,
+vector signed long long, const unsigned int);
+@exdent vector unsigned long long vec_sldb (vector unsigned long long,
+vector unsigned long long, const unsigned int);
+@end smallexample
+
+Shift the combined input vectors left by the amount specified by the low-order
+three bits of the third argument, and return the leftmost remaining 128 bits.
+Code using this instruction must be endian-aware.
+
+@findex vec_sldb
+
+Vector Shift Right Double Bit Immediate
+
+@smallexample
+@exdent vector signed char vec_srdb (vector signed char, vector signed char,
+const unsigned int);
+@exdent vector unsigned char vec_srdb (vector unsigned char, vector unsigned char,
+const unsigned int);
+@exdent vector signed short vec_srdb (vector signed short, vector signed short,
+const unsigned int);
+@exdent vector unsigned short vec_srdb (vector unsigned short, vector unsigned short,
+const unsigned int);
+@exdent vector signed int vec_srdb (vector signed int, vector signed int,
+const unsigned int);
+@exdent vector unsigned int vec_srdb (vector unsigned int, vector unsigned int,
+const unsigned int);
+@exdent vector signed long long vec_srdb (vector signed long long,
+vector signed long long, const unsigned int);
+@exdent vector unsigned long long vec_srdb (vector unsigned long long,
+vector unsigned long long, const unsigned int);
+@end smallexample
+
+Shift the combined input vectors right by the amount specified by the low-order
+three bits of the third argument, and return the remaining 128 bits.  Code
+using this built-in must be endian-aware.
+
+@findex vec_srdb
+
+Vector Splat
+
+@smallexample
+@exdent vector signed int vec_splati (const signed int);
+@exdent vector float vec_splati (const float);
+@end smallexample
+
+Splat a 32-bit immediate into a vector of words.
+
+@findex vec_splati
+
+@smallexample
+@exdent vector double vec_splatid (const float);
+@end smallexample
+
+Convert a single precision floating-point value to double-precision and splat
+the result to a vector of double-precision floats.
+
+@findex vec_splatid
+
+@smallexample
+@exdent vector signed int vec_splati_ins (vector signed int,
+const unsigned int, const signed int);
+@exdent vector unsigned int vec_splati_ins (vector unsigned int,
+const unsigned int, const unsigned int);
+@exdent vector float vec_splati_ins (vector float, const unsigned int,
+const float);
+@end smallexample
+
+Argument 2 must be either 0 or 1.  Splat the value of argument 3 into the word
+identified by argument 2 of each doubleword of argument 1 and return the
+result.  The other words of argument 1 are unchanged.
+
+@findex vec_splati_ins
+
+Vector Blend Variable
+
+@smallexample
+@exdent vector signed char vec_blendv (vector signed char, vector signed char,
+vector unsigned char);
+@exdent vector unsigned char vec_blendv (vector unsigned char,
+vector unsigned char, vector unsigned char);
+@exdent vector signed short vec_blendv (vector signed short,
+vector signed short, vector unsigned short);
+@exdent vector unsigned short vec_blendv (vector unsigned short,
+vector unsigned short, vector unsigned short);
+@exdent vector signed int vec_blendv (vector signed int, vector signed int,
+vector unsigned int);
+@exdent vector unsigned int vec_blendv (vector unsigned int,
+vector unsigned int, vector unsigned int);
+@exdent vector signed long long vec_blendv (vector signed long long,
+vector signed long long, vector unsigned long long);
+@exdent vector unsigned long long vec_blendv (vector unsigned long long,
+vector unsigned long long, vector unsigned long long);
+@exdent vector float vec_blendv (vector float, vector float,
+vector unsigned int);
+@exdent vector double vec_blendv (vector double, vector double,
+vector unsigned long long);
+@end smallexample
+
+Blend the first and second argument vectors according to the sign bits of the
+corresponding elements of the third argument vector.  This is similar to the
+@code{vsel} and @code{xxsel} instructions but for bigger elements.
+
+@findex vec_blendv
+
+Vector Permute Extended
+
+@smallexample
+@exdent vector signed char vec_permx (vector signed char, vector signed char,
+vector unsigned char, const int);
+@exdent vector unsigned char vec_permx (vector unsigned char,
+vector unsigned char, vector unsigned char, const int);
+@exdent vector signed short vec_permx (vector signed short,
+vector signed short, vector unsigned char, const int);
+@exdent vector unsigned short vec_permx (vector unsigned short,
+vector unsigned short, vector unsigned char, const int);
+@exdent vector signed int vec_permx (vector signed int, vector signed int,
+vector unsigned char, const int);
+@exdent vector unsigned int vec_permx (vector unsigned int,
+vector unsigned int, vector unsigned char, const int);
+@exdent vector signed long long vec_permx (vector signed long long,
+vector signed long long, vector unsigned char, const int);
+@exdent vector unsigned long long vec_permx (vector unsigned long long,
+vector unsigned long long, vector unsigned char, const int);
+@exdent vector float (vector float, vector float, vector unsigned char,
+const int);
+@exdent vector double (vector double, vector double, vector unsigned char,
+const int);
+@end smallexample
+
+Perform a partial permute of the first two arguments, which form a 32-byte
+section of an emulated vector up to 256 bytes wide, using the partial permute
+control vector in the third argument.  The fourth argument (constrained to
+values of 0-7) identifies which 32-byte section of the emulated vector is
+contained in the first two arguments.
+@findex vec_permx
+
+@smallexample
+@exdent vector unsigned long long int
+@exdent vec_pext (vector unsigned long long int, vector unsigned long long int)
+@end smallexample
+Perform a vector parallel bit extract operation, as if implemented by
+the @code{vpextd} instruction.
+@findex vec_pext
+
+@smallexample
+@exdent vector unsigned char vec_stril (vector unsigned char)
+@exdent vector signed char vec_stril (vector signed char)
+@exdent vector unsigned short vec_stril (vector unsigned short)
+@exdent vector signed short vec_stril (vector signed short)
+@end smallexample
+Isolate the left-most non-zero elements of the incoming vector argument,
+replacing all elements to the right of the left-most zero element
+found within the argument with zero.  The typical implementation uses
+the @code{vstribl} or @code{vstrihl} instruction on big-endian targets
+and uses the @code{vstribr} or @code{vstrihr} instruction on
+little-endian targets.
+@findex vec_stril
+
+@smallexample
+@exdent int vec_stril_p (vector unsigned char)
+@exdent int vec_stril_p (vector signed char)
+@exdent int short vec_stril_p (vector unsigned short)
+@exdent int vec_stril_p (vector signed short)
+@end smallexample
+Return a non-zero value if and only if the argument contains a zero
+element.  The typical implementation uses
+the @code{vstribl.} or @code{vstrihl.} instruction on big-endian targets
+and uses the @code{vstribr.} or @code{vstrihr.} instruction on
+little-endian targets.  Choose this built-in to check for presence of
+zero element if the same argument is also passed to @code{vec_stril}.
+@findex vec_stril_p
+
+@smallexample
+@exdent vector unsigned char vec_strir (vector unsigned char)
+@exdent vector signed char vec_strir (vector signed char)
+@exdent vector unsigned short vec_strir (vector unsigned short)
+@exdent vector signed short vec_strir (vector signed short)
+@end smallexample
+Isolate the right-most non-zero elements of the incoming vector argument,
+replacing all elements to the left of the right-most zero element
+found within the argument with zero.  The typical implementation uses
+the @code{vstribr} or @code{vstrihr} instruction on big-endian targets
+and uses the @code{vstribl} or @code{vstrihl} instruction on
+little-endian targets.
+@findex vec_strir
+
+@smallexample
+@exdent int vec_strir_p (vector unsigned char)
+@exdent int vec_strir_p (vector signed char)
+@exdent int short vec_strir_p (vector unsigned short)
+@exdent int vec_strir_p (vector signed short)
+@end smallexample
+Return a non-zero value if and only if the argument contains a zero
+element.  The typical implementation uses
+the @code{vstribr.} or @code{vstrihr.} instruction on big-endian targets
+and uses the @code{vstribl.} or @code{vstrihl.} instruction on
+little-endian targets.  Choose this built-in to check for presence of
+zero element if the same argument is also passed to @code{vec_strir}.
+@findex vec_strir_p
+
+@smallexample
+@exdent vector unsigned char
+@exdent vec_ternarylogic (vector unsigned char, vector unsigned char,
+            vector unsigned char, const unsigned int)
+@exdent vector unsigned short
+@exdent vec_ternarylogic (vector unsigned short, vector unsigned short,
+            vector unsigned short, const unsigned int)
+@exdent vector unsigned int
+@exdent vec_ternarylogic (vector unsigned int, vector unsigned int,
+            vector unsigned int, const unsigned int)
+@exdent vector unsigned long long int
+@exdent vec_ternarylogic (vector unsigned long long int, vector unsigned long long int,
+            vector unsigned long long int, const unsigned int)
+@exdent vector unsigned __int128
+@exdent vec_ternarylogic (vector unsigned __int128, vector unsigned __int128,
+            vector unsigned __int128, const unsigned int)
+@end smallexample
+Perform a 128-bit vector evaluate operation, as if implemented by the
+@code{xxeval} instruction.  The fourth argument must be a literal
+integer value between 0 and 255 inclusive.
+@findex vec_ternarylogic
+
+@smallexample
+@exdent vector unsigned char vec_genpcvm (vector unsigned char, const int)
+@exdent vector unsigned short vec_genpcvm (vector unsigned short, const int)
+@exdent vector unsigned int vec_genpcvm (vector unsigned int, const int)
+@exdent vector unsigned int vec_genpcvm (vector unsigned long long int,
+                                         const int)
+@end smallexample
+
+Vector Integer Multiply/Divide/Modulo
+
+@smallexample
+@exdent vector signed int
+@exdent vec_mulh (vector signed int a, vector signed int b)
+@exdent vector unsigned int
+@exdent vec_mulh (vector unsigned int a, vector unsigned int b)
+@end smallexample
+
+For each integer value @code{i} from 0 to 3, do the following. The integer
+value in word element @code{i} of a is multiplied by the integer value in word
+element @code{i} of b. The high-order 32 bits of the 64-bit product are placed
+into word element @code{i} of the vector returned.
+
+@smallexample
+@exdent vector signed long long
+@exdent vec_mulh (vector signed long long a, vector signed long long b)
+@exdent vector unsigned long long
+@exdent vec_mulh (vector unsigned long long a, vector unsigned long long b)
+@end smallexample
+
+For each integer value @code{i} from 0 to 1, do the following. The integer
+value in doubleword element @code{i} of a is multiplied by the integer value in
+doubleword element @code{i} of b. The high-order 64 bits of the 128-bit product
+are placed into doubleword element @code{i} of the vector returned.
+
+@smallexample
+@exdent vector unsigned long long
+@exdent vec_mul (vector unsigned long long a, vector unsigned long long b)
+@exdent vector signed long long
+@exdent vec_mul (vector signed long long a, vector signed long long b)
+@end smallexample
+
+For each integer value @code{i} from 0 to 1, do the following. The integer
+value in doubleword element @code{i} of a is multiplied by the integer value in
+doubleword element @code{i} of b. The low-order 64 bits of the 128-bit product
+are placed into doubleword element @code{i} of the vector returned.
+
+@smallexample
+@exdent vector signed int
+@exdent vec_div (vector signed int a, vector signed int b)
+@exdent vector unsigned int
+@exdent vec_div (vector unsigned int a, vector unsigned int b)
+@end smallexample
+
+For each integer value @code{i} from 0 to 3, do the following. The integer in
+word element @code{i} of a is divided by the integer in word element @code{i}
+of b. The unique integer quotient is placed into the word element @code{i} of
+the vector returned. If an attempt is made to perform any of the divisions
+<anything> ÷ 0 then the quotient is undefined.
+
+@smallexample
+@exdent vector signed long long
+@exdent vec_div (vector signed long long a, vector signed long long b)
+@exdent vector unsigned long long
+@exdent vec_div (vector unsigned long long a, vector unsigned long long b)
+@end smallexample
+
+For each integer value @code{i} from 0 to 1, do the following. The integer in
+doubleword element @code{i} of a is divided by the integer in doubleword
+element @code{i} of b. The unique integer quotient is placed into the
+doubleword element @code{i} of the vector returned. If an attempt is made to
+perform any of the divisions 0x8000_0000_0000_0000 ÷ -1 or <anything> ÷ 0 then
+the quotient is undefined.
+
+@smallexample
+@exdent vector signed int
+@exdent vec_dive (vector signed int a, vector signed int b)
+@exdent vector unsigned int
+@exdent vec_dive (vector unsigned int a, vector unsigned int b)
+@end smallexample
+
+For each integer value @code{i} from 0 to 3, do the following. The integer in
+word element @code{i} of a is shifted left by 32 bits, then divided by the
+integer in word element @code{i} of b. The unique integer quotient is placed
+into the word element @code{i} of the vector returned. If the quotient cannot
+be represented in 32 bits, or if an attempt is made to perform any of the
+divisions <anything> ÷ 0 then the quotient is undefined.
+
+@smallexample
+@exdent vector signed long long
+@exdent vec_dive (vector signed long long a, vector signed long long b)
+@exdent vector unsigned long long
+@exdent vec_dive (vector unsigned long long a, vector unsigned long long b)
+@end smallexample
+
+For each integer value @code{i} from 0 to 1, do the following. The integer in
+doubleword element @code{i} of a is shifted left by 64 bits, then divided by
+the integer in doubleword element @code{i} of b. The unique integer quotient is
+placed into the doubleword element @code{i} of the vector returned. If the
+quotient cannot be represented in 64 bits, or if an attempt is made to perform
+<anything> ÷ 0 then the quotient is undefined.
+
+@smallexample
+@exdent vector signed int
+@exdent vec_mod (vector signed int a, vector signed int b)
+@exdent vector unsigned int
+@exdent vec_mod (vector unsigned int a, vector unsigned int b)
+@end smallexample
+
+For each integer value @code{i} from 0 to 3, do the following. The integer in
+word element @code{i} of a is divided by the integer in word element @code{i}
+of b. The unique integer remainder is placed into the word element @code{i} of
+the vector returned.  If an attempt is made to perform any of the divisions
+0x8000_0000 ÷ -1 or <anything> ÷ 0 then the remainder is undefined.
+
+@smallexample
+@exdent vector signed long long
+@exdent vec_mod (vector signed long long a, vector signed long long b)
+@exdent vector unsigned long long
+@exdent vec_mod (vector unsigned long long a, vector unsigned long long b)
+@end smallexample
+
+For each integer value @code{i} from 0 to 1, do the following. The integer in
+doubleword element @code{i} of a is divided by the integer in doubleword
+element @code{i} of b. The unique integer remainder is placed into the
+doubleword element @code{i} of the vector returned. If an attempt is made to
+perform <anything> ÷ 0 then the remainder is undefined.
+
+Generate PCV from specified Mask size, as if implemented by the
+@code{xxgenpcvbm}, @code{xxgenpcvhm}, @code{xxgenpcvwm} instructions, where
+immediate value is either 0, 1, 2 or 3.
+@findex vec_genpcvm
+
 @node PowerPC Hardware Transactional Memory Built-in Functions
 @subsection PowerPC Hardware Transactional Memory Built-in Functions
 GCC provides two interfaces for accessing the Hardware Transactional
@@ -20964,6 +22118,137 @@ void amo_stdat_sadd (int64_t *, int64_t);
 void amo_stdat_smax (int64_t *, int64_t);
 void amo_stdat_smin (int64_t *, int64_t);
 @end smallexample
+
+@node PowerPC Matrix-Multiply Assist Built-in Functions
+@subsection PowerPC Matrix-Multiply Assist Built-in Functions
+ISA 3.1 of the PowerPC added new Matrix-Multiply Assist (MMA) instructions.
+GCC provides support for these instructions through the following built-in
+functions which are enabled with the @code{-mmma} option.  The vec_t type
+below is defined to be a normal vector unsigned char type.  The uint2, uint4
+and uint8 parameters are 2-bit, 4-bit and 8-bit unsigned integer constants
+respectively.  The compiler will verify that they are constants and that
+their values are within range.
+
+The built-in functions supported are:
+
+@smallexample
+void __builtin_mma_xvi4ger8 (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvi8ger4 (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvi16ger2 (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvi16ger2s (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvf16ger2 (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvbf16ger2 (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvf32ger (__vector_quad *, vec_t, vec_t);
+
+void __builtin_mma_xvi4ger8pp (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvi8ger4pp (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvi8ger4spp(__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvi16ger2pp (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvi16ger2spp (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvf16ger2pp (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvf16ger2pn (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvf16ger2np (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvf16ger2nn (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvbf16ger2pp (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvbf16ger2pn (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvbf16ger2np (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvbf16ger2nn (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvf32gerpp (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvf32gerpn (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvf32gernp (__vector_quad *, vec_t, vec_t);
+void __builtin_mma_xvf32gernn (__vector_quad *, vec_t, vec_t);
+
+void __builtin_mma_pmxvi4ger8 (__vector_quad *, vec_t, vec_t, uint4, uint4, uint8);
+void __builtin_mma_pmxvi4ger8pp (__vector_quad *, vec_t, vec_t, uint4, uint4, uint8);
+
+void __builtin_mma_pmxvi8ger4 (__vector_quad *, vec_t, vec_t, uint4, uint4, uint4);
+void __builtin_mma_pmxvi8ger4pp (__vector_quad *, vec_t, vec_t, uint4, uint4, uint4);
+void __builtin_mma_pmxvi8ger4spp(__vector_quad *, vec_t, vec_t, uint4, uint4, uint4);
+
+void __builtin_mma_pmxvi16ger2 (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+void __builtin_mma_pmxvi16ger2s (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+void __builtin_mma_pmxvf16ger2 (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+void __builtin_mma_pmxvbf16ger2 (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+
+void __builtin_mma_pmxvi16ger2pp (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+void __builtin_mma_pmxvi16ger2spp (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+void __builtin_mma_pmxvf16ger2pp (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+void __builtin_mma_pmxvf16ger2pn (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+void __builtin_mma_pmxvf16ger2np (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+void __builtin_mma_pmxvf16ger2nn (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+void __builtin_mma_pmxvbf16ger2pp (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+void __builtin_mma_pmxvbf16ger2pn (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+void __builtin_mma_pmxvbf16ger2np (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+void __builtin_mma_pmxvbf16ger2nn (__vector_quad *, vec_t, vec_t, uint4, uint4, uint2);
+
+void __builtin_mma_pmxvf32ger (__vector_quad *, vec_t, vec_t, uint4, uint4);
+void __builtin_mma_pmxvf32gerpp (__vector_quad *, vec_t, vec_t, uint4, uint4);
+void __builtin_mma_pmxvf32gerpn (__vector_quad *, vec_t, vec_t, uint4, uint4);
+void __builtin_mma_pmxvf32gernp (__vector_quad *, vec_t, vec_t, uint4, uint4);
+void __builtin_mma_pmxvf32gernn (__vector_quad *, vec_t, vec_t, uint4, uint4);
+
+void __builtin_mma_xvf64ger (__vector_quad *, __vector_pair, vec_t);
+void __builtin_mma_xvf64gerpp (__vector_quad *, __vector_pair, vec_t);
+void __builtin_mma_xvf64gerpn (__vector_quad *, __vector_pair, vec_t);
+void __builtin_mma_xvf64gernp (__vector_quad *, __vector_pair, vec_t);
+void __builtin_mma_xvf64gernn (__vector_quad *, __vector_pair, vec_t);
+
+void __builtin_mma_pmxvf64ger (__vector_quad *, __vector_pair, vec_t, uint4, uint2);
+void __builtin_mma_pmxvf64gerpp (__vector_quad *, __vector_pair, vec_t, uint4, uint2);
+void __builtin_mma_pmxvf64gerpn (__vector_quad *, __vector_pair, vec_t, uint4, uint2);
+void __builtin_mma_pmxvf64gernp (__vector_quad *, __vector_pair, vec_t, uint4, uint2);
+void __builtin_mma_pmxvf64gernn (__vector_quad *, __vector_pair, vec_t, uint4, uint2);
+
+void __builtin_mma_xxmtacc (__vector_quad *);
+void __builtin_mma_xxmfacc (__vector_quad *);
+void __builtin_mma_xxsetaccz (__vector_quad *);
+
+void __builtin_mma_assemble_acc (__vector_quad *, vec_t, vec_t, vec_t, vec_t);
+void __builtin_mma_disassemble_acc (void *, __vector_quad *);
+
+void __builtin_mma_assemble_pair (__vector_pair *, vec_t, vec_t);
+void __builtin_mma_disassemble_pair (void *, __vector_pair *);
+
+vec_t __builtin_vsx_xvcvspbf16 (vec_t);
+vec_t __builtin_vsx_xvcvbf16spn (vec_t);
+@end smallexample
+
+@node PRU Built-in Functions
+@subsection PRU Built-in Functions
+
+GCC provides a couple of special builtin functions to aid in utilizing
+special PRU instructions.
+
+The built-in functions supported are:
+
+@table @code
+@item __delay_cycles (long long @var{cycles})
+This inserts an instruction sequence that takes exactly @var{cycles}
+cycles (between 0 and 0xffffffff) to complete.  The inserted sequence
+may use jumps, loops, or no-ops, and does not interfere with any other
+instructions.  Note that @var{cycles} must be a compile-time constant
+integer - that is, you must pass a number, not a variable that may be
+optimized to a constant later.  The number of cycles delayed by this
+builtin is exact.
+
+@item __halt (void)
+This inserts a HALT instruction to stop processor execution.
+
+@item unsigned int __lmbd (unsigned int @var{wordval}, unsigned int @var{bitval})
+This inserts LMBD instruction to calculate the left-most bit with value
+@var{bitval} in value @var{wordval}.  Only the least significant bit
+of @var{bitval} is taken into account.
+@end table
+
+@node RISC-V Built-in Functions
+@subsection RISC-V Built-in Functions
+
+These built-in functions are available for the RISC-V family of
+processors.
+
+@deftypefn {Built-in Function} {void *} __builtin_thread_pointer (void)
+Returns the value that is currently set in the @samp{tp} register.
+@end deftypefn
 
 @node RX Built-in Functions
 @subsection RX Built-in Functions
@@ -21410,7 +22695,6 @@ v8qi __builtin_vis_fpmaxu8 (v8qi, v8qi);
 v4hi __builtin_vis_fpmaxu16 (v4hi, v4hi);
 v2si __builtin_vis_fpmaxu32 (v2si, v2si);
 
-
 v8qi __builtin_vis_fpmin8 (v8qi, v8qi);
 v4hi __builtin_vis_fpmin16 (v4hi, v4hi);
 v2si __builtin_vis_fpmin32 (v2si, v2si);
@@ -21740,6 +23024,12 @@ Intel Core i7 Tigerlake CPU.
 @item cooperlake
 Intel Core i7 Cooperlake CPU.
 
+@item sapphirerapids
+Intel Core i7 sapphirerapids CPU.
+
+@item alderlake
+Intel Core i7 Alderlake CPU.
+
 @item bonnell
 Intel Atom Bonnell CPU.
 
@@ -21802,6 +23092,12 @@ AMD Family 17h Zen version 1.
 
 @item znver2
 AMD Family 17h Zen version 2.
+
+@item amdfam19h
+AMD Family 19h CPU.
+
+@item znver3
+AMD Family 19h Zen version 3.
 @end table
 
 Here is an example:
@@ -21909,7 +23205,6 @@ else
   @}
 @end smallexample
 @end deftypefn
-
 
 The following built-in functions are made available by @option{-mmmx}.
 All of them generate the machine instruction that is part of the name.
@@ -23125,7 +24420,7 @@ void __builtin_ia32_wrpkru (unsigned int)
 unsigned int __builtin_ia32_rdpkru ()
 @end smallexample
 
-The following built-in functions are available when @option{-mcet} or
+The following built-in functions are available when
 @option{-mshstk} option is used.  They support shadow stack
 machine instructions from Intel Control-flow Enforcement Technology (CET).
 Each built-in function generates the  machine instruction that is part

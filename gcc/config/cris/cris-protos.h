@@ -1,5 +1,5 @@
 /* Definitions for GCC.  Part of the machine description for CRIS.
-   Copyright (C) 1998-2020 Free Software Foundation, Inc.
+   Copyright (C) 1998-2021 Free Software Foundation, Inc.
    Contributed by Axis Communications.
 
 This file is part of GCC.
@@ -60,3 +60,5 @@ extern int cris_fatal (char *);
 extern int cris_initial_elimination_offset (int, int);
 
 extern void cris_init_expanders (void);
+
+extern rtl_opt_pass *make_pass_cris_postdbr_cmpelim (gcc::context *);

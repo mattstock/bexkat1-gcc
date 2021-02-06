@@ -1,5 +1,5 @@
 /* Dwarf2 Call Frame Information helper routines.
-   Copyright (C) 1992-2020 Free Software Foundation, Inc.
+   Copyright (C) 1992-2021 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -524,7 +524,7 @@ static void
 update_row_reg_save (dw_cfi_row *row, unsigned column, dw_cfi_ref cfi)
 {
   if (vec_safe_length (row->reg_save) <= column)
-    vec_safe_grow_cleared (row->reg_save, column + 1);
+    vec_safe_grow_cleared (row->reg_save, column + 1, true);
   (*row->reg_save)[column] = cfi;
 }
 

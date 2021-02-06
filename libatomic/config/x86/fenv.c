@@ -1,4 +1,4 @@
-/* Copyright (C) 2013-2020 Free Software Foundation, Inc.
+/* Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
    This file is part of the GNU Atomic Library (libatomic).
 
@@ -45,7 +45,7 @@ struct fenv
   unsigned int __data_offset;
   unsigned short int __data_selector;
   unsigned short int __unused5;
-};
+} __attribute__ ((gcc_struct));
 
 #ifdef __SSE_MATH__
 # define __math_force_eval_div(x, y) \

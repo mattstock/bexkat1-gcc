@@ -1,64 +1,62 @@
-2020-05-08  Eric Botcazou  <ebotcazou@adacore.com>
+2021-02-03  Eric Botcazou  <ebotcazou@adacore.com>
 
-	* gcc-interface/decl.c (gnat_to_gnu_entity) <E_Variable>: Force at
-	least the unit size for an aliased object of a constrained nominal
-	subtype whose size is variable.
+	* gcc-interface/decl.c (components_to_record): If the first component
+	with rep clause is the _Parent field with variable size, temporarily
+	set it aside when computing the internal layout of the REP part again.
+	* gcc-interface/utils.c (finish_record_type): Revert to taking the
+	maximum when merging sizes for all record types with rep clause.
+	(merge_sizes): Put SPECIAL parameter last and adjust recursive calls.
 
-2020-05-08  Eric Botcazou  <ebotcazou@adacore.com>
+2021-02-03  Eric Botcazou  <ebotcazou@adacore.com>
 
-	* gcc-interface/decl.c (gnat_to_gnu_entity) <E_Array_Subtype>: Deal
-	with artificial maximally-sized types designed by access types.
-	* gcc-interface/utils.c (packable_type_hash): New structure.
-	(packable_type_hasher): Likewise.
-	(packable_type_hash_table): New hash table.
-	(init_gnat_utils): Initialize it.
-	(destroy_gnat_utils): Destroy it.
-	(packable_type_hasher::equal): New method.
-	(hash_packable_type): New static function.
-	(canonicalize_packable_type): Likewise.
-	(make_packable_type): Make sure not to use too small a type for the
-	size of the new fields.  Canonicalize the type if it is named.
+	* gcc-interface/decl.c (gnat_to_gnu_entity) <E_Array_Type>: Make the
+	two fields of the fat pointer type addressable, and do not make the
+	template type read-only.
+	<E_Record_Type>: If the type has discriminants mark it as may_alias.
+	* gcc-interface/utils.c (make_dummy_type): Likewise.
+	(build_dummy_unc_pointer_types): Likewise.
 
-2020-05-08  Eric Botcazou  <ebotcazou@adacore.com>
+2021-01-26  Marius Hillenbrand  <mhillen@linux.ibm.com>
 
-	* gcc-interface/trans.c (Raise_Error_to_gnu): Always compute a lower
-	bound and an upper bound for use by the -gnateE switch for range and
-	comparison operators.
+	PR ada/98228
+	* gcc-interface/utils.c (maybe_pad_type): Test the size of the new
+	packable type instead of its alignment for addressability's sake.
 
-2020-05-08  Eric Botcazou  <ebotcazou@adacore.com>
+2021-01-25  Eric Botcazou  <ebotcazou@adacore.com>
 
-	* gcc-interface/decl.c (gnat_to_gnu_param): Do not make a variant of
-	the type in LTO mode.
+	* gcc-interface/trans.c (make_covariant_thunk): Set the DECL_CONTEXT
+	of the parameters and do not set TREE_PUBLIC on the thunk.
+	(maybe_make_gnu_thunk): Pass the alias to the covariant thunk.
+	* gcc-interface/utils.c (finish_subprog_decl): Set the DECL_CONTEXT
+	of the parameters here...
+	(begin_subprog_body): ...instead of here.
 
-2020-05-04  Mikael Pettersson  <mikpelinux@gmail.com>
+2021-01-19  Eric Botcazou  <ebotcazou@adacore.com>
 
-	PR bootstrap/94918
-	* mingw32.h: Prevent windows.h from including emmintrin.h on Cygwin64.
-	* s-oscons-tmplt.c (Serial_Port_Descriptor): Use System.Win32.HANDLE
-	also on Cygwin.
+	PR ada/98740
+	* gcc-interface/trans.c (add_decl_expr): Always mark TYPE_ADA_SIZE.
 
-2020-03-11  Richard Wai  <richard@annexi-strayline.com>
+2021-01-14  Sebastian Huber  <sebastian.huber@embedded-brains.de>
 
-	* gcc-interface/decl.c (gnat_to_gnu_entity): Also test Is_Public on
-	the Alias of the entitiy, if it is present, in the main assertion.
+	PR ada/98595
+	* Makefile.rtl (LIBGNAT_TARGET_PAIRS) <riscv*-*-rtems*>: Use
+	wraplf version of Aux_Long_Long_Float.
 
-2020-02-06  Alexandre Oliva <oliva@adacore.com>
-
-	* raise-gcc.c (personality_body) [__ARM_EABI_UNWINDER__]:
-	Initialize barrier_cache.sp when ending phase1.
-
-2020-01-04  Eric Botcazou  <ebotcazou@adacore.com>
+2021-01-03  Eric Botcazou  <ebotcazou@adacore.com>
 
 	* gnatvsn.ads: Bump copyright year.
 
-2020-01-01  Jakub Jelinek  <jakub@redhat.com>
+2021-01-01  Jakub Jelinek  <jakub@redhat.com>
 
-	Update copyright years.
+	* gnat_ugn.texi: Bump @copying's copyright year.
+	* gnat_rm.texi: Likewise.
 
-  	* gnat_ugn.texi: Bump @copying's copyright year.
-  	* gnat_rm.texi: Likewise.
+2021-01-01  Jakub Jelinek  <jakub@redhat.com>
+
+	* ChangeLog-2020: Rotate ChangeLog.  New file.
+
 
-Copyright (C) 2020 Free Software Foundation, Inc.
+Copyright (C) 2021 Free Software Foundation, Inc.
 
 Copying and distribution of this file, with or without modification,
 are permitted in any medium without royalty provided the copyright

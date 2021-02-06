@@ -1,5 +1,5 @@
 /* Definition of RISC-V target for GNU compiler.
-   Copyright (C) 2011-2020 Free Software Foundation, Inc.
+   Copyright (C) 2011-2021 Free Software Foundation, Inc.
    Contributed by Andrew Waterman (andrew@sifive.com).
    Based on MIPS target for GNU compiler.
 
@@ -53,7 +53,6 @@ extern rtx riscv_subword (rtx, bool);
 extern bool riscv_split_64bit_move_p (rtx, rtx);
 extern void riscv_split_doubleword_move (rtx, rtx);
 extern const char *riscv_output_move (rtx, rtx);
-extern const char *riscv_output_gpr_save (unsigned);
 extern const char *riscv_output_return ();
 #ifdef RTX_CODE
 extern void riscv_expand_int_scc (rtx, enum rtx_code, rtx, rtx);
@@ -73,6 +72,8 @@ extern bool riscv_can_use_return_insn (void);
 extern rtx riscv_function_value (const_tree, const_tree, enum machine_mode);
 extern bool riscv_expand_block_move (rtx, rtx, rtx);
 extern bool riscv_store_data_bypass_p (rtx_insn *, rtx_insn *);
+extern rtx riscv_gen_gpr_save_insn (struct riscv_frame_info *);
+extern bool riscv_gpr_save_operation_p (rtx);
 
 /* Routines implemented in riscv-c.c.  */
 void riscv_cpu_cpp_builtins (cpp_reader *);
@@ -87,8 +88,24 @@ extern tree riscv_builtin_decl (unsigned int, bool);
 extern void riscv_init_builtins (void);
 
 /* Routines implemented in riscv-common.c.  */
-extern std::string riscv_arch_str ();
+extern std::string riscv_arch_str (bool version_p = true);
 
 extern bool riscv_hard_regno_rename_ok (unsigned, unsigned);
+
+rtl_opt_pass * make_pass_shorten_memrefs (gcc::context *ctxt);
+
+/* Information about one CPU we know about.  */
+struct riscv_cpu_info {
+  /* This CPU's canonical name.  */
+  const char *name;
+
+  /* Default arch for this CPU, could be NULL if no default arch.  */
+  const char *arch;
+
+  /* Which automaton to use for tuning.  */
+  const char *tune;
+};
+
+extern const riscv_cpu_info *riscv_find_cpu (const char *);
 
 #endif /* ! GCC_RISCV_PROTOS_H */

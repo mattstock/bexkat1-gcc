@@ -1,6 +1,6 @@
 /* Communication between GCC and libgomp.
 
-   Copyright (C) 2014-2020 Free Software Foundation, Inc.
+   Copyright (C) 2014-2021 Free Software Foundation, Inc.
 
    Contributed by Mentor Embedded.
 
@@ -65,7 +65,10 @@ enum gomp_map_kind
     /* Also internal, behaves like GOMP_MAP_TO, but additionally any
        GOMP_MAP_POINTER records consecutive after it which have addresses
        falling into that range will not be ignored if GOMP_MAP_TO_PSET wasn't
-       mapped already.  */
+       mapped already.
+       For OpenACC attach operations (e.g. copyin of struct members),
+       GOMP_MAP_TO_PSET is followed by a single GOMP_MAP_ATTACH mapping
+       instead.  */
     GOMP_MAP_TO_PSET =			(GOMP_MAP_FLAG_SPECIAL_0 | 1),
     /* Must already be present.  */
     GOMP_MAP_FORCE_PRESENT =		(GOMP_MAP_FLAG_SPECIAL_0 | 2),
@@ -136,7 +139,12 @@ enum gomp_map_kind
     /* Decrement usage count and deallocate if zero.  */
     GOMP_MAP_RELEASE =			(GOMP_MAP_FLAG_SPECIAL_2
 					 | GOMP_MAP_DELETE),
-    /* In OpenACC, attach a pointer to a mapped struct field.  */
+    /* The attach/detach mappings below use the OMP_CLAUSE_SIZE field as a
+       bias.  This will typically be zero, except when mapping an array slice
+       with a non-zero base.  In that case the bias will indicate the
+       (positive) difference between the start of the actual mapped data and
+       the "virtual" origin of the array.
+       In OpenACC, attach a pointer to a mapped struct field.  */
     GOMP_MAP_ATTACH =			(GOMP_MAP_DEEP_COPY | 0),
     /* In OpenACC, detach a pointer to a mapped struct field.  */
     GOMP_MAP_DETACH =			(GOMP_MAP_DEEP_COPY | 1),
@@ -162,6 +170,9 @@ enum gomp_map_kind
 #define GOMP_MAP_COPY_FROM_P(X) \
   (!((X) & GOMP_MAP_FLAG_SPECIAL) \
    && ((X) & GOMP_MAP_FLAG_FROM))
+
+#define GOMP_MAP_ALWAYS_POINTER_P(X) \
+  ((X) == GOMP_MAP_ALWAYS_POINTER)
 
 #define GOMP_MAP_POINTER_P(X) \
   ((X) == GOMP_MAP_POINTER)
@@ -210,6 +221,7 @@ enum gomp_map_kind
 #define GOMP_TASK_FLAG_IF		(1 << 10)
 #define GOMP_TASK_FLAG_NOGROUP		(1 << 11)
 #define GOMP_TASK_FLAG_REDUCTION	(1 << 12)
+#define GOMP_TASK_FLAG_DETACH		(1 << 13)
 
 /* GOMP_target{_ext,update_ext,enter_exit_data} flags argument.  */
 #define GOMP_TARGET_FLAG_NOWAIT		(1 << 0)
@@ -235,7 +247,6 @@ enum gomp_map_kind
 #define GOMP_VERSION	1
 #define GOMP_VERSION_NVIDIA_PTX 1
 #define GOMP_VERSION_INTEL_MIC 0
-#define GOMP_VERSION_HSA 0
 #define GOMP_VERSION_GCN 1
 
 #define GOMP_VERSION_PACK(LIB, DEV) (((LIB) << 16) | (DEV))

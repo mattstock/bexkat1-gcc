@@ -1,5 +1,5 @@
 ;; Constraint definitions for IA-32 and x86-64.
-;; Copyright (C) 2006-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2021 Free Software Foundation, Inc.
 ;;
 ;; This file is part of GCC.
 ;;
@@ -182,6 +182,10 @@
 (define_special_memory_constraint "Bn"
   "@internal Memory operand without REX prefix."
   (match_operand 0 "norex_memory_operand"))
+
+(define_special_memory_constraint "Br"
+  "@internal bcst memory operand."
+  (match_operand 0 "bcst_mem_operand"))
 
 (define_constraint "Bs"
   "@internal Sibcall memory operand."

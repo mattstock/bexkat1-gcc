@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2020 Free Software Foundation, Inc.
+/* Copyright (C) 2005-2021 Free Software Foundation, Inc.
    Contributed by Richard Henderson <rth@redhat.com>.
 
    This file is part of the GNU Offloading and Multi Processing Library
@@ -397,6 +397,9 @@ struct gomp_team_state
   unsigned place_partition_off;
   unsigned place_partition_len;
 
+  /* Def-allocator-var ICV.  */
+  uintptr_t def_allocator;
+
 #ifdef HAVE_SYNC_BUILTINS
   /* Number of single stmts encountered.  */
   unsigned long single_count;
@@ -425,18 +428,27 @@ struct gomp_task_icv
   int default_device_var;
   unsigned int thread_limit_var;
   bool dyn_var;
-  bool nest_var;
+  unsigned char max_active_levels_var;
   char bind_var;
   /* Internal ICV.  */
   struct target_mem_desc *target_data;
 };
 
+enum gomp_target_offload_t
+{
+  GOMP_TARGET_OFFLOAD_DEFAULT,
+  GOMP_TARGET_OFFLOAD_MANDATORY,
+  GOMP_TARGET_OFFLOAD_DISABLED
+};
+
+#define gomp_supported_active_levels UCHAR_MAX
+
 extern struct gomp_task_icv gomp_global_icv;
 #ifndef HAVE_SYNC_BUILTINS
 extern gomp_mutex_t gomp_managed_threads_lock;
 #endif
-extern unsigned long gomp_max_active_levels_var;
 extern bool gomp_cancel_var;
+extern enum gomp_target_offload_t gomp_target_offload_var;
 extern int gomp_max_task_priority_var;
 extern unsigned long long gomp_spin_count_var, gomp_throttled_spin_count_var;
 extern unsigned long gomp_available_cpus, gomp_managed_threads;
@@ -450,6 +462,7 @@ extern int gomp_debug_var;
 extern bool gomp_display_affinity_var;
 extern char *gomp_affinity_format_var;
 extern size_t gomp_affinity_format_len;
+extern uintptr_t gomp_def_allocator;
 extern int goacc_device_num;
 extern char *goacc_device_type;
 extern int goacc_default_dims[GOMP_DIM_MAX];
@@ -531,6 +544,9 @@ struct gomp_task
      node.  Then we play offsetof() games to convert between pnode[]
      entries and the gomp_task in which they reside.  */
   struct priority_node pnode[3];
+
+  bool detach;
+  gomp_sem_t completion_sem;
 
   struct gomp_task_icv icv;
   void (*fn) (void *);
@@ -671,6 +687,10 @@ struct gomp_team
   unsigned int task_running_count;
   int work_share_cancelled;
   int team_cancelled;
+
+  /* Tasks waiting for their completion event to be fulfilled.  */
+  struct priority_queue task_detach_queue;
+  unsigned int task_detach_count;
 
   /* This array contains structures for implicit tasks.  */
   struct gomp_task implicit_task[];
@@ -948,8 +968,11 @@ struct target_var_desc {
   bool copy_from;
   /* True if data always should be copied from device to host at the end.  */
   bool always_copy_from;
-  /* True if variable should be detached at end of region.  */
-  bool do_detach;
+  /* True if this is for OpenACC 'attach'.  */
+  bool is_attach;
+  /* If GOMP_MAP_TO_PSET had a NULL pointer; used for Fortran descriptors,
+     which were initially unallocated.  */
+  bool has_null_ptr_assoc;
   /* Relative offset against key host_start.  */
   uintptr_t offset;
   /* Actual length.  */
@@ -1012,11 +1035,8 @@ struct splay_tree_key_s {
   uintptr_t tgt_offset;
   /* Reference count.  */
   uintptr_t refcount;
-  /* Reference counts beyond those that represent genuine references in the
-     linked splay tree key/target memory structures, e.g. for multiple OpenACC
-     "present increment" operations (via "acc enter data") referring to the same
-     host-memory block.  */
-  uintptr_t virtual_refcount;
+  /* Dynamic reference count.  */
+  uintptr_t dynamic_refcount;
   struct splay_tree_aux *aux;
 };
 
@@ -1148,11 +1168,10 @@ struct gomp_device_descr
 /* Kind of the pragma, for which gomp_map_vars () is called.  */
 enum gomp_map_vars_kind
 {
-  GOMP_MAP_VARS_OPENACC,
-  GOMP_MAP_VARS_OPENACC_ENTER_DATA,
-  GOMP_MAP_VARS_TARGET,
-  GOMP_MAP_VARS_DATA,
-  GOMP_MAP_VARS_ENTER_DATA
+  GOMP_MAP_VARS_OPENACC    = 1,
+  GOMP_MAP_VARS_TARGET     = 2,
+  GOMP_MAP_VARS_DATA       = 4,
+  GOMP_MAP_VARS_ENTER_DATA = 8
 };
 
 extern void gomp_acc_declare_allocate (bool, size_t, void **, size_t *,

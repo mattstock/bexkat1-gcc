@@ -1,5 +1,5 @@
 ;; Predicate definitions for Renesas H8/300.
-;; Copyright (C) 2005-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2021 Free Software Foundation, Inc.
 ;;
 ;; This file is part of GCC.
 ;;
@@ -494,4 +494,19 @@
   enum rtx_code code = GET_CODE (op);
 
   return (code == IOR || code == XOR);
+})
+
+;; Used to detect valid targets for conditional branches
+;; Used to detect (pc) or (label_ref) in some jumping patterns
+(define_predicate "pc_or_label_operand"
+  (match_code "pc,label_ref"))
+
+(define_predicate "simple_memory_operand"
+  (match_code "mem")
+{
+  if (GET_MODE (op) == mode
+      && (GET_CODE (XEXP (op, 0)) != PRE_DEC
+	  && GET_CODE (XEXP (op, 0)) != POST_INC))
+    return 1;
+  return 0;
 })

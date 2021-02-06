@@ -1,5 +1,5 @@
 ;; Decimal Floating Point (DFP) patterns.
-;; Copyright (C) 2007-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2021 Free Software Foundation, Inc.
 ;; Contributed by Ben Elliston (bje@au.ibm.com) and Peter Bergner
 ;; (bergner@vnet.ibm.com).
 
@@ -155,6 +155,19 @@
   [(set_attr "type" "dfp")
    (set_attr "length" "8")])
 
+(define_insn "trunctdsd2"
+  [(set (match_operand:SD 0 "gpc_reg_operand" "=d,d")
+	(float_truncate:SD (match_operand:TD 1 "gpc_reg_operand" "d,d")))
+   (clobber (match_scratch:TD 2 "=&d,&d"))
+   (clobber (match_scratch:DF 3 "=&d,&d"))]
+  "TARGET_DFP"
+  "@
+   mffscdrni %3,7\;drdpq %2,%1\;mffscdrn %3,%3\;drsp %0,%2
+   mffs %3\;mtfsfi 7,7,1\;drdpq %2,%1\;mtfsf 0xff,%3,1,0\;drsp %0,%2"
+  [(set_attr "type" "dfp")
+   (set_attr "isa" "p9,*")
+   (set_attr "length" "16,20")])
+
 (define_insn "add<mode>3"
   [(set (match_operand:DDTD 0 "gpc_reg_operand" "=d")
 	(plus:DDTD (match_operand:DDTD 1 "gpc_reg_operand" "%d")
@@ -259,6 +272,28 @@
   "TARGET_DFP"
   "denbcd<q> %1,%0,%2"
   [(set_attr "type" "dfp")])
+
+(define_insn "dfp_denbcd_v16qi_inst"
+  [(set (match_operand:TD 0 "gpc_reg_operand" "=d")
+	(unspec:TD [(match_operand:QI 1 "const_0_to_1_operand" "i")
+		    (match_operand:V16QI 2 "register_operand" "d")]
+		   UNSPEC_DENBCD))]
+  "TARGET_DFP"
+  "denbcdq %1,%0,%2"
+  [(set_attr "type" "dfp")])
+
+(define_expand "dfp_denbcd_v16qi"
+  [(set (match_operand:TD 0 "gpc_reg_operand" "=d")
+	(unspec:TD [(match_operand:V16QI 1 "register_operand" "v")]
+		   UNSPEC_DENBCD))]
+  "TARGET_DFP"
+ {
+   // Move vs128 upper 64-bits and lower 64-bits to fp register pair
+   convert_move (operands[0], operands[1], true);
+   emit_insn (gen_dfp_denbcd_v16qi_inst (operands[0], GEN_INT(1),
+					 operands[0]));
+   DONE;
+ })
 
 (define_insn "dfp_dxex_<mode>"
   [(set (match_operand:DI 0 "gpc_reg_operand" "=d")

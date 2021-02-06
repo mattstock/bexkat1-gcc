@@ -1,5 +1,5 @@
 ;; Predicate definitions for ARM and Thumb
-;; Copyright (C) 2004-2020 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2021 Free Software Foundation, Inc.
 ;; Contributed by ARM Ltd.
 
 ;; This file is part of GCC.
@@ -18,6 +18,8 @@
 ;; along with GCC; see the file COPYING3.  If not see
 ;; <http://www.gnu.org/licenses/>.
 
+(include "common.md")
+
 (define_predicate "s_register_operand"
   (match_code "reg,subreg")
 {
@@ -30,6 +32,18 @@
 	  && (REGNO (op) >= FIRST_PSEUDO_REGISTER
 	      || REGNO_REG_CLASS (REGNO (op)) != NO_REGS));
 })
+
+(define_predicate "mve_memory_operand"
+  (and (match_code "mem")
+       (match_test "TARGET_32BIT
+		    && mve_vector_mem_operand (GET_MODE (op), XEXP (op, 0),
+					       false)")))
+
+(define_predicate "mve_scatter_memory"
+  (and (match_code "mem")
+       (match_test "TARGET_HAVE_MVE && REG_P (XEXP (op, 0))
+		    && mve_vector_mem_operand (GET_MODE (op), XEXP (op, 0),
+					       false)")))
 
 ;; True for immediates in the range of 1 to 16 for MVE.
 (define_predicate "mve_imm_16"
@@ -95,7 +109,7 @@
 (define_predicate "imm_for_neon_inv_logic_operand"
   (match_code "const_vector")
 {
-  return (TARGET_NEON
+  return ((TARGET_NEON || TARGET_HAVE_MVE)
           && neon_immediate_valid_for_logic (op, mode, 1, NULL, NULL));
 })
 
@@ -106,7 +120,7 @@
 (define_predicate "imm_for_neon_logic_operand"
   (match_code "const_vector")
 {
-  return (TARGET_NEON
+  return ((TARGET_NEON || TARGET_HAVE_MVE)
           && neon_immediate_valid_for_logic (op, mode, 0, NULL, NULL));
 })
 
@@ -143,6 +157,18 @@
 	      || REGNO (op) >= FIRST_PSEUDO_REGISTER));
 })
 
+;; Low core register, or any pseudo.
+(define_predicate "arm_low_register_operand"
+  (match_code "reg,subreg")
+{
+  if (GET_CODE (op) == SUBREG)
+    op = SUBREG_REG (op);
+
+  return (REG_P (op)
+	  && (REGNO (op) <= LAST_LO_REGNUM
+	      || REGNO (op) >= FIRST_PSEUDO_REGISTER));
+})
+
 (define_predicate "arm_general_adddi_operand"
   (ior (match_operand 0 "arm_general_register_operand")
        (and (match_code "const_int")
@@ -161,7 +187,7 @@
 	      || REGNO_REG_CLASS (REGNO (op)) == VFP_D0_D7_REGS
 	      || REGNO_REG_CLASS (REGNO (op)) == VFP_LO_REGS
 	      || (TARGET_VFPD32
-		  && REGNO_REG_CLASS (REGNO (op)) == VFP_REGS)));
+		  && REGNO_REG_CLASS (REGNO (op)) == VFP_HI_REGS)));
 })
 
 (define_predicate "vfp_hard_register_operand"
@@ -460,6 +486,18 @@
 (define_predicate "arm_comparison_operator_mode"
   (and (match_operand 0 "expandable_comparison_operator")
        (match_test "maybe_get_arm_condition_code (op) != ARM_NV")))
+
+(define_special_predicate "arm_comparison_operation"
+  (match_code "eq,ne,le,lt,ge,gt,geu,gtu,leu,ltu,unordered,
+         ordered,unlt,unle,unge,ungt")
+{
+  if (XEXP (op, 1) != const0_rtx)
+    return false;
+  rtx op0 = XEXP (op, 0);
+  if (!REG_P (op0) || REGNO (op0) != CC_REGNUM)
+    return false;
+  return maybe_get_arm_condition_code (op) != ARM_NV;
+})
 
 (define_special_predicate "lt_ge_comparison_operator"
   (match_code "lt,ge"))
