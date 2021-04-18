@@ -800,7 +800,7 @@ functions.
 
 Wmismatched-new-delete
 C++ ObjC++ Var(warn_mismatched_new_delete) Warning LangEnabledBy(C ObjC C++ ObjC++,Wall)
-Warn for mismatches between calls to operator new or delete and the corrsponding
+Warn for mismatches between calls to operator new or delete and the corresponding
 call to the allocation or deallocation function.
 
 Wmismatched-tags
@@ -1751,6 +1751,14 @@ Note #include directives not translated to import declarations, and not known to
 flang-info-include-translate=
 C++ Joined RejectNegative MissingArgError(missing header name)
 Note a #include translation of a specific header.
+
+flang-info-module-cmi
+C++ Var(note_module_cmi_yes)
+Note Compiled Module Interface pathnames.
+
+flang-info-module-cmi=
+C++ Joined RejectNegative MissingArgError(missing module name)
+Note Compiled Module Interface pathname of a specific module or header-unit.
 
 fmax-include-depth=
 C ObjC C++ ObjC++ Joined RejectNegative UInteger

@@ -203,68 +203,49 @@ vect_merge_perms (complex_perm_kinds_t a, complex_perm_kinds_t b)
 /* Check to see if all loads rooted in ROOT are linear.  Linearity is
    defined as having no gaps between values loaded.  */
 
-static complex_load_perm_t
+static complex_perm_kinds_t
 linear_loads_p (slp_tree_to_load_perm_map_t *perm_cache, slp_tree root)
 {
   if (!root)
-    return std::make_pair (PERM_UNKNOWN, vNULL);
+    return PERM_UNKNOWN;
 
   unsigned i;
-  complex_load_perm_t *tmp;
+  complex_perm_kinds_t *tmp;
 
   if ((tmp = perm_cache->get (root)) != NULL)
     return *tmp;
 
-  complex_load_perm_t retval = std::make_pair (PERM_UNKNOWN, vNULL);
+  complex_perm_kinds_t retval = PERM_UNKNOWN;
   perm_cache->put (root, retval);
 
   /* If it's a load node, then just read the load permute.  */
   if (SLP_TREE_LOAD_PERMUTATION (root).exists ())
     {
-      retval.first = is_linear_load_p (SLP_TREE_LOAD_PERMUTATION (root));
-      retval.second = SLP_TREE_LOAD_PERMUTATION (root);
+      retval = is_linear_load_p (SLP_TREE_LOAD_PERMUTATION (root));
       perm_cache->put (root, retval);
       return retval;
     }
   else if (SLP_TREE_DEF_TYPE (root) != vect_internal_def)
     {
-      retval.first = PERM_TOP;
+      retval = PERM_TOP;
       perm_cache->put (root, retval);
       return retval;
     }
 
-  auto_vec<load_permutation_t> all_loads;
   complex_perm_kinds_t kind = PERM_TOP;
 
   slp_tree child;
   FOR_EACH_VEC_ELT (SLP_TREE_CHILDREN (root), i, child)
     {
-      complex_load_perm_t res = linear_loads_p (perm_cache, child);
-      kind = vect_merge_perms (kind, res.first);
+      complex_perm_kinds_t res = linear_loads_p (perm_cache, child);
+      kind = vect_merge_perms (kind, res);
       /* Unknown and Top are not valid on blends as they produce no permute.  */
-      retval.first = kind;
+      retval = kind;
       if (kind == PERM_UNKNOWN || kind == PERM_TOP)
 	return retval;
-      all_loads.safe_push (res.second);
     }
 
-  if (SLP_TREE_LANE_PERMUTATION (root).exists ())
-    {
-      lane_permutation_t perm = SLP_TREE_LANE_PERMUTATION (root);
-      load_permutation_t nloads;
-      nloads.create (SLP_TREE_LANES (root));
-      nloads.quick_grow (SLP_TREE_LANES (root));
-      for (i = 0; i < SLP_TREE_LANES (root); i++)
-	nloads[i] = all_loads[perm[i].first][perm[i].second];
-
-      retval.first = kind;
-      retval.second = nloads;
-    }
-  else
-    {
-      retval.first = kind;
-      retval.second = all_loads[0];
-    }
+  retval = kind;
 
   perm_cache->put (root, retval);
   return retval;
@@ -351,7 +332,8 @@ static inline bool
 vect_check_evenodd_blend (lane_permutation_t &permutes,
 			 unsigned even, unsigned odd)
 {
-  if (permutes.length () == 0)
+  if (permutes.length () == 0
+      || permutes.length () % 2 != 0)
     return false;
 
   unsigned val[2] = {even, odd};
@@ -407,9 +389,8 @@ vect_detect_pair_op (slp_tree node1, slp_tree node2, lane_permutation_t &lanes,
 
   if (result != CMPLX_NONE && ops != NULL)
     {
-      ops->create (2);
-      ops->quick_push (node1);
-      ops->quick_push (node2);
+      ops->safe_push (node1);
+      ops->safe_push (node2);
     }
   return result;
 }
@@ -591,14 +572,8 @@ complex_pattern::build (vec_info *vinfo)
       STMT_VINFO_RELEVANT (call_stmt_info) = vect_used_in_scope;
       STMT_SLP_TYPE (call_stmt_info) = pure_slp;
 
-      /* add_pattern_stmt can't be done in vect_mark_pattern_stmts because
-	 the non-SLP pattern matchers already have added the statement to VINFO
-	 by the time it is called.  Some of them need to modify the returned
-	 stmt_info.  vect_mark_pattern_stmts is called by recog_pattern and it
-	 would increase the size of each pattern with boilerplate code to make
-	 the call there.  */
-      vect_mark_pattern_stmts (vinfo, stmt_info, call_stmt,
-			       SLP_TREE_VECTYPE (node));
+      gimple_set_bb (call_stmt, gimple_bb (stmt_info->stmt));
+      STMT_VINFO_VECTYPE (call_stmt_info) = SLP_TREE_VECTYPE (node);
       STMT_VINFO_SLP_VECT_ONLY_PATTERN (call_stmt_info) = true;
 
       /* Since we are replacing all the statements in the group with the same
@@ -705,11 +680,11 @@ complex_add_pattern::matches (complex_operation_t op,
   vec<slp_tree> children = SLP_TREE_CHILDREN ((*ops)[0]);
 
   /* First node must be unpermuted.  */
-  if (linear_loads_p (perm_cache, children[0]).first != PERM_EVENODD)
+  if (linear_loads_p (perm_cache, children[0]) != PERM_EVENODD)
     return IFN_LAST;
 
   /* Second node must be permuted.  */
-  if (linear_loads_p (perm_cache, children[1]).first != PERM_ODDEVEN)
+  if (linear_loads_p (perm_cache, children[1]) != PERM_ODDEVEN)
     return IFN_LAST;
 
   if (!vect_pattern_validate_optab (ifn, *node))
@@ -796,9 +771,9 @@ vect_normalize_conj_loc (vec<slp_tree> args, bool *neg_first_p = NULL)
 /* Helper function to check if PERM is KIND or PERM_TOP.  */
 
 static inline bool
-is_eq_or_top (complex_load_perm_t perm, complex_perm_kinds_t kind)
+is_eq_or_top (complex_perm_kinds_t perm, complex_perm_kinds_t kind)
 {
-  return perm.first == kind || perm.first == PERM_TOP;
+  return perm == kind || perm == PERM_TOP;
 }
 
 /* Helper function that checks to see if LEFT_OP and RIGHT_OP are both MULT_EXPR
@@ -829,7 +804,7 @@ vect_validate_multiplication (slp_tree_to_load_perm_map_t *perm_cache,
       /* Canonicalization for fms is not consistent. So have to test both
 	 variants to be sure.  This needs to be fixed in the mid-end so
 	 this part can be simpler.  */
-      kind = linear_loads_p (perm_cache, right_op[0]).first;
+      kind = linear_loads_p (perm_cache, right_op[0]);
       if (!((is_eq_or_top (linear_loads_p (perm_cache, right_op[0]), PERM_ODDODD)
 	   && is_eq_or_top (linear_loads_p (perm_cache, right_op[1]),
 			     PERM_ODDEVEN))
@@ -840,7 +815,7 @@ vect_validate_multiplication (slp_tree_to_load_perm_map_t *perm_cache,
     }
   else
     {
-      if (linear_loads_p (perm_cache, right_op[1]).first != PERM_ODDODD
+      if (linear_loads_p (perm_cache, right_op[1]) != PERM_ODDODD
 	  && !is_eq_or_top (linear_loads_p (perm_cache, right_op[0]),
 			    PERM_ODDEVEN))
 	return false;
@@ -853,15 +828,15 @@ vect_validate_multiplication (slp_tree_to_load_perm_map_t *perm_cache,
   /* Check if the conjugate is on the second first or second operand.  The
      order of the node with the conjugate value determines this, and the dup
      node must be one of lane 0 of the same DR as the neg node.  */
-  kind = linear_loads_p (perm_cache, left_op[index1]).first;
+  kind = linear_loads_p (perm_cache, left_op[index1]);
   if (kind == PERM_TOP)
     {
-      if (linear_loads_p (perm_cache, left_op[index2]).first == PERM_EVENODD)
+      if (linear_loads_p (perm_cache, left_op[index2]) == PERM_EVENODD)
 	return true;
     }
   else if (kind == PERM_EVENODD)
     {
-      if ((kind = linear_loads_p (perm_cache, left_op[index2]).first) == PERM_EVENODD)
+      if ((kind = linear_loads_p (perm_cache, left_op[index2])) == PERM_EVENODD)
 	return false;
       return true;
     }
@@ -1004,7 +979,7 @@ complex_mul_pattern::matches (complex_operation_t op,
   left_op.safe_splice (SLP_TREE_CHILDREN (muls[0]));
   right_op.safe_splice (SLP_TREE_CHILDREN (muls[1]));
 
-  if (linear_loads_p (perm_cache, left_op[1]).first == PERM_ODDEVEN)
+  if (linear_loads_p (perm_cache, left_op[1]) == PERM_ODDEVEN)
     return IFN_LAST;
 
   bool neg_first = false;
@@ -1036,7 +1011,7 @@ complex_mul_pattern::matches (complex_operation_t op,
   ops->truncate (0);
   ops->create (3);
 
-  complex_perm_kinds_t kind = linear_loads_p (perm_cache, left_op[0]).first;
+  complex_perm_kinds_t kind = linear_loads_p (perm_cache, left_op[0]);
   if (kind == PERM_EVENODD)
     {
       ops->quick_push (left_op[1]);
@@ -1090,15 +1065,17 @@ complex_mul_pattern::build (vec_info *vinfo)
 {
   slp_tree node;
   unsigned i;
+  slp_tree newnode
+    = vect_build_combine_node (this->m_ops[0], this->m_ops[1], *this->m_node);
+  SLP_TREE_REF_COUNT (this->m_ops[2])++;
+
   FOR_EACH_VEC_ELT (SLP_TREE_CHILDREN (*this->m_node), i, node)
     vect_free_slp_tree (node);
 
   /* First re-arrange the children.  */
   SLP_TREE_CHILDREN (*this->m_node).reserve_exact (2);
   SLP_TREE_CHILDREN (*this->m_node)[0] = this->m_ops[2];
-  SLP_TREE_CHILDREN (*this->m_node)[1] =
-    vect_build_combine_node (this->m_ops[0], this->m_ops[1], *this->m_node);
-  SLP_TREE_REF_COUNT (this->m_ops[2])++;
+  SLP_TREE_CHILDREN (*this->m_node)[1] = newnode;
 
   /* And then rewrite the node itself.  */
   complex_pattern::build (vinfo);
@@ -1132,18 +1109,6 @@ class complex_fma_pattern : public complex_pattern
       return new complex_fma_pattern (node, m_ops, ifn);
     }
 };
-
-/* Helper function to "reset" a previously matched node and undo the changes
-   made enough so that the node is treated as an irrelevant node.  */
-
-static inline void
-vect_slp_reset_pattern (slp_tree node)
-{
-  stmt_vec_info stmt_info = vect_orig_stmt (SLP_TREE_REPRESENTATIVE (node));
-  STMT_VINFO_IN_PATTERN_P (stmt_info) = false;
-  STMT_SLP_TYPE (stmt_info) = pure_slp;
-  SLP_TREE_REPRESENTATIVE (node) = stmt_info;
-}
 
 /* Pattern matcher for trying to match complex multiply and accumulate
    and multiply and subtract patterns in SLP tree.
@@ -1208,15 +1173,6 @@ complex_fma_pattern::matches (complex_operation_t op,
   if (!vect_pattern_validate_optab (ifn, vnode))
     return IFN_LAST;
 
-  /* FMA matched ADD + CMUL.  During the matching of CMUL the
-     stmt that starts the pattern is marked as being in a pattern,
-     namely the CMUL.  When replacing this with a CFMA we have to
-     unmark this statement as being in a pattern.  This is because
-     vect_mark_pattern_stmts will only mark the current stmt as being
-     in a pattern.  Later on when the scalar stmts are examined the
-     old statement which is supposed to be irrelevant will point to
-     CMUL unless we undo the pattern relationship here.  */
-  vect_slp_reset_pattern (node);
   ops->truncate (0);
   ops->create (3);
 
@@ -1259,9 +1215,16 @@ complex_fma_pattern::recognize (slp_tree_to_load_perm_map_t *perm_cache,
 void
 complex_fma_pattern::build (vec_info *vinfo)
 {
+  slp_tree node = SLP_TREE_CHILDREN (*this->m_node)[1];
+
   SLP_TREE_CHILDREN (*this->m_node).release ();
   SLP_TREE_CHILDREN (*this->m_node).create (3);
   SLP_TREE_CHILDREN (*this->m_node).safe_splice (this->m_ops);
+
+  SLP_TREE_REF_COUNT (this->m_ops[1])++;
+  SLP_TREE_REF_COUNT (this->m_ops[2])++;
+
+  vect_free_slp_tree (node);
 
   complex_pattern::build (vinfo);
 }
@@ -1369,7 +1332,7 @@ complex_fms_pattern::matches (complex_operation_t op,
   ops->truncate (0);
   ops->create (4);
 
-  complex_perm_kinds_t kind = linear_loads_p (perm_cache, right_op[0]).first;
+  complex_perm_kinds_t kind = linear_loads_p (perm_cache, right_op[0]);
   if (kind == PERM_EVENODD)
     {
       ops->quick_push (child);
@@ -1427,6 +1390,11 @@ complex_fms_pattern::build (vec_info *vinfo)
 {
   slp_tree node;
   unsigned i;
+  slp_tree newnode =
+    vect_build_combine_node (this->m_ops[2], this->m_ops[3], *this->m_node);
+  SLP_TREE_REF_COUNT (this->m_ops[0])++;
+  SLP_TREE_REF_COUNT (this->m_ops[1])++;
+
   FOR_EACH_VEC_ELT (SLP_TREE_CHILDREN (*this->m_node), i, node)
     vect_free_slp_tree (node);
 
@@ -1436,10 +1404,7 @@ complex_fms_pattern::build (vec_info *vinfo)
   /* First re-arrange the children.  */
   SLP_TREE_CHILDREN (*this->m_node).quick_push (this->m_ops[0]);
   SLP_TREE_CHILDREN (*this->m_node).quick_push (this->m_ops[1]);
-  SLP_TREE_CHILDREN (*this->m_node).quick_push (
-    vect_build_combine_node (this->m_ops[2], this->m_ops[3], *this->m_node));
-  SLP_TREE_REF_COUNT (this->m_ops[0])++;
-  SLP_TREE_REF_COUNT (this->m_ops[1])++;
+  SLP_TREE_CHILDREN (*this->m_node).quick_push (newnode);
 
   /* And then rewrite the node itself.  */
   complex_pattern::build (vinfo);

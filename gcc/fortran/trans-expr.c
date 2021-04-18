@@ -380,15 +380,20 @@ gfc_vptr_size_get (tree vptr)
 #undef VTABLE_FINAL_FIELD
 
 
-/* Search for the last _class ref in the chain of references of this
-   expression and cut the chain there.  Albeit this routine is similiar
-   to class.c::gfc_add_component_ref (), is there a significant
-   difference: gfc_add_component_ref () concentrates on an array ref to
-   be the last ref in the chain.  This routine is oblivious to the kind
-   of refs following.  */
+/* IF ts is null (default), search for the last _class ref in the chain
+   of references of the expression and cut the chain there.  Although
+   this routine is similiar to class.c:gfc_add_component_ref (), there
+   is a significant difference: gfc_add_component_ref () concentrates
+   on an array ref that is the last ref in the chain and is oblivious
+   to the kind of refs following.
+   ELSE IF ts is non-null the cut is at the class entity or component
+   that is followed by an array reference, which is not an element.
+   These calls come from trans-array.c:build_class_array_ref, which
+   handles scalarized class array references.*/
 
 gfc_expr *
-gfc_find_and_cut_at_last_class_ref (gfc_expr *e, bool is_mold)
+gfc_find_and_cut_at_last_class_ref (gfc_expr *e, bool is_mold,
+				    gfc_typespec **ts)
 {
   gfc_expr *base_expr;
   gfc_ref *ref, *class_ref, *tail = NULL, *array_ref;
@@ -396,26 +401,58 @@ gfc_find_and_cut_at_last_class_ref (gfc_expr *e, bool is_mold)
   /* Find the last class reference.  */
   class_ref = NULL;
   array_ref = NULL;
+
+  if (ts)
+    {
+      if (e->symtree
+	  && e->symtree->n.sym->ts.type == BT_CLASS)
+	*ts = &e->symtree->n.sym->ts;
+      else
+	*ts = NULL;
+    }
+
   for (ref = e->ref; ref; ref = ref->next)
     {
-      if (ref->type == REF_ARRAY && ref->u.ar.type != AR_ELEMENT)
-	array_ref = ref;
-
-      if (ref->type == REF_COMPONENT
-	  && ref->u.c.component->ts.type == BT_CLASS)
+      if (ts)
 	{
-	  /* Component to the right of a part reference with nonzero rank
-	     must not have the ALLOCATABLE attribute.  If attempts are
-	     made to reference such a component reference, an error results
-	     followed by an ICE.  */
-	  if (array_ref && CLASS_DATA (ref->u.c.component)->attr.allocatable)
-	    return NULL;
-	  class_ref = ref;
-	}
+	  if (ref->type == REF_COMPONENT
+	      && ref->u.c.component->ts.type == BT_CLASS
+	      && ref->next && ref->next->type == REF_COMPONENT
+	      && !strcmp (ref->next->u.c.component->name, "_data")
+	      && ref->next->next
+	      && ref->next->next->type == REF_ARRAY
+	      && ref->next->next->u.ar.type != AR_ELEMENT)
+	    {
+	      *ts = &ref->u.c.component->ts;
+	      class_ref = ref;
+	      break;
+	    }
 
-      if (ref->next == NULL)
-	break;
+	  if (ref->next == NULL)
+	    break;
+	}
+      else
+	{
+	  if (ref->type == REF_ARRAY && ref->u.ar.type != AR_ELEMENT)
+	    array_ref = ref;
+
+	  if (ref->type == REF_COMPONENT
+	      && ref->u.c.component->ts.type == BT_CLASS)
+	    {
+	      /* Component to the right of a part reference with nonzero
+		 rank must not have the ALLOCATABLE attribute.  If attempts
+		 are made to reference such a component reference, an error
+		 results followed by an ICE.  */
+	      if (array_ref
+		  && CLASS_DATA (ref->u.c.component)->attr.allocatable)
+		return NULL;
+	      class_ref = ref;
+	    }
+	}
     }
+
+  if (ts && *ts == NULL)
+    return NULL;
 
   /* Remove and store all subsequent references after the
      CLASS reference.  */
@@ -613,11 +650,15 @@ class_array_data_assign (stmtblock_t *block, tree lhs_desc, tree rhs_desc,
    class object of the 'declared' type.  If vptr is not NULL, this is
    used for the temporary class object.
    optional_alloc_ptr is false when the dummy is neither allocatable
-   nor a pointer; that's only relevant for the optional handling.  */
+   nor a pointer; that's only relevant for the optional handling.
+   The optional argument 'derived_array' is used to preserve the parmse
+   expression for deallocation of allocatable components. Assumed rank
+   formal arguments made this necessary.  */
 void
 gfc_conv_derived_to_class (gfc_se *parmse, gfc_expr *e,
 			   gfc_typespec class_ts, tree vptr, bool optional,
-			   bool optional_alloc_ptr)
+			   bool optional_alloc_ptr,
+			   tree *derived_array)
 {
   gfc_symbol *vtab;
   tree cond_optional = NULL_TREE;
@@ -747,6 +788,13 @@ gfc_conv_derived_to_class (gfc_se *parmse, gfc_expr *e,
 	    {
 	      gcc_assert (class_ts.u.derived->components->as->type
 			  == AS_ASSUMED_RANK);
+	      if (derived_array
+		  && GFC_DESCRIPTOR_TYPE_P (TREE_TYPE (parmse->expr)))
+		{
+		  *derived_array = gfc_create_var (TREE_TYPE (parmse->expr),
+						   "array");
+		  gfc_add_modify (&block, *derived_array , parmse->expr);
+		}
 	      class_array_data_assign (&block, ctree, parmse->expr, false);
 	    }
 	  else
@@ -765,6 +813,9 @@ gfc_conv_derived_to_class (gfc_se *parmse, gfc_expr *e,
 
 	      gfc_init_block (&block);
 	      gfc_conv_descriptor_data_set (&block, ctree, null_pointer_node);
+	      if (derived_array && *derived_array != NULL_TREE)
+		gfc_conv_descriptor_data_set (&block, *derived_array,
+					      null_pointer_node);
 
 	      tmp = build3_v (COND_EXPR, cond_optional, tmp,
 			      gfc_finish_block (&block));
@@ -2471,7 +2522,7 @@ gfc_conv_string_length (gfc_charlen * cl, gfc_expr * expr, stmtblock_t * pblock)
 			     se.expr, build_zero_cst (TREE_TYPE (se.expr)));
   gfc_add_block_to_block (pblock, &se.pre);
 
-  if (cl->backend_decl)
+  if (cl->backend_decl && VAR_P (cl->backend_decl))
     gfc_add_modify (pblock, cl->backend_decl, se.expr);
   else
     cl->backend_decl = gfc_evaluate_now (se.expr, pblock);
@@ -5665,6 +5716,7 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
     {
       bool finalized = false;
       bool non_unity_length_string = false;
+      tree derived_array = NULL_TREE;
 
       e = arg->expr;
       fsym = formal ? formal->sym : NULL;
@@ -5770,7 +5822,8 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
 				     && e->expr_type == EXPR_VARIABLE
 				     && e->symtree->n.sym->attr.optional,
 				     CLASS_DATA (fsym)->attr.class_pointer
-				     || CLASS_DATA (fsym)->attr.allocatable);
+				     || CLASS_DATA (fsym)->attr.allocatable,
+				     &derived_array);
 	}
       else if (UNLIMITED_POLY (fsym) && e->ts.type != BT_CLASS
 	       && gfc_expr_attr (e).flavor != FL_PROCEDURE)
@@ -6077,6 +6130,7 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
 			&& !fsym->attr.allocatable && !fsym->attr.pointer
 			&& !e->symtree->n.sym->attr.dimension
 			&& !e->symtree->n.sym->attr.pointer
+			&& !e->symtree->n.sym->attr.allocatable
 			/* See PR 41453.  */
 			&& !e->symtree->n.sym->attr.dummy
 			/* FIXME - PR 87395 and PR 41453  */
@@ -6403,9 +6457,10 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
 
 	      /* Unallocated allocatable arrays and unassociated pointer arrays
 		 need their dtype setting if they are argument associated with
-		 assumed rank dummies.  */
+		 assumed rank dummies, unless already assumed rank.  */
 	      if (!sym->attr.is_bind_c && e && fsym && fsym->as
-		  && fsym->as->type == AS_ASSUMED_RANK)
+		  && fsym->as->type == AS_ASSUMED_RANK
+		  && e->rank != -1)
 		{
 		  if (gfc_expr_attr (e).pointer
 		      || gfc_expr_attr (e).allocatable)
@@ -6593,6 +6648,12 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
 					&& parm_rank == 0
 					&& parmse.loop;
 
+	      /* Scalars passed to an assumed rank argument are converted to
+		 a descriptor. Obtain the data field before deallocating any
+		 allocatable components.  */
+	      if (parm_rank == 0 && GFC_DESCRIPTOR_TYPE_P (TREE_TYPE (tmp)))
+		tmp = gfc_conv_descriptor_data_get (tmp);
+
 	      if (scalar_res_outside_loop)
 		{
 		  /* Go through the ss chain to find the argument and use
@@ -6608,9 +6669,15 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
 		      }
 		}
 
-	      if ((e->ts.type == BT_CLASS
-		   && GFC_CLASS_TYPE_P (TREE_TYPE (tmp)))
-		  || e->ts.type == BT_DERIVED)
+	      STRIP_NOPS (tmp);
+
+	      if (derived_array != NULL_TREE)
+		tmp = gfc_deallocate_alloc_comp (e->ts.u.derived,
+						 derived_array,
+						 parm_rank);
+	      else if ((e->ts.type == BT_CLASS
+			&& GFC_CLASS_TYPE_P (TREE_TYPE (tmp)))
+		       || e->ts.type == BT_DERIVED)
 		tmp = gfc_deallocate_alloc_comp (e->ts.u.derived, tmp,
 						 parm_rank);
 	      else if (e->ts.type == BT_CLASS)
@@ -6632,6 +6699,19 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
 	  symbol_attribute attr;
 	  char *msg;
 	  tree cond;
+	  tree tmp;
+	  symbol_attribute fsym_attr;
+
+	  if (fsym)
+	    {
+	      if (fsym->ts.type == BT_CLASS)
+		{
+		  fsym_attr = CLASS_DATA (fsym)->attr;
+		  fsym_attr.pointer = fsym_attr.class_pointer;
+		}
+	      else
+		fsym_attr = fsym->attr;
+	    }
 
 	  if (e->expr_type == EXPR_VARIABLE || e->expr_type == EXPR_FUNCTION)
 	    attr = gfc_expr_attr (e);
@@ -6654,17 +6734,17 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
 	      tree present, null_ptr, type;
 
 	      if (attr.allocatable
-		  && (fsym == NULL || !fsym->attr.allocatable))
+		  && (fsym == NULL || !fsym_attr.allocatable))
 		msg = xasprintf ("Allocatable actual argument '%s' is not "
 				 "allocated or not present",
 				 e->symtree->n.sym->name);
 	      else if (attr.pointer
-		       && (fsym == NULL || !fsym->attr.pointer))
+		       && (fsym == NULL || !fsym_attr.pointer))
 		msg = xasprintf ("Pointer actual argument '%s' is not "
 				 "associated or not present",
 				 e->symtree->n.sym->name);
-	      else if (attr.proc_pointer
-		       && (fsym == NULL || !fsym->attr.proc_pointer))
+	      else if (attr.proc_pointer && !e->value.function.actual
+		       && (fsym == NULL || !fsym_attr.proc_pointer))
 		msg = xasprintf ("Proc-pointer actual argument '%s' is not "
 				 "associated or not present",
 				 e->symtree->n.sym->name);
@@ -6688,25 +6768,34 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
           else
 	    {
 	      if (attr.allocatable
-		  && (fsym == NULL || !fsym->attr.allocatable))
+		  && (fsym == NULL || !fsym_attr.allocatable))
 		msg = xasprintf ("Allocatable actual argument '%s' is not "
 				 "allocated", e->symtree->n.sym->name);
 	      else if (attr.pointer
-		       && (fsym == NULL || !fsym->attr.pointer))
+		       && (fsym == NULL || !fsym_attr.pointer))
 		msg = xasprintf ("Pointer actual argument '%s' is not "
 				 "associated", e->symtree->n.sym->name);
-	      else if (attr.proc_pointer
-		       && (fsym == NULL || !fsym->attr.proc_pointer))
+	      else if (attr.proc_pointer && !e->value.function.actual
+		       && (fsym == NULL || !fsym_attr.proc_pointer))
 		msg = xasprintf ("Proc-pointer actual argument '%s' is not "
 				 "associated", e->symtree->n.sym->name);
 	      else
 		goto end_pointer_check;
 
-	      tmp = parmse.expr;
+	      if (fsym && fsym->ts.type == BT_CLASS)
+		{
+		  tmp = build_fold_indirect_ref_loc (input_location,
+						      parmse.expr);
+		  tmp = gfc_class_data_get (tmp);
+		  if (GFC_DESCRIPTOR_TYPE_P (TREE_TYPE (tmp)))
+		    tmp = gfc_conv_descriptor_data_get (tmp);
+		}
+	      else
+		tmp = parmse.expr;
 
 	      /* If the argument is passed by value, we need to strip the
 		 INDIRECT_REF.  */
-	      if (!POINTER_TYPE_P (TREE_TYPE (parmse.expr)))
+	      if (!POINTER_TYPE_P (TREE_TYPE (tmp)))
 		tmp = gfc_build_addr_expr (NULL_TREE, tmp);
 
 	      cond = fold_build2_loc (input_location, EQ_EXPR,
@@ -9953,17 +10042,20 @@ gfc_trans_scalar_assign (gfc_se * lse, gfc_se * rse, gfc_typespec ts,
       gfc_add_modify (&block, lse->expr, tmp);
     }
   /* If possible use the rhs vptr copy with trans_scalar_class_assign....  */
-  else if (ts.type == BT_CLASS
-	   && !trans_scalar_class_assign (&block, lse, rse))
+  else if (ts.type == BT_CLASS)
     {
       gfc_add_block_to_block (&block, &lse->pre);
       gfc_add_block_to_block (&block, &rse->pre);
-      /* ...otherwise assignment suffices. Note the use of VIEW_CONVERT_EXPR
-	 for the lhs which ensures that class data rhs cast as a string assigns
-	 correctly.  */
-      tmp = fold_build1_loc (input_location, VIEW_CONVERT_EXPR,
-			     TREE_TYPE (rse->expr), lse->expr);
-      gfc_add_modify (&block, tmp, rse->expr);
+
+      if (!trans_scalar_class_assign (&block, lse, rse))
+	{
+	  /* ...otherwise assignment suffices. Note the use of VIEW_CONVERT_EXPR
+	  for the lhs which ensures that class data rhs cast as a string assigns
+	  correctly.  */
+	  tmp = fold_build1_loc (input_location, VIEW_CONVERT_EXPR,
+				 TREE_TYPE (rse->expr), lse->expr);
+	  gfc_add_modify (&block, tmp, rse->expr);
+	}
     }
   else if (ts.type != BT_CLASS)
     {

@@ -1320,9 +1320,6 @@ massage_init_elt (tree type, tree init, int nested, int flags,
   if (flags & LOOKUP_AGGREGATE_PAREN_INIT)
     new_flags |= LOOKUP_AGGREGATE_PAREN_INIT;
   init = digest_init_r (type, init, nested ? 2 : 1, new_flags, complain);
-  /* Strip a simple TARGET_EXPR when we know this is an initializer.  */
-  if (SIMPLE_TARGET_EXPR_P (init))
-    init = TARGET_EXPR_INITIAL (init);
   /* When we defer constant folding within a statement, we may want to
      defer this folding as well.  */
   tree t = fold_non_dependent_init (init, complain);
@@ -2200,24 +2197,13 @@ build_functional_cast_1 (location_t loc, tree exp, tree parms,
 	    error_at (loc, "invalid use of %qT", anode);
 	  return error_mark_node;
 	}
-      else if (!parms)
+      else
 	{
-	  /* Even if there are no parameters, we might be able to deduce from
-	     default template arguments.  Pass TF_NONE so that we don't
-	     generate redundant diagnostics.  */
-	  type = do_auto_deduction (type, parms, anode, tf_none,
+	  type = do_auto_deduction (type, parms, anode, complain,
 				    adc_variable_type);
 	  if (type == error_mark_node)
-	    {
-	      if (complain & tf_error)
-		error_at (loc, "cannot deduce template arguments "
-			  "for %qT from %<()%>", anode);
-	      return error_mark_node;
-	    }
+	    return error_mark_node;
 	}
-      else
-	type = do_auto_deduction (type, parms, anode, complain,
-				  adc_variable_type);
     }
 
   if (processing_template_decl)

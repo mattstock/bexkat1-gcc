@@ -197,9 +197,19 @@
 #undef v
 #endif
 
+#ifdef __APPLE__
+// inttypes.h:  extern intmax_t imaxabs(intmax_t j);
+#undef j
+#endif
+
 #ifdef __hpux__
 #undef d
 #undef r
+#endif
+
+#if defined (__linux__) && defined (__powerpc__)
+// <asm/types.h> defines __vector128::u
+#undef u
 #endif
 
 #if defined (__linux__) && defined (__sparc__)

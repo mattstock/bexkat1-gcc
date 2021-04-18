@@ -1348,9 +1348,10 @@ ix86_split_lea_for_addr (rtx_insn *insn, rtx operands[], machine_mode mode)
 	  if (regno0 != regno2)
 	    emit_insn (gen_rtx_SET (target, parts.index));
 
-	  /* Use shift for scaling.  */
-	  ix86_emit_binop (ASHIFT, mode, target,
-			   GEN_INT (exact_log2 (parts.scale)));
+	  /* Use shift for scaling, but emit it as MULT instead
+	     to avoid it being immediately peephole2 optimized back
+	     into lea.  */
+	  ix86_emit_binop (MULT, mode, target, GEN_INT (parts.scale));
 
 	  if (parts.base)
 	    ix86_emit_binop (PLUS, mode, target, parts.base);
@@ -5975,6 +5976,7 @@ expand_set_or_cpymem_via_rep (rtx destmem, rtx srcmem,
   /* If possible, it is shorter to use rep movs.
      TODO: Maybe it is better to move this logic to decide_alg.  */
   if (mode == QImode && CONST_INT_P (count) && !(INTVAL (count) & 3)
+      && !TARGET_PREFER_KNOWN_REP_MOVSB_STOSB
       && (!issetmem || orig_value == const0_rtx))
     mode = SImode;
 
@@ -6983,7 +6985,12 @@ decide_alg (HOST_WIDE_INT count, HOST_WIDE_INT expected_size,
 		  else if (!any_alg_usable_p)
 		    break;
 		}
-	      else if (alg_usable_p (candidate, memset, have_as))
+	      else if (alg_usable_p (candidate, memset, have_as)
+		       && !(TARGET_PREFER_KNOWN_REP_MOVSB_STOSB
+			    && candidate == rep_prefix_1_byte
+			    /* NB: If min_size != max_size, size is
+			       unknown.  */
+			    && min_size != max_size))
 		{
 		  *noalign = algs->size[i].noalign;
 		  return candidate;
@@ -13209,6 +13216,10 @@ rdseed_step:
       emit_insn (GEN_FCN (icode) (op0, op1));
 
       return 0;
+
+    case IX86_BUILTIN_VZEROUPPER:
+      cfun->machine->has_explicit_vzeroupper = true;
+      break;
 
     default:
       break;

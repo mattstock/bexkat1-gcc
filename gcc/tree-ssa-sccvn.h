@@ -212,6 +212,8 @@ struct vn_avail
   int location;
   /* The LEADER for the value we are chained on.  */
   int leader;
+  /* The previous value we pushed a avail record to.  */
+  struct vn_ssa_aux *next_undo;
 };
 
 typedef struct vn_ssa_aux
@@ -263,6 +265,7 @@ void vn_reference_lookup_call (gcall *, vn_reference_t *, vn_reference_t);
 vn_reference_t vn_reference_insert_pieces (tree, alias_set_type, alias_set_type,
 					   tree, vec<vn_reference_op_s>,
 					   tree, unsigned int);
+void print_vn_reference_ops (FILE *, const vec<vn_reference_op_s>);
 
 bool vn_nary_op_eq (const_vn_nary_op_t const vno1,
 		    const_vn_nary_op_t const vno2);

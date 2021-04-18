@@ -61,6 +61,7 @@
 #define _STL_ITERATOR_H 1
 
 #include <bits/cpp_type_traits.h>
+#include <bits/stl_iterator_base_types.h>
 #include <ext/type_traits.h>
 #include <bits/move.h>
 #include <bits/ptr_traits.h>
@@ -399,7 +400,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
         { return __t.operator->(); }
     };
 
-  //@{
+  ///@{
   /**
    *  @param  __x  A %reverse_iterator.
    *  @param  __y  A %reverse_iterator.
@@ -534,7 +535,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 		const reverse_iterator<_IteratorR>& __y)
     { return __y.base() <=> __x.base(); }
 #endif // C++20
-  //@}
+  ///@}
 
 #if __cplusplus < 201103L
   template<typename _Iterator>
@@ -963,7 +964,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     { return insert_iterator<_Container>(__x, __i); }
 #endif
 
-  // @} group iterators
+  /// @} group iterators
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace
@@ -2244,7 +2245,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     };
 #endif // C++20
 
-  // @} group iterators
+  /// @} group iterators
 
   template<typename _Iterator>
     auto

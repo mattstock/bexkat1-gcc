@@ -663,21 +663,6 @@ Embedcfg_reader::error(const char* msg)
 		this->filename_, msg);
 }
 
-// Return whether the current file imports "embed".
-
-bool
-Gogo::is_embed_imported() const
-{
-  Packages::const_iterator p = this->packages_.find("embed");
-  if (p == this->packages_.end())
-    return false;
-
-  // We track current file imports in the package aliases, where a
-  // typical import will just list the package name in aliases.  So
-  // the package has been imported if there is at least one alias.
-  return !p->second->aliases().empty();
-}
-
 // Implement the sort order for a list of embedded files, as discussed
 // at the docs for embed.FS.
 
@@ -812,8 +797,7 @@ Gogo::initializer_for_embeds(Type* type,
 	}
 
       // Each pattern in the embedcfg file maps to a list of file
-      // names.  For each file name, the embedcfg file records an
-      // absolute path.  Add those absolute paths to PATHS.
+      // names.  Add those file names to PATHS.
       for (std::vector<std::string>::const_iterator pf = pp->second.begin();
 	   pf != pp->second.end();
 	   pf++)
@@ -865,7 +849,7 @@ Gogo::initializer_for_embeds(Type* type,
 	}
 
       std::string data;
-      if (!read_file(paths[0].c_str(), loc, &data))
+      if (!read_file(this->embed_files_[paths[0]].c_str(), loc, &data))
 	return Expression::make_error(loc);
 
       Expression* e = Expression::make_string(data, loc);

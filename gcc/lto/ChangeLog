@@ -1,3 +1,20 @@
+2021-04-15  Jan Hubicka  <hubicka@ucw.cz>
+
+	PR lto/98599
+	* lto.c (lto_wpa_write_files): Fix handling of clones.
+
+2021-04-08  Martin Sebor  <msebor@redhat.com>
+
+	PR middle-end/99883
+	* lto-lang.c (lto_post_options): Correct spelling.
+
+2021-02-28  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/99304
+	* lto-symtab.c (lto_symtab_prevailing_virtual_decl): Fix comment
+	typos - refernced -> referenced and
+	devirtualizaiton -> devirtualization.
+
 2020-12-16  Martin Liska  <mliska@suse.cz>
 
 	* lang.opt: Remove usage of Report.

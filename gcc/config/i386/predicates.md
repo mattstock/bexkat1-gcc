@@ -1153,6 +1153,12 @@
   (ior (match_operand 0 "nonimmediate_operand")
        (match_code "const_vector")))
 
+;; Return true when OP is either register operand, or any
+;; CONST_VECTOR.
+(define_predicate "reg_or_const_vector_operand"
+  (ior (match_operand 0 "register_operand")
+       (match_code "const_vector")))
+
 ;; Return true when OP is nonimmediate or standard SSE constant.
 (define_predicate "nonimmediate_or_sse_const_operand"
   (ior (match_operand 0 "nonimmediate_operand")
@@ -1485,6 +1491,10 @@
 ;; Return true if this is a division operation.
 (define_predicate "div_operator"
   (match_code "div"))
+
+;; Return true if this is a and, ior or xor operation.
+(define_predicate "logic_operator"
+  (match_code "and,ior,xor"))
 
 ;; Return true if this is a plus, minus, and, ior or xor operation.
 (define_predicate "plusminuslogic_operator"

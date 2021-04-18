@@ -2310,6 +2310,11 @@ operands_match_p (rtx x, rtx y)
     CASE_CONST_UNIQUE:
       return 0;
 
+    case CONST_VECTOR:
+      if (!same_vector_encodings_p (x, y))
+	return false;
+      break;
+
     case LABEL_REF:
       return label_ref_label (x) == label_ref_label (y);
     case SYMBOL_REF:
@@ -3471,6 +3476,7 @@ find_reloads (rtx_insn *insn, int replace, int ind_levels, int live_known,
 			break;
 
 		      case CT_MEMORY:
+		      case CT_RELAXED_MEMORY:
 			if (force_reload)
 			  break;
 			if (constraint_satisfied_p (operand, cn))

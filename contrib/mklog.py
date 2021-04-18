@@ -55,6 +55,9 @@ bugzilla_url = 'https://gcc.gnu.org/bugzilla/rest.cgi/bug?id=%s&' \
 
 function_extensions = {'.c', '.cpp', '.C', '.cc', '.h', '.inc', '.def', '.md'}
 
+# NB: Makefile.in isn't listed as it's not always generated.
+generated_files = {'aclocal.m4', 'config.h.in', 'configure'}
+
 help_message = """\
 Generate ChangeLog template for PATCH.
 PATCH must be generated using diff(1)'s -up or -cp options
@@ -62,13 +65,13 @@ PATCH must be generated using diff(1)'s -up or -cp options
 """
 
 script_folder = os.path.realpath(__file__)
-gcc_root = os.path.dirname(os.path.dirname(script_folder))
+root = os.path.dirname(os.path.dirname(script_folder))
 
 
 def find_changelog(path):
     folder = os.path.split(path)[0]
     while True:
-        if os.path.exists(os.path.join(gcc_root, folder, 'ChangeLog')):
+        if os.path.exists(os.path.join(root, folder, 'ChangeLog')):
             return folder
         folder = os.path.dirname(folder)
         if folder == '':
@@ -192,6 +195,8 @@ def generate_changelog(data, no_functions=False, fill_pr_titles=False):
                 if new_path.startswith(changelog):
                     new_path = new_path[len(changelog):].lstrip('/')
                 out += '\t* %s: ...here.\n' % (new_path)
+            elif os.path.basename(file.path) in generated_files:
+                out += '\t* %s: Regenerate.\n' % (relative_path)
             else:
                 if not no_functions:
                     for hunk in file:
@@ -272,6 +277,9 @@ if __name__ == '__main__':
                         help='Do not generate function names in ChangeLogs')
     parser.add_argument('-p', '--fill-up-bug-titles', action='store_true',
                         help='Download title of mentioned PRs')
+    parser.add_argument('-d', '--directory',
+                        help='Root directory where to search for ChangeLog '
+                        'files')
     parser.add_argument('-c', '--changelog',
                         help='Append the ChangeLog to a git commit message '
                              'file')
@@ -280,6 +288,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.input == '-':
         args.input = None
+    if args.directory:
+        root = args.directory
 
     data = open(args.input) if args.input else sys.stdin
     if args.update_copyright:

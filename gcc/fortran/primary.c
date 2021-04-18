@@ -666,6 +666,25 @@ done:
   if (kind == -1)
     goto cleanup;
 
+  if (kind == 4)
+    {
+      if (flag_real4_kind == 8)
+	kind = 8;
+      if (flag_real4_kind == 10)
+	kind = 10;
+      if (flag_real4_kind == 16)
+	kind = 16;
+    }
+  else if (kind == 8)
+    {
+      if (flag_real8_kind == 4)
+	kind = 4;
+      if (flag_real8_kind == 10)
+	kind = 10;
+      if (flag_real8_kind == 16)
+	kind = 16;
+    }
+
   switch (exp_char)
     {
     case 'd':
@@ -676,26 +695,6 @@ done:
 	  goto cleanup;
 	}
       kind = gfc_default_double_kind;
-
-      if (kind == 4)
-	{
-	  if (flag_real4_kind == 8)
-	    kind = 8;
-	  if (flag_real4_kind == 10)
-	    kind = 10;
-	  if (flag_real4_kind == 16)
-	    kind = 16;
-	}
-
-      if (kind == 8)
-	{
-	  if (flag_real8_kind == 4)
-	    kind = 4;
-	  if (flag_real8_kind == 10)
-	    kind = 10;
-	  if (flag_real8_kind == 16)
-	    kind = 16;
-	}
       break;
 
     case 'q':
@@ -725,26 +724,6 @@ done:
     default:
       if (kind == -2)
 	kind = gfc_default_real_kind;
-
-      if (kind == 4)
-	{
-	  if (flag_real4_kind == 8)
-	    kind = 8;
-	  if (flag_real4_kind == 10)
-	    kind = 10;
-	  if (flag_real4_kind == 16)
-	    kind = 16;
-	}
-
-      if (kind == 8)
-	{
-	  if (flag_real8_kind == 4)
-	    kind = 4;
-	  if (flag_real8_kind == 10)
-	    kind = 10;
-	  if (flag_real8_kind == 16)
-	    kind = 16;
-	}
 
       if (gfc_validate_kind (BT_REAL, kind, true) < 0)
 	{
@@ -2407,11 +2386,15 @@ gfc_match_varspec (gfc_expr *primary, int equiv_flag, bool sub_flag,
 	component = NULL;
 
       if (intrinsic && !inquiry)
-       {
-	  gfc_error ("%qs at %C is not an inquiry reference to an intrinsic "
-		     "type component %qs", name, previous->name);
+	{
+	  if (previous)
+	    gfc_error ("%qs at %C is not an inquiry reference to an intrinsic "
+			"type component %qs", name, previous->name);
+	  else
+	    gfc_error ("%qs at %C is not an inquiry reference to an intrinsic "
+			"type component", name);
 	  return MATCH_ERROR;
-       }
+	}
       else if (component == NULL && !inquiry)
 	return MATCH_ERROR;
 

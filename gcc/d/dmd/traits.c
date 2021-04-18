@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (C) 1999-2020 by The D Language Foundation, All Rights Reserved
+ * Copyright (C) 1999-2021 by The D Language Foundation, All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -39,9 +39,9 @@ int ScopeDsymbol_foreach(Scope *sc, Dsymbols *members, ForeachDg dg, void *ctx, 
 void freeFieldinit(Scope *sc);
 Expression *resolve(Loc loc, Scope *sc, Dsymbol *s, bool hasOverloads);
 Package *resolveIsPackage(Dsymbol *sym);
-Expression *trySemantic(Expression *e, Scope *sc);
-Expression *semantic(Expression *e, Scope *sc);
 Expression *typeToExpression(Type *t);
+Type *decoToType(const char *deco);
+bool expressionsToString(OutBuffer &buf, Scope *sc, Expressions *exps);
 
 
 /************************************************
@@ -444,7 +444,6 @@ TraitsInitializer::TraitsInitializer()
         "derivedMembers",
         "isSame",
         "compiles",
-        "parameters",
         "getAliasThis",
         "getAttributes",
         "getFunctionAttributes",
@@ -803,7 +802,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
             return f->isNested() ? True(e) : False(e);
         }
 
-        e->error("aggregate or function expected instead of '%s'", o->toChars());
+        e->error("aggregate or function expected instead of `%s`", o->toChars());
         return new ErrorExp();
     }
     else if (e->ident == Id::isDisabled)
@@ -925,7 +924,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         }
 
         StringExp *se = new StringExp(e->loc, const_cast<char *>(id->toChars()));
-        return semantic(se, sc);
+        return expressionSemantic(se, sc);
     }
     else if (e->ident == Id::getProtection || e->ident == Id::getVisibility)
     {
@@ -948,12 +947,12 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
             return new ErrorExp();
         }
         if (s->semanticRun == PASSinit)
-            s->semantic(NULL);
+            dsymbolSemantic(s, NULL);
 
         const char *protName = protectionToChars(s->prot().kind);   // TODO: How about package(names)
         assert(protName);
         StringExp *se = new StringExp(e->loc, const_cast<char *>(protName));
-        return semantic(se, sc);
+        return expressionSemantic(se, sc);
     }
     else if (e->ident == Id::parent)
     {
@@ -982,7 +981,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
                 if (td->overroot)       // if not start of overloaded list of TemplateDeclaration's
                     td = td->overroot;  // then get the start
                 Expression *ex = new TemplateExp(e->loc, td, f);
-                ex = semantic(ex, sc);
+                ex = expressionSemantic(ex, sc);
                 return ex;
             }
 
@@ -990,7 +989,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
             {
                 // Directly translate to VarExp instead of FuncExp
                 Expression *ex = new VarExp(e->loc, fld, true);
-                return semantic(ex, sc);
+                return expressionSemantic(ex, sc);
             }
         }
 
@@ -1013,7 +1012,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
             return new ErrorExp();
         }
 
-        ex = semantic(ex, sc);
+        ex = expressionSemantic(ex, sc);
         RootObject *oc = (*e->args)[1];
         Dsymbol *symc = getDsymbol(oc);
         if (!symc)
@@ -1031,7 +1030,35 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         else
             assert(0);
 
-        ex = semantic(ex, sc);
+        ex = expressionSemantic(ex, sc);
+        return ex;
+    }
+    else if (e->ident == Id::toType)
+    {
+        if (dim != 1)
+            return dimError(e, 1, dim);
+
+        Expression *ex = isExpression((*e->args)[0]);
+        if (!ex)
+        {
+            e->error("expression expected as second argument of __traits `%s`", e->ident->toChars());
+            return new ErrorExp();
+        }
+        ex = ex->ctfeInterpret();
+
+        StringExp *se = semanticString(sc, ex, "__traits(toType, string)");
+        if (!se)
+        {
+            return new ErrorExp();
+        }
+        Type *t = decoToType(se->toUTF8(sc)->toPtr());
+        if (!t)
+        {
+            e->error("cannot determine `%s`", e->toChars());
+            return new ErrorExp();
+        }
+        ex = new TypeExp(e->loc, t);
+        ex = expressionSemantic(ex, sc);
         return ex;
     }
     else if (e->ident == Id::hasMember ||
@@ -1120,7 +1147,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
             if (ex->op == TOKdotid)
                 // Prevent semantic() from replacing Symbol with its initializer
                 ((DotIdExp *)ex)->wantsym = true;
-            ex = semantic(ex, scx);
+            ex = expressionSemantic(ex, scx);
             scx->pop();
             return ex;
         }
@@ -1130,7 +1157,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         {
             unsigned errors = global.errors;
             Expression *eorig = ex;
-            ex = semantic(ex, scx);
+            ex = expressionSemantic(ex, scx);
             if (errors < global.errors)
                 e->error("%s cannot be resolved", eorig->toChars());
             //ex->print();
@@ -1193,7 +1220,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
                 overloadApply(f, &p, &fptraits);
 
             ex = new TupleExp(e->loc, exps);
-            ex = semantic(ex, scx);
+            ex = expressionSemantic(ex, scx);
             scx->pop();
             return ex;
         }
@@ -1243,7 +1270,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         if (ad->aliasthis)
             exps->push(new StringExp(e->loc, const_cast<char *>(ad->aliasthis->ident->toChars())));
         Expression *ex = new TupleExp(e->loc, exps);
-        ex = semantic(ex, sc);
+        ex = expressionSemantic(ex, sc);
         return ex;
     }
     else if (e->ident == Id::getAttributes)
@@ -1283,7 +1310,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
 
         Expressions *exps = udad ? udad->getAttributes() : new Expressions();
         TupleExp *tup = new TupleExp(e->loc, exps);
-        return semantic(tup, sc);
+        return expressionSemantic(tup, sc);
     }
     else if (e->ident == Id::getFunctionAttributes)
     {
@@ -1308,7 +1335,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         tf->attributesApply(&pa, &PushAttributes::fp, TRUSTformatSystem);
 
         TupleExp *tup = new TupleExp(e->loc, mods);
-        return semantic(tup, sc);
+        return expressionSemantic(tup, sc);
     }
     else if (e->ident == Id::isReturnOnStack)
     {
@@ -1375,7 +1402,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
                 assert(0);
         }
         StringExp *se = new StringExp(e->loc, const_cast<char*>(style));
-        return semantic(se, sc);
+        return expressionSemantic(se, sc);
     }
     else if (e->ident == Id::getParameterStorageClasses)
     {
@@ -1464,7 +1491,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
             exps->push(new StringExp(e->loc, const_cast<char *>("scope")));
 
         TupleExp *tup = new TupleExp(e->loc, exps);
-        return semantic(tup, sc);
+        return expressionSemantic(tup, sc);
     }
     else if (e->ident == Id::getLinkage)
     {
@@ -1512,7 +1539,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         }
         const char *linkage = linkageToChars(link);
         StringExp *se = new StringExp(e->loc, const_cast<char *>(linkage));
-        return semantic(se, sc);
+        return expressionSemantic(se, sc);
     }
     else if (e->ident == Id::allMembers ||
              e->ident == Id::derivedMembers)
@@ -1531,6 +1558,13 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         {
             // Bugzilla 9692
             s = imp->mod;
+        }
+
+        // https://issues.dlang.org/show_bug.cgi?id=16044
+        if (Package *p = s->isPackage())
+        {
+            if (Module *pm = p->isPackageMod())
+                s = pm;
         }
 
         ScopeDsymbol *sds = s->isScopeDsymbol();
@@ -1559,6 +1593,11 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
                         return 0;
                     }
                 }
+
+                // https://issues.dlang.org/show_bug.cgi?id=20915
+                // skip version and debug identifiers
+                if (sm->isVersionSymbol() || sm->isDebugSymbol())
+                    return 0;
 
                 //printf("\t[%i] %s %s\n", i, sm->kind(), sm->toChars());
                 if (sm->ident)
@@ -1620,7 +1659,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         if (cd && e->ident == Id::allMembers)
         {
             if (cd->semanticRun < PASSsemanticdone)
-                cd->semantic(NULL);    // Bugzilla 13668: Try to resolve forward reference
+                dsymbolSemantic(cd, NULL);    // Bugzilla 13668: Try to resolve forward reference
 
             struct PushBaseMembers
             {
@@ -1654,7 +1693,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
          *   [ __traits(allMembers, ...) ]
          */
         Expression *ex = new TupleExp(e->loc, exps);
-        ex = semantic(ex, sc);
+        ex = expressionSemantic(ex, sc);
         return ex;
     }
     else if (e->ident == Id::compiles)
@@ -1676,33 +1715,67 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
 
             RootObject *o = (*e->args)[i];
             Type *t = isType(o);
-            Expression *ex = t ? typeToExpression(t) : isExpression(o);
-            if (!ex && t)
+            while (t)
             {
-                Dsymbol *s;
-                t->resolve(e->loc, sc2, &ex, &t, &s);
-                if (t)
+                if (TypeMixin *tm = t->isTypeMixin())
                 {
-                    t->semantic(e->loc, sc2);
-                    if (t->ty == Terror)
+                    /* The mixin string could be a type or an expression.
+                     * Have to try compiling it to see.
+                     */
+                    OutBuffer buf;
+                    if (expressionsToString(buf, sc, tm->exps))
+                    {
+                        err = true;
+                        break;
+                    }
+                    const size_t len = buf.length();
+                    const char *str = buf.extractChars();
+                    Parser p(e->loc, sc->_module, (const utf8_t *)str, len, false);
+                    p.nextToken();
+                    //printf("p.loc.linnum = %d\n", p.loc.linnum);
+
+                    o = p.parseTypeOrAssignExp(TOKeof);
+                    if (p.errors || p.token.value != TOKeof)
+                    {
+                        err = true;
+                        break;
+                    }
+                    t = isType(o);
+                }
+                else
+                    break;
+            }
+
+            if (!err)
+            {
+                Expression *ex = t ? typeToExpression(t) : isExpression(o);
+                if (!ex && t)
+                {
+                    Dsymbol *s;
+                    t->resolve(e->loc, sc2, &ex, &t, &s);
+                    if (t)
+                    {
+                        typeSemantic(t, e->loc, sc2);
+                        if (t->ty == Terror)
+                            err = true;
+                    }
+                    else if (s && s->errors)
                         err = true;
                 }
-                else if (s && s->errors)
-                    err = true;
-            }
-            if (ex)
-            {
-                ex = semantic(ex, sc2);
-                ex = resolvePropertiesOnly(sc2, ex);
-                ex = ex->optimize(WANTvalue);
-                if (sc2->func && sc2->func->type->ty == Tfunction)
+                if (ex)
                 {
-                    TypeFunction *tf = (TypeFunction *)sc2->func->type;
-                    canThrow(ex, sc2->func, tf->isnothrow);
+                    ex = expressionSemantic(ex, sc2);
+                    ex = resolvePropertiesOnly(sc2, ex);
+                    ex = ex->optimize(WANTvalue);
+                    if (sc2->func && sc2->func->type->ty == Tfunction)
+                    {
+                        TypeFunction *tf = (TypeFunction *)sc2->func->type;
+                        canThrow(ex, sc2->func, tf->isnothrow);
+                    }
+                    ex = checkGC(sc2, ex);
+                    if (ex->op == TOKerror)
+                        err = true;
                 }
-                ex = checkGC(sc2, ex);
-                if (ex->op == TOKerror)
-                    err = true;
             }
 
             // Carefully detach the scope from the parent and throw it away as
@@ -1795,7 +1868,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
             collectUnitTests(sds->members, uniqueUnitTests, exps);
         }
         TupleExp *te= new TupleExp(e->loc, exps);
-        return semantic(te, sc);
+        return expressionSemantic(te, sc);
     }
     else if (e->ident == Id::getVirtualIndex)
     {
@@ -1856,7 +1929,7 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
             e->error("`getTargetInfo` key `\"%s\"` not supported by this implementation", se->toPtr());
             return new ErrorExp();
         }
-        return semantic(r, sc);
+        return expressionSemantic(r, sc);
     }
     else if (e->ident == Id::getLocation)
     {
@@ -1886,13 +1959,13 @@ Expression *semanticTraits(TraitsExp *e, Scope *sc)
         (*exps)[1] = new IntegerExp(e->loc, s->loc.linnum, Type::tint32);
         (*exps)[2] = new IntegerExp(e->loc, s->loc.charnum, Type::tint32);
         TupleExp *tup = new TupleExp(e->loc, exps);
-        return semantic(tup, sc);
+        return expressionSemantic(tup, sc);
     }
 
     if (const char *sub = (const char *)speller(e->ident->toChars(), &trait_search_fp, NULL, idchars))
-        e->error("unrecognized trait '%s', did you mean '%s'?", e->ident->toChars(), sub);
+        e->error("unrecognized trait `%s`, did you mean `%s`?", e->ident->toChars(), sub);
     else
-        e->error("unrecognized trait '%s'", e->ident->toChars());
+        e->error("unrecognized trait `%s`", e->ident->toChars());
     return new ErrorExp();
 
     e->error("wrong number of arguments %d", (int)dim);

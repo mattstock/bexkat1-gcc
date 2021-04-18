@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (C) 1999-2020 by The D Language Foundation, All Rights Reserved
+ * Copyright (C) 1999-2021 by The D Language Foundation, All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -24,6 +24,7 @@
 #include "aggregate.h"
 #include "module.h"
 #include "id.h"
+#include "target.h"
 #include "template.h"
 
 Scope *Scope::freelist = NULL;
@@ -155,7 +156,8 @@ Scope *Scope::push()
     s->nofree = 0;
     s->fieldinit = saveFieldInit();
     s->flags = (flags & (SCOPEcontract | SCOPEdebug | SCOPEctfe | SCOPEcompile | SCOPEconstraint |
-                         SCOPEnoaccesscheck | SCOPEignoresymbolvisibility));
+                         SCOPEnoaccesscheck | SCOPEignoresymbolvisibility |
+                         SCOPEprintf | SCOPEscanf));
     s->lastdc = NULL;
 
     assert(this != s);
@@ -398,7 +400,7 @@ static Dsymbol *searchScopes(Scope *scope, Loc loc, Identifier *ident, Dsymbol *
                 ident == Id::length && sc->scopesym->isArrayScopeSymbol() &&
                 sc->enclosing && sc->enclosing->search(loc, ident, NULL, flags))
             {
-                warning(s->loc, "array 'length' hides other 'length' name in outer scope");
+                warning(s->loc, "array `length` hides other `length` name in outer scope");
             }
             if (pscopesym)
                 *pscopesym = sc->scopesym;
@@ -473,11 +475,11 @@ Dsymbol *Scope::insert(Dsymbol *s)
     }
     else if (WithScopeSymbol *ss = s->isWithScopeSymbol())
     {
-        if (VarDeclaration *vd = ss->withstate->wthis)
+        if (VarDeclaration *wthis = ss->withstate->wthis)
         {
             if (lastVar)
-                vd->lastVar = lastVar;
-            lastVar = vd;
+                wthis->lastVar = lastVar;
+            lastVar = wthis;
         }
         return NULL;
     }
@@ -637,7 +639,7 @@ const char *Scope::search_correct_C(Identifier *ident)
     else if (ident == Id::C_unsigned)
         tok = TOKuns32;
     else if (ident == Id::C_wchar_t)
-        tok = global.params.isWindows ? TOKwchar : TOKdchar;
+        tok = target.c.twchar_t->ty == Twchar ? TOKwchar : TOKdchar;
     else
         return NULL;
     return Token::toChars(tok);

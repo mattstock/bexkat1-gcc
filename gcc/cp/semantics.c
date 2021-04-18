@@ -256,6 +256,72 @@ pop_to_parent_deferring_access_checks (void)
     }
 }
 
+/* Called from enforce_access.  A class has attempted (but failed) to access
+   DECL.  It is already established that a baseclass of that class,
+   PARENT_BINFO, has private access to DECL.  Examine certain special cases
+   to find a decl that accurately describes the source of the problem.  If
+   none of the special cases apply, simply return DECL as the source of the
+   problem.  */
+
+static tree
+get_class_access_diagnostic_decl (tree parent_binfo, tree decl)
+{
+  /* When a class is denied access to a decl in a baseclass, most of the
+     time it is because the decl itself was declared as private at the point
+     of declaration.
+
+     However, in C++, there are (at least) two situations in which a decl
+     can be private even though it was not originally defined as such.
+     These two situations only apply if a baseclass had private access to
+     DECL (this function is only called if that is the case).  */
+
+  /* We should first check whether the reason the parent had private access
+     to DECL was simply because DECL was created and declared as private in
+     the parent.  If it was, then DECL is definitively the source of the
+     problem.  */
+  if (SAME_BINFO_TYPE_P (context_for_name_lookup (decl),
+			 BINFO_TYPE (parent_binfo)))
+    return decl;
+
+  /* 1.  If the "using" keyword is used to inherit DECL within the parent,
+     this may cause DECL to be private, so we should return the using
+     statement as the source of the problem.
+
+     Scan the fields of PARENT_BINFO and see if there are any using decls.  If
+     there are, see if they inherit DECL.  If they do, that's where DECL must
+     have been declared private.  */
+
+  for (tree parent_field = TYPE_FIELDS (BINFO_TYPE (parent_binfo));
+       parent_field;
+       parent_field = DECL_CHAIN (parent_field))
+    /* Not necessary, but also check TREE_PRIVATE for the sake of
+       eliminating obviously non-relevant using decls.  */
+    if (TREE_CODE (parent_field) == USING_DECL
+	&& TREE_PRIVATE (parent_field))
+      {
+	tree decl_stripped = strip_using_decl (parent_field);
+
+	/* The using statement might be overloaded.  If so, we need to
+	   check all of the overloads.  */
+	for (ovl_iterator iter (decl_stripped); iter; ++iter)
+	  /* If equal, the using statement inherits DECL, and so is the
+	     source of the access failure, so return it.  */
+	  if (*iter == decl)
+	    return parent_field;
+      }
+
+  /* 2.  If DECL was privately inherited by the parent class, then DECL will
+     be inaccessible, even though it may originally have been accessible to
+     deriving classes.  In that case, the fault lies with the parent, since it
+     used a private inheritance, so we return the parent as the source of the
+     problem.
+
+     Since this is the last check, we just assume it's true.  At worst, it
+     will simply point to the class that failed to give access, which is
+     technically true.  */
+  return TYPE_NAME (BINFO_TYPE (parent_binfo));
+}
+
 /* If the current scope isn't allowed to access DECL along
    BASETYPE_PATH, give an error, or if we're parsing a function or class
    template, defer the access check to be performed at instantiation time.
@@ -317,34 +383,33 @@ enforce_access (tree basetype_path, tree decl, tree diag_decl,
 	diag_decl = strip_inheriting_ctors (diag_decl);
       if (complain & tf_error)
 	{
-	  /* We will usually want to point to the same place as
-	     diag_decl but not always.  */
-	  tree diag_location = diag_decl;
-	  access_kind parent_access = ak_none;
+	  access_kind access_failure_reason = ak_none;
 
-	  /* See if any of BASETYPE_PATH's parents had private access
-	     to DECL.  If they did, that will tell us why we don't.  */
+	  /* By default, using the decl as the source of the problem will
+	     usually give correct results.  */
+	  tree diag_location = diag_decl;
+
+	  /* However, if a parent of BASETYPE_PATH had private access to decl,
+	     then it actually might be the case that the source of the problem
+	     is not DECL.  */
 	  tree parent_binfo = get_parent_with_private_access (decl,
 							      basetype_path);
 
-	  /* If a parent had private access, then the diagnostic
-	     location DECL should be that of the parent class, since it
-	     failed to give suitable access by using a private
-	     inheritance.  But if DECL was actually defined in the parent,
-	     it wasn't privately inherited, and so we don't need to do
-	     this, and complain_about_access will figure out what to
-	     do.  */
-	  if (parent_binfo != NULL_TREE
-	      && (context_for_name_lookup (decl)
-		  != BINFO_TYPE (parent_binfo)))
+	  /* So if a parent did have private access, then we need to do
+	     special checks to obtain the best diagnostic location decl.  */
+	  if (parent_binfo != NULL_TREE)
 	    {
-	      diag_location = TYPE_NAME (BINFO_TYPE (parent_binfo));
-	      parent_access = ak_private;
+	      diag_location = get_class_access_diagnostic_decl (parent_binfo,
+								diag_decl);
+
+	      /* We also at this point know that the reason access failed was
+		 because decl was private.  */
+	      access_failure_reason = ak_private;
 	    }
 
 	  /* Finally, generate an error message.  */
 	  complain_about_access (decl, diag_decl, diag_location, true,
-				 parent_access);
+				 access_failure_reason);
 	}
       if (afi)
 	afi->record_access_failure (basetype_path, decl, diag_decl);
@@ -537,6 +602,22 @@ add_decl_expr (tree decl)
   add_stmt (r);
 }
 
+/* Set EXPR_LOCATION of the cleanups of any CLEANUP_STMT in STMTS to LOC.  */
+
+static void
+set_cleanup_locs (tree stmts, location_t loc)
+{
+  if (TREE_CODE (stmts) == CLEANUP_STMT)
+    {
+      protected_set_expr_location (CLEANUP_EXPR (stmts), loc);
+      set_cleanup_locs (CLEANUP_BODY (stmts), loc);
+    }
+  else if (TREE_CODE (stmts) == STATEMENT_LIST)
+    for (tree_stmt_iterator i = tsi_start (stmts);
+	 !tsi_end_p (i); tsi_next (&i))
+      set_cleanup_locs (tsi_stmt (i), loc);
+}
+
 /* Finish a scope.  */
 
 tree
@@ -548,6 +629,9 @@ do_poplevel (tree stmt_list)
     block = poplevel (kept_level_p (), 1, 0);
 
   stmt_list = pop_stmt_list (stmt_list);
+
+  /* input_location is the last token of the scope, usually a }.  */
+  set_cleanup_locs (stmt_list, input_location);
 
   if (!processing_template_decl)
     {
@@ -1028,6 +1112,11 @@ finish_do_stmt (tree cond, tree do_stmt, bool ivdep, unsigned short unroll)
 {
   cond = maybe_convert_cond (cond);
   end_maybe_infinite_loop (cond);
+  /* Unlike other iteration statements, the condition may not contain
+     a declaration, so we don't call finish_cond which checks for
+     unexpanded parameter packs.  */
+  if (check_for_bare_parameter_packs (cond))
+    cond = error_mark_node;
   if (ivdep && cond != error_mark_node)
     cond = build3 (ANNOTATE_EXPR, TREE_TYPE (cond), cond,
 		   build_int_cst (integer_type_node, annot_expr_ivdep_kind),
@@ -2966,14 +3055,13 @@ finish_compound_literal (tree type, tree compound_literal,
       return error_mark_node;
     }
 
-  if (tree anode = type_uses_auto (type))
-    if (CLASS_PLACEHOLDER_TEMPLATE (anode))
-      {
-	type = do_auto_deduction (type, compound_literal, anode, complain,
-				  adc_variable_type);
-	if (type == error_mark_node)
-	  return error_mark_node;
-      }
+  if (template_placeholder_p (type))
+    {
+      type = do_auto_deduction (type, compound_literal, type, complain,
+				adc_variable_type);
+      if (type == error_mark_node)
+	return error_mark_node;
+    }
 
   /* Used to hold a copy of the compound literal in a template.  */
   tree orig_cl = NULL_TREE;
@@ -4005,6 +4093,12 @@ finish_id_expression_1 (tree id_expression,
 
 	  cp_warn_deprecated_use_scopes (scope);
 
+	  /* In a constant-expression context, turn off cp_unevaluated_operand
+	     so finish_non_static_data_member will complain (93314).  */
+	  auto eval = make_temp_override (cp_unevaluated_operand);
+	  if (integral_constant_expression_p && TREE_CODE (decl) == FIELD_DECL)
+	    cp_unevaluated_operand = 0;
+
 	  if (TYPE_P (scope))
 	    decl = finish_qualified_id_expr (scope,
 					     decl,
@@ -4018,6 +4112,10 @@ finish_id_expression_1 (tree id_expression,
 	}
       else if (TREE_CODE (decl) == FIELD_DECL)
 	{
+	  auto eval = make_temp_override (cp_unevaluated_operand);
+	  if (integral_constant_expression_p)
+	    cp_unevaluated_operand = 0;
+
 	  /* Since SCOPE is NULL here, this is an unqualified name.
 	     Access checking has been performed during name lookup
 	     already.  Turn off checking to avoid duplicate errors.  */

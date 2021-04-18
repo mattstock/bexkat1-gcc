@@ -1705,6 +1705,10 @@ init_cumulative_args (CUMULATIVE_ARGS *cum,  /* Argument info to initialize */
   struct cgraph_node *local_info_node = NULL;
   struct cgraph_node *target = NULL;
 
+  /* Set silent_p to false to raise an error for invalid calls when
+     expanding function body.  */
+  cfun->machine->silent_p = false;
+
   memset (cum, 0, sizeof (*cum));
 
   if (fndecl)
@@ -2534,6 +2538,10 @@ construct_container (machine_mode mode, machine_mode orig_mode,
      some less clueful developer tries to use floating-point anyway.  */
   if (needed_sseregs && !TARGET_SSE)
     {
+      /* Return early if we shouldn't raise an error for invalid
+	 calls.  */
+      if (cfun != NULL && cfun->machine->silent_p)
+	return NULL;
       if (in_return)
 	{
 	  if (!issued_sse_ret_error)
@@ -2558,6 +2566,10 @@ construct_container (machine_mode mode, machine_mode orig_mode,
 	  || regclass[i] == X86_64_X87UP_CLASS
 	  || regclass[i] == X86_64_COMPLEX_X87_CLASS)
 	{
+	  /* Return early if we shouldn't raise an error for invalid
+	     calls.  */
+	  if (cfun != NULL && cfun->machine->silent_p)
+	    return NULL;
 	  if (!issued_x87_ret_error)
 	    {
 	      error ("x87 register return with x87 disabled");
@@ -6490,11 +6502,6 @@ ix86_compute_frame_layout (void)
   offset += frame->nregs * UNITS_PER_WORD;
   frame->reg_save_offset = offset;
 
-  /* On SEH target, registers are pushed just before the frame pointer
-     location.  */
-  if (TARGET_SEH)
-    frame->hard_frame_pointer_offset = offset;
-
   /* Calculate the size of the va-arg area (not including padding, if any).  */
   frame->va_arg_size = ix86_varargs_gpr_size + ix86_varargs_fpr_size;
 
@@ -6660,14 +6667,22 @@ ix86_compute_frame_layout (void)
      the unwind data structure.  */
   if (TARGET_SEH)
     {
-      HOST_WIDE_INT diff;
+      /* Force the frame pointer to point at or below the lowest register save
+	 area, see the SEH code in config/i386/winnt.c for the rationale.  */
+      frame->hard_frame_pointer_offset = frame->sse_reg_save_offset;
 
-      /* If we can leave the frame pointer where it is, do so.  Also, returns
-	 the establisher frame for __builtin_frame_address (0).  */
-      diff = frame->stack_pointer_offset - frame->hard_frame_pointer_offset;
-      if (diff <= SEH_MAX_FRAME_SIZE
-	  && (diff > 240 || (diff & 15) != 0)
-	  && !crtl->accesses_prior_frames)
+      /* If we can leave the frame pointer where it is, do so.  Also, return
+	 the establisher frame for __builtin_frame_address (0) or else if the
+	 frame overflows the SEH maximum frame size.  */
+      const HOST_WIDE_INT diff
+	= frame->stack_pointer_offset - frame->hard_frame_pointer_offset;
+      if (diff <= 255)
+	{
+	  /* The resulting diff will be a multiple of 16 lower than 255,
+	     i.e. at most 240 as required by the unwind data structure.  */
+	  frame->hard_frame_pointer_offset += (diff & 15);
+	}
+      else if (diff <= SEH_MAX_FRAME_SIZE && !crtl->accesses_prior_frames)
 	{
 	  /* Ideally we'd determine what portion of the local stack frame
 	     (within the constraint of the lowest 240) is most heavily used.
@@ -6676,6 +6691,8 @@ ix86_compute_frame_layout (void)
 	     frame that is addressable with 8-bit offsets.  */
 	  frame->hard_frame_pointer_offset = frame->stack_pointer_offset - 128;
 	}
+      else
+	frame->hard_frame_pointer_offset = frame->hfp_save_offset;
     }
 }
 
@@ -8335,17 +8352,6 @@ ix86_expand_prologue (void)
          slower on all targets.  Also sdb didn't like it.  */
       insn = emit_insn (gen_push (hard_frame_pointer_rtx));
       RTX_FRAME_RELATED_P (insn) = 1;
-
-      /* Push registers now, before setting the frame pointer
-	 on SEH target.  */
-      if (!int_registers_saved
-	  && TARGET_SEH
-	  && !frame.save_regs_using_mov)
-	{
-	  ix86_emit_save_regs ();
-	  int_registers_saved = true;
-	  gcc_assert (m->fs.sp_offset == frame.reg_save_offset);
-	}
 
       if (m->fs.sp_offset == frame.hard_frame_pointer_offset)
 	{
@@ -10271,15 +10277,20 @@ darwin_local_data_pic (rtx disp)
 	  && XINT (disp, 1) == UNSPEC_MACHOPIC_OFFSET);
 }
 
-/* True if operand X should be loaded from GOT.  */
+/* True if the function symbol operand X should be loaded from GOT.
+
+   NB: In 32-bit mode, only non-PIC is allowed in inline assembly
+   statements, since a PIC register could not be available at the
+   call site.  */
 
 bool
 ix86_force_load_from_GOT_p (rtx x)
 {
-  return ((TARGET_64BIT || HAVE_AS_IX86_GOT32X)
+  return ((TARGET_64BIT || (!flag_pic && HAVE_AS_IX86_GOT32X))
 	  && !TARGET_PECOFF && !TARGET_MACHO
-	  && !flag_pic
+	  && (!flag_pic || this_is_asm_operands)
 	  && ix86_cmodel != CM_LARGE
+	  && ix86_cmodel != CM_LARGE_PIC
 	  && GET_CODE (x) == SYMBOL_REF
 	  && SYMBOL_REF_FUNCTION_P (x)
 	  && (!flag_plt
@@ -12707,7 +12718,8 @@ print_reg (rtx x, int code, FILE *file)
    y -- print "st(0)" instead of "st" as a register.
    d -- print duplicated register operand for AVX instruction.
    D -- print condition for SSE cmp instruction.
-   P -- if PIC, print an @PLT suffix.
+   P -- if PIC, print an @PLT suffix.  For -fno-plt, load function
+	address from GOT.
    p -- print raw symbol name.
    X -- don't print any sort of PIC '@' suffix for a symbol.
    & -- print some in-use local-dynamic symbol name.
@@ -13451,7 +13463,23 @@ ix86_print_operand (FILE *file, rtx x, int code)
 	  x = const0_rtx;
 	}
 
-      if (code != 'P' && code != 'p')
+      if (code == 'P')
+	{
+	  if (ix86_force_load_from_GOT_p (x))
+	    {
+	      /* For inline assembly statement, load function address
+		 from GOT with 'P' operand modifier to avoid PLT.  */
+	      x = gen_rtx_UNSPEC (Pmode, gen_rtvec (1, x),
+				  (TARGET_64BIT
+				   ? UNSPEC_GOTPCREL
+				   : UNSPEC_GOT));
+	      x = gen_rtx_CONST (Pmode, x);
+	      x = gen_const_mem (Pmode, x);
+	      ix86_print_operand (file, x, 'A');
+	      return;
+	    }
+	}
+      else if (code != 'p')
 	{
 	  if (CONST_INT_P (x))
 	    {
@@ -14754,11 +14782,6 @@ distance_non_agu_define (unsigned int regno1, unsigned int regno2,
 	}
     }
 
-  /* get_attr_type may modify recog data.  We want to make sure
-     that recog data is valid for instruction INSN, on which
-     distance_non_agu_define is called.  INSN is unchanged here.  */
-  extract_insn_cached (insn);
-
   if (!found)
     return -1;
 
@@ -14928,17 +14951,15 @@ ix86_lea_outperforms (rtx_insn *insn, unsigned int regno0, unsigned int regno1,
       return true;
     }
 
-  rtx_insn *rinsn = recog_data.insn;
+  /* Remember recog_data content.  */
+  struct recog_data_d recog_data_save = recog_data;
 
   dist_define = distance_non_agu_define (regno1, regno2, insn);
   dist_use = distance_agu_use (regno0, insn);
 
-  /* distance_non_agu_define can call extract_insn_cached.  If this function
-     is called from define_split conditions, that can break insn splitting,
-     because split_insns works by clearing recog_data.insn and then modifying
-     recog_data.operand array and match the various split conditions.  */
-  if (recog_data.insn != rinsn)
-    recog_data.insn = NULL;
+  /* distance_non_agu_define can call get_attr_type which can call
+     recog_memoized, restore recog_data back to previous content.  */
+  recog_data = recog_data_save;
 
   if (dist_define < 0 || dist_define >= LEA_MAX_STALL)
     {
@@ -14968,38 +14989,6 @@ ix86_lea_outperforms (rtx_insn *insn, unsigned int regno0, unsigned int regno1,
   return dist_define >= dist_use;
 }
 
-/* Return true if it is legal to clobber flags by INSN and
-   false otherwise.  */
-
-static bool
-ix86_ok_to_clobber_flags (rtx_insn *insn)
-{
-  basic_block bb = BLOCK_FOR_INSN (insn);
-  df_ref use;
-  bitmap live;
-
-  while (insn)
-    {
-      if (NONDEBUG_INSN_P (insn))
-	{
-	  FOR_EACH_INSN_USE (use, insn)
-	    if (DF_REF_REG_USE_P (use) && DF_REF_REGNO (use) == FLAGS_REG)
-	      return false;
-
-	  if (insn_defines_reg (FLAGS_REG, INVALID_REGNUM, insn))
-	    return true;
-	}
-
-      if (insn == BB_END (bb))
-	break;
-
-      insn = NEXT_INSN (insn);
-    }
-
-  live = df_get_live_out(bb);
-  return !REGNO_REG_SET_P (live, FLAGS_REG);
-}
-
 /* Return true if we need to split op0 = op1 + op2 into a sequence of
    move and add to avoid AGU stalls.  */
 
@@ -15010,10 +14999,6 @@ ix86_avoid_lea_for_add (rtx_insn *insn, rtx operands[])
 
   /* Check if we need to optimize.  */
   if (!TARGET_OPT_AGU || optimize_function_for_size_p (cfun))
-    return false;
-
-  /* Check it is correct to split here.  */
-  if (!ix86_ok_to_clobber_flags(insn))
     return false;
 
   regno0 = true_regnum (operands[0]);
@@ -15051,7 +15036,7 @@ ix86_use_lea_for_mov (rtx_insn *insn, rtx operands[])
 }
 
 /* Return true if we need to split lea into a sequence of
-   instructions to avoid AGU stalls. */
+   instructions to avoid AGU stalls during peephole2. */
 
 bool
 ix86_avoid_lea_for_addr (rtx_insn *insn, rtx operands[])
@@ -15069,10 +15054,6 @@ ix86_avoid_lea_for_addr (rtx_insn *insn, rtx operands[])
   if (REG_P (operands[1])
       || (SImode_address_operand (operands[1], VOIDmode)
 	  && REG_P (XEXP (operands[1], 0))))
-    return false;
-
-  /* Check if it is OK to split here.  */
-  if (!ix86_ok_to_clobber_flags (insn))
     return false;
 
   ok = ix86_decompose_address (operands[1], &parts);
@@ -21426,9 +21407,10 @@ ix86_c_mode_for_suffix (char suffix)
    with the old cc0-based compiler.  */
 
 static rtx_insn *
-ix86_md_asm_adjust (vec<rtx> &outputs, vec<rtx> &/*inputs*/,
-		    vec<const char *> &constraints,
-		    vec<rtx> &clobbers, HARD_REG_SET &clobbered_regs)
+ix86_md_asm_adjust (vec<rtx> &outputs, vec<rtx> & /*inputs*/,
+		    vec<machine_mode> & /*input_modes*/,
+		    vec<const char *> &constraints, vec<rtx> &clobbers,
+		    HARD_REG_SET &clobbered_regs)
 {
   bool saw_asm_flag = false;
 
@@ -22657,15 +22639,15 @@ ix86_simd_clone_usable (struct cgraph_node *node)
 	return -1;
       if (!TARGET_AVX)
 	return 0;
-      return TARGET_AVX2 ? 2 : 1;
+      return TARGET_AVX512F ? 3 : TARGET_AVX2 ? 2 : 1;
     case 'c':
       if (!TARGET_AVX)
 	return -1;
-      return TARGET_AVX2 ? 1 : 0;
+      return TARGET_AVX512F ? 2 : TARGET_AVX2 ? 1 : 0;
     case 'd':
       if (!TARGET_AVX2)
 	return -1;
-      return 0;
+      return TARGET_AVX512F ? 1 : 0;
     case 'e':
       if (!TARGET_AVX512F)
 	return -1;

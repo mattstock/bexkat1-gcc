@@ -30,18 +30,20 @@ class impl_region_model_context : public region_model_context
 {
  public:
   impl_region_model_context (exploded_graph &eg,
-			     const exploded_node *enode_for_diag,
+			     exploded_node *enode_for_diag,
 
 			     /* TODO: should we be getting the ECs from the
 				old state, rather than the new?  */
 			     const program_state *old_state,
 			     program_state *new_state,
+			     uncertainty_t *uncertainty,
 
 			     const gimple *stmt,
 			     stmt_finder *stmt_finder = NULL);
 
   impl_region_model_context (program_state *state,
 			     const extrinsic_state &ext_state,
+			     uncertainty_t *uncertainty,
 			     logger *logger = NULL);
 
   void warn (pending_diagnostic *d) FINAL OVERRIDE;
@@ -68,14 +70,17 @@ class impl_region_model_context : public region_model_context
 
   void on_escaped_function (tree fndecl) FINAL OVERRIDE;
 
+  uncertainty_t *get_uncertainty () FINAL OVERRIDE;
+
   exploded_graph *m_eg;
   log_user m_logger;
-  const exploded_node *m_enode_for_diag;
+  exploded_node *m_enode_for_diag;
   const program_state *m_old_state;
   program_state *m_new_state;
   const gimple *m_stmt;
   stmt_finder *m_stmt_finder;
   const extrinsic_state &m_ext_state;
+  uncertainty_t *m_uncertainty;
 };
 
 /* A <program_point, program_state> pair, used internally by
@@ -135,6 +140,9 @@ struct eg_traits
 
     bool show_enode_details_p (const exploded_node &enode) const;
 
+    virtual void
+    dump_extra_info (const exploded_node *, pretty_printer *) const {}
+
     const exploded_graph &m_eg;
   };
   typedef exploded_cluster cluster_t;
@@ -182,6 +190,9 @@ class exploded_node : public dnode<eg_traits>
   void dump (FILE *fp, const extrinsic_state &ext_state) const;
   void dump (const extrinsic_state &ext_state) const;
 
+  void dump_processed_stmts (pretty_printer *pp) const;
+  void dump_saved_diagnostics (pretty_printer *pp) const;
+
   json::object *to_json (const extrinsic_state &ext_state) const;
 
   /* The result of on_stmt.  */
@@ -220,17 +231,19 @@ class exploded_node : public dnode<eg_traits>
   on_stmt_flags on_stmt (exploded_graph &eg,
 			 const supernode *snode,
 			 const gimple *stmt,
-			 program_state *state) const;
+			 program_state *state,
+			 uncertainty_t *uncertainty);
   bool on_edge (exploded_graph &eg,
 		const superedge *succ,
 		program_point *next_point,
-		program_state *next_state) const;
+		program_state *next_state,
+		uncertainty_t *uncertainty);
   void on_longjmp (exploded_graph &eg,
 		   const gcall *call,
 		   program_state *new_state,
-		   region_model_context *ctxt) const;
+		   region_model_context *ctxt);
 
-  void detect_leaks (exploded_graph &eg) const;
+  void detect_leaks (exploded_graph &eg);
 
   const program_point &get_point () const { return m_ps.get_point (); }
   const supernode *get_supernode () const
@@ -262,6 +275,19 @@ class exploded_node : public dnode<eg_traits>
     m_status = status;
   }
 
+  void add_diagnostic (const saved_diagnostic *sd)
+  {
+    m_saved_diagnostics.safe_push (sd);
+  }
+  unsigned get_num_diagnostics () const
+  {
+    return m_saved_diagnostics.length ();
+  }
+  const saved_diagnostic *get_saved_diagnostic (unsigned idx) const
+  {
+    return m_saved_diagnostics[idx];
+  }
+
 private:
   DISABLE_COPY_AND_ASSIGN (exploded_node);
 
@@ -270,6 +296,10 @@ private:
   const point_and_state m_ps;
 
   enum status m_status;
+
+  /* The saved_diagnostics at this enode, borrowed from the
+     diagnostic_manager.  */
+  auto_vec <const saved_diagnostic *> m_saved_diagnostics;
 
 public:
   /* The index of this exploded_node.  */
@@ -311,6 +341,7 @@ class exploded_edge : public dedge<eg_traits>
   ~exploded_edge ();
   void dump_dot (graphviz_out *gv, const dump_args_t &args)
     const FINAL OVERRIDE;
+  void dump_dot_label (pretty_printer *pp) const;
 
   json::object *to_json () const;
 
@@ -753,7 +784,7 @@ public:
 
   exploded_node *get_or_create_node (const program_point &point,
 				     const program_state &state,
-				     const exploded_node *enode_for_diag);
+				     exploded_node *enode_for_diag);
   exploded_edge *add_edge (exploded_node *src, exploded_node *dest,
 			   const superedge *sedge,
 			   exploded_edge::custom_info_t *custom = NULL);
@@ -866,7 +897,6 @@ class exploded_path
 public:
   exploded_path () : m_edges () {}
   exploded_path (const exploded_path &other);
-  exploded_path & operator= (const exploded_path &other);
 
   unsigned length () const { return m_edges.length (); }
 
@@ -879,7 +909,6 @@ public:
   void dump (FILE *fp) const;
   void dump () const;
 
-  bool feasible_p (logger *logger, feasibility_problem **out) const;
   bool feasible_p (logger *logger, feasibility_problem **out,
 		    engine *eng, const exploded_graph *eg) const;
 
@@ -906,6 +935,28 @@ public:
   const exploded_edge &m_eedge;
   const gimple *m_last_stmt;
   rejected_constraint *m_rc;
+};
+
+/* A class for capturing the state of a node when checking a path
+   through the exploded_graph for feasibility.  */
+
+class feasibility_state
+{
+public:
+  feasibility_state (region_model_manager *manager,
+		     const supergraph &sg);
+  feasibility_state (const feasibility_state &other);
+
+  bool maybe_update_for_edge (logger *logger,
+			      const exploded_edge *eedge,
+			      rejected_constraint **out_rc);
+
+  const region_model &get_model () const { return m_model; }
+  const auto_sbitmap &get_snodes_visited () const { return m_snodes_visited; }
+
+private:
+  region_model m_model;
+  auto_sbitmap m_snodes_visited;
 };
 
 /* Finding the shortest exploded_path within an exploded_graph.  */

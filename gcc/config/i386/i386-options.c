@@ -126,10 +126,12 @@ along with GCC; see the file COPYING3.  If not see
 #define m_COOPERLAKE (HOST_WIDE_INT_1U<<PROCESSOR_COOPERLAKE)
 #define m_SAPPHIRERAPIDS (HOST_WIDE_INT_1U<<PROCESSOR_SAPPHIRERAPIDS)
 #define m_ALDERLAKE (HOST_WIDE_INT_1U<<PROCESSOR_ALDERLAKE)
+#define m_ROCKETLAKE (HOST_WIDE_INT_1U<<PROCESSOR_ROCKETLAKE)
 #define m_CORE_AVX512 (m_SKYLAKE_AVX512 | m_CANNONLAKE \
 		       | m_ICELAKE_CLIENT | m_ICELAKE_SERVER | m_CASCADELAKE \
-		       | m_TIGERLAKE | m_COOPERLAKE | m_SAPPHIRERAPIDS)
-#define m_CORE_AVX2 (m_HASWELL | m_SKYLAKE | m_CORE_AVX512)
+		       | m_TIGERLAKE | m_COOPERLAKE | m_SAPPHIRERAPIDS \
+		       | m_ROCKETLAKE)
+#define m_CORE_AVX2 (m_HASWELL | m_SKYLAKE | m_ALDERLAKE | m_CORE_AVX512)
 #define m_CORE_ALL (m_CORE2 | m_NEHALEM  | m_SANDYBRIDGE | m_CORE_AVX2)
 #define m_GOLDMONT (HOST_WIDE_INT_1U<<PROCESSOR_GOLDMONT)
 #define m_GOLDMONT_PLUS (HOST_WIDE_INT_1U<<PROCESSOR_GOLDMONT_PLUS)
@@ -721,14 +723,15 @@ static const struct processor_costs *processor_cost_table[] =
   &slm_cost,
   &skylake_cost,
   &skylake_cost,
+  &icelake_cost,
+  &icelake_cost,
+  &icelake_cost,
+  &icelake_cost,
   &skylake_cost,
+  &icelake_cost,
   &skylake_cost,
-  &skylake_cost,
-  &skylake_cost,
-  &skylake_cost,
-  &skylake_cost,
-  &skylake_cost,
-  &skylake_cost,
+  &icelake_cost,
+  &icelake_cost,
   &intel_cost,
   &geode_cost,
   &k6_cost,
@@ -743,7 +746,7 @@ static const struct processor_costs *processor_cost_table[] =
   &btver2_cost,
   &znver1_cost,
   &znver2_cost,
-  &znver2_cost
+  &znver3_cost
 };
 
 /* Guarantee that the array is aligned with enum processor_type.  */
@@ -1768,6 +1771,7 @@ ix86_init_machine_status (void)
   f = ggc_cleared_alloc<machine_function> ();
   f->call_abi = ix86_abi;
   f->stack_frame_required = true;
+  f->silent_p = true;
 
   return f;
 }
@@ -1858,6 +1862,13 @@ ix86_option_override_internal (bool main_args_p,
 
 #ifdef SUBSUBTARGET_OVERRIDE_OPTIONS
   SUBSUBTARGET_OVERRIDE_OPTIONS;
+#endif
+
+#ifdef HAVE_LD_BROKEN_PE_DWARF5
+  /* If the PE linker has broken DWARF 5 support, make
+     DWARF 4 the default.  */
+  if (TARGET_PECOFF)
+    SET_OPTION_IF_UNSET (opts, opts_set, dwarf_version, 4);
 #endif
 
   /* -fPIC is the default for x86_64.  */
@@ -2041,6 +2052,9 @@ ix86_option_override_internal (bool main_args_p,
     sorry ("%i-bit mode not compiled in",
 	   (opts->x_ix86_isa_flags & OPTION_MASK_ISA_64BIT) ? 64 : 32);
 
+  /* Last processor_alias_table must point to "generic" entry.  */
+  gcc_checking_assert (strcmp (processor_alias_table[pta_size - 1].name,
+			       "generic") == 0);
   for (i = 0; i < pta_size; i++)
     if (! strcmp (opts->x_ix86_arch_string, processor_alias_table[i].name))
       {
@@ -2159,11 +2173,11 @@ ix86_option_override_internal (bool main_args_p,
 	    && !(opts->x_ix86_isa_flags2_explicit & OPTION_MASK_ISA2_MOVBE))
 	  opts->x_ix86_isa_flags2 |= OPTION_MASK_ISA2_MOVBE;
 	if (((processor_alias_table[i].flags & PTA_AES) != 0)
-	    && !(ix86_isa_flags_explicit & OPTION_MASK_ISA_AES))
-	  ix86_isa_flags |= OPTION_MASK_ISA_AES;
+	    && !(opts->x_ix86_isa_flags_explicit & OPTION_MASK_ISA_AES))
+	  opts->x_ix86_isa_flags |= OPTION_MASK_ISA_AES;
 	if (((processor_alias_table[i].flags & PTA_SHA) != 0)
-	    && !(ix86_isa_flags_explicit & OPTION_MASK_ISA_SHA))
-	  ix86_isa_flags |= OPTION_MASK_ISA_SHA;
+	    && !(opts->x_ix86_isa_flags_explicit & OPTION_MASK_ISA_SHA))
+	  opts->x_ix86_isa_flags |= OPTION_MASK_ISA_SHA;
 	if (((processor_alias_table[i].flags & PTA_PCLMUL) != 0)
 	    && !(opts->x_ix86_isa_flags_explicit & OPTION_MASK_ISA_PCLMUL))
 	  opts->x_ix86_isa_flags |= OPTION_MASK_ISA_PCLMUL;
@@ -2354,6 +2368,13 @@ ix86_option_override_internal (bool main_args_p,
 	if (((processor_alias_table[i].flags & PTA_PKU) != 0)
 	    && !(opts->x_ix86_isa_flags_explicit & OPTION_MASK_ISA_PKU))
 	  opts->x_ix86_isa_flags |= OPTION_MASK_ISA_PKU;
+	if (((processor_alias_table[i].flags & PTA_UINTR) != 0)
+	    && !(opts->x_ix86_isa_flags2_explicit & OPTION_MASK_ISA2_UINTR))
+	  opts->x_ix86_isa_flags2 |= OPTION_MASK_ISA2_UINTR;
+	if (((processor_alias_table[i].flags & PTA_HRESET) != 0)
+	    && !(opts->x_ix86_isa_flags2_explicit & OPTION_MASK_ISA2_HRESET))
+	  opts->x_ix86_isa_flags2 |= OPTION_MASK_ISA2_HRESET;
+
 
 	/* Don't enable x87 instructions if only general registers are
 	   allowed by target("general-regs-only") function attribute or

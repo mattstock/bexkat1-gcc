@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (C) 1999-2020 by The D Language Foundation, All Rights Reserved
+ * Copyright (C) 1999-2021 by The D Language Foundation, All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -86,10 +86,16 @@ Msgtable msgtable[] =
     { "__c_longlong", NULL },
     { "__c_ulonglong", NULL },
     { "__c_long_double", NULL },
+    { "__c_wchar_t", NULL },
+    { "__c_complex_float", NULL },
+    { "__c_complex_double", NULL },
+    { "__c_complex_real", NULL },
     { "cpp_type_info_ptr", "__cpp_type_info_ptr" },
     { "_assert", "assert" },
     { "_unittest", "unittest" },
     { "_body", "body" },
+    { "printf", NULL },
+    { "scanf", NULL },
 
     { "TypeInfo", NULL },
     { "TypeInfo_Class", NULL },
@@ -395,7 +401,6 @@ Msgtable msgtable[] =
     { "derivedMembers", NULL },
     { "isSame", NULL },
     { "compiles", NULL },
-    { "parameters", NULL },
     { "getAliasThis", NULL },
     { "getAttributes", NULL },
     { "getFunctionAttributes", NULL },
@@ -411,6 +416,7 @@ Msgtable msgtable[] =
     { "getLocation", NULL },
     { "hasPostblit", NULL },
     { "isCopyable", NULL },
+    { "toType", NULL },
 
     // For C++ mangling
     { "allocator", NULL },

@@ -1,3 +1,500 @@
+2021-04-13  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/98599
+	* supergraph.cc (saved_uids::make_uid_unique): New.
+	(saved_uids::restore_uids): New.
+	(supergraph::supergraph): Replace assignments to stmt->uid with
+	calls to m_stmt_uids.make_uid_unique.
+	(supergraph::~supergraph): New.
+	* supergraph.h (class saved_uids): New.
+	(supergraph::~supergraph): New decl.
+	(supergraph::m_stmt_uids): New field.
+
+2021-04-10  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/100011
+	* region-model.cc (region_model::on_assignment): Avoid NULL
+	dereference if ctxt is NULL when assigning from a STRING_CST.
+
+2021-04-08  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/99042
+	PR analyzer/99774
+	* engine.cc
+	(impl_region_model_context::impl_region_model_context): Add
+	uncertainty param and use it to initialize m_uncertainty.
+	(impl_region_model_context::get_uncertainty): New.
+	(impl_sm_context::get_fndecl_for_call): Add NULL for new
+	uncertainty param when constructing impl_region_model_context.
+	(impl_sm_context::get_state): Likewise.
+	(impl_sm_context::set_next_state): Likewise.
+	(impl_sm_context::warn): Likewise.
+	(exploded_node::on_stmt): Add uncertainty param
+	and use it when constructing impl_region_model_context.
+	(exploded_node::on_edge): Add uncertainty param and pass
+	to on_edge call.
+	(exploded_node::detect_leaks): Create uncertainty_t and pass to
+	impl_region_model_context.
+	(exploded_graph::get_or_create_node): Create uncertainty_t and
+	pass to prune_for_point.
+	(maybe_process_run_of_before_supernode_enodes): Create
+	uncertainty_t and pass to impl_region_model_context.
+	(exploded_graph::process_node): Create uncertainty_t instances and
+	pass around as needed.
+	* exploded-graph.h
+	(impl_region_model_context::impl_region_model_context): Add
+	uncertainty param.
+	(impl_region_model_context::get_uncertainty): New decl.
+	(impl_region_model_context::m_uncertainty): New field.
+	(exploded_node::on_stmt): Add uncertainty param.
+	(exploded_node::on_edge): Likewise.
+	* program-state.cc (sm_state_map::on_liveness_change): Get
+	uncertainty from context and use it to unset sm-state from
+	svalues as appropriate.
+	(program_state::on_edge): Add uncertainty param and use it when
+	constructing impl_region_model_context.  Fix indentation.
+	(program_state::prune_for_point): Add uncertainty param and use it
+	when constructing impl_region_model_context.
+	(program_state::detect_leaks): Get any uncertainty from ctxt and
+	use it to get maybe-live svalues for dest_state, rather than
+	definitely-live ones; use this when determining which svalues
+	have leaked.
+	(selftest::test_program_state_merging): Create uncertainty_t and
+	pass to impl_region_model_context.
+	* program-state.h (program_state::on_edge): Add uncertainty param.
+	(program_state::prune_for_point): Likewise.
+	* region-model-impl-calls.cc (call_details::get_uncertainty): New.
+	(region_model::impl_call_memcpy): Pass uncertainty to
+	mark_region_as_unknown call.
+	(region_model::impl_call_memset): Likewise.
+	(region_model::impl_call_strcpy): Likewise.
+	* region-model-reachability.cc (reachable_regions::handle_sval):
+	Also add sval to m_mutable_svals.
+	* region-model.cc (region_model::on_assignment): Pass any
+	uncertainty from ctxt to the store::set_value call.
+	(region_model::handle_unrecognized_call): Get any uncertainty from
+	ctxt and use it to record mutable svalues at the unknown call.
+	(region_model::get_reachable_svalues): Add uncertainty param and
+	use it to mark any maybe-bound svalues as being reachable.
+	(region_model::set_value): Pass any uncertainty from ctxt to the
+	store::set_value call.
+	(region_model::mark_region_as_unknown): Add uncertainty param and
+	pass it on to the store::mark_region_as_unknown call.
+	(region_model::update_for_call_summary): Add uncertainty param and
+	pass it on to the region_model::mark_region_as_unknown call.
+	* region-model.h (call_details::get_uncertainty): New decl.
+	(region_model::get_reachable_svalues): Add uncertainty param.
+	(region_model::mark_region_as_unknown): Add uncertainty param.
+	(region_model_context::get_uncertainty): New vfunc.
+	(noop_region_model_context::get_uncertainty): New vfunc
+	implementation.
+	* store.cc (dump_svalue_set): New.
+	(uncertainty_t::dump_to_pp): New.
+	(uncertainty_t::dump): New.
+	(binding_cluster::clobber_region): Pass NULL for uncertainty to
+	remove_overlapping_bindings.
+	(binding_cluster::mark_region_as_unknown): Add uncertainty param
+	and pass it to remove_overlapping_bindings.
+	(binding_cluster::remove_overlapping_bindings): Add uncertainty param.
+	Use it to record any svalues that were in clobbered bindings.
+	(store::set_value): Add uncertainty param.  Pass it to
+	binding_cluster::mark_region_as_unknown when handling symbolic
+	regions.
+	(store::mark_region_as_unknown): Add uncertainty param and pass it
+	to binding_cluster::mark_region_as_unknown.
+	(store::remove_overlapping_bindings): Add uncertainty param and
+	pass it to binding_cluster::remove_overlapping_bindings.
+	* store.h (binding_cluster::mark_region_as_unknown): Add
+	uncertainty param.
+	(binding_cluster::remove_overlapping_bindings): Likewise.
+	(store::set_value): Likewise.
+	(store::mark_region_as_unknown): Likewise.
+
+2021-04-05  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/99906
+	* analyzer.cc (maybe_reconstruct_from_def_stmt): Fix NULL
+	dereference on calls with zero arguments.
+	* sm-malloc.cc (malloc_state_machine::on_stmt): When handling
+	__attribute__((nonnull)), only call get_diagnostic_tree if the
+	result will be used.
+
+2021-04-05  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/99886
+	* diagnostic-manager.cc
+	(diagnostic_manager::prune_interproc_events): Use signed integers
+	when subtracting one from path->num_events ().
+	(diagnostic_manager::consolidate_conditions): Likewise.  Convert
+	next_idx to a signed int.
+
+2021-04-01  David Malcolm  <dmalcolm@redhat.com>
+
+	* diagnostic-manager.cc (diagnostic_manager::add_diagnostic): Make
+	enode param non-constant, and call add_diagnostic on it.  Add
+	enode index to log message.
+	(diagnostic_manager::add_diagnostic): Make enode param
+	non-constant.
+	* diagnostic-manager.h (diagnostic_manager::add_diagnostic):
+	Likewise for both decls.
+	* engine.cc
+	(impl_region_model_context::impl_region_model_context): Likewise
+	for enode_for_diag.
+	(impl_sm_context::impl_sm_context): Likewise.
+	(impl_sm_context::m_enode_for_diag): Likewise.
+	(exploded_node::dump_dot): Don't pass the diagnostic manager
+	to dump_saved_diagnostics.
+	(exploded_node::dump_saved_diagnostics): Drop param.  Iterate
+	directly through all saved diagnostics for the enode, rather
+	than all saved diagnostics in the diagnostic_manager and
+	filtering.
+	(exploded_node::on_stmt): Make non-const.
+	(exploded_node::on_edge): Likewise.
+	(exploded_node::on_longjmp): Likewise.
+	(exploded_node::detect_leaks): Likewise.
+	(exploded_graph::get_or_create_node): Make enode_for_diag param
+	non-const.
+	(exploded_graph_annotator::print_enode): Iterate
+	directly through all saved diagnostics for the enode, rather
+	than all saved diagnostics in the diagnostic_manager and
+	filtering.
+	* exploded-graph.h
+	(impl_region_model_context::impl_region_model_context): Make
+	enode_for_diag param non-constant.
+	(impl_region_model_context::m_enode_for_diag): Likewise.
+	(exploded_node::dump_saved_diagnostics): Drop param.
+	(exploded_node::on_stmt): Make non-const.
+	(exploded_node::on_edge): Likewise.
+	(exploded_node::on_longjmp): Likewise.
+	(exploded_node::detect_leaks): Likewise.
+	(exploded_node::add_diagnostic): New.
+	(exploded_node::get_num_diagnostics): New.
+	(exploded_node::get_saved_diagnostic): New.
+	(exploded_node::m_saved_diagnostics): New.
+	(exploded_graph::get_or_create_node): Make enode_for_diag param
+	non-constant.
+	* feasible-graph.cc (feasible_node::dump_dot): Drop
+	diagnostic_manager from call to dump_saved_diagnostics.
+	* program-state.cc (program_state::on_edge): Convert enode param
+	to non-const pointer.
+	(program_state::prune_for_point): Likewise for enode_for_diag
+	param.
+	* program-state.h (program_state::on_edge): Convert enode param
+	to non-const pointer.
+	(program_state::prune_for_point): Likewise for enode_for_diag
+	param.
+
+2021-03-31  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/99771
+	* analyzer.cc (maybe_reconstruct_from_def_stmt): New.
+	(fixup_tree_for_diagnostic_1): New.
+	(fixup_tree_for_diagnostic): New.
+	* analyzer.h (fixup_tree_for_diagnostic): New decl.
+	* checker-path.cc (call_event::get_desc): Call
+	fixup_tree_for_diagnostic and use it for the call_with_state call.
+	(warning_event::get_desc): Likewise for the final_event and
+	make_label_text calls.
+	* engine.cc (impl_region_model_context::on_state_leak): Likewise
+	for the on_leak and add_diagnostic calls.
+	* region-model.cc (region_model::get_representative_tree):
+	Likewise for the result.
+
+2021-03-30  David Malcolm  <dmalcolm@redhat.com>
+
+	* region.h (region::dump_to_pp): Remove old decl.
+
+2021-03-30  David Malcolm  <dmalcolm@redhat.com>
+
+	* sm-file.cc (fileptr_state_machine::on_stmt): Only call
+	get_diagnostic_tree if the result will be used.
+	* sm-malloc.cc (malloc_state_machine::on_stmt): Likewise.
+	(malloc_state_machine::on_deallocator_call): Likewise.
+	(malloc_state_machine::on_realloc_call): Likewise.
+	(malloc_state_machine::on_realloc_call): Likewise.
+	* sm-sensitive.cc
+	(sensitive_state_machine::warn_for_any_exposure): Likewise.
+	* sm-taint.cc (taint_state_machine::on_stmt): Likewise.
+
+2021-03-25  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/93695
+	PR analyzer/99044
+	PR analyzer/99716
+	* engine.cc (exploded_node::on_stmt): Clear sm-state involving
+	an SSA name at the def-stmt of that SSA name.
+	* program-state.cc (sm_state_map::purge_state_involving): New.
+	* program-state.h (sm_state_map::purge_state_involving): New decl.
+	* region-model.cc (selftest::test_involves_p): New.
+	(selftest::analyzer_region_model_cc_tests): Call it.
+	* svalue.cc (class involvement_visitor): New class
+	(svalue::involves_p): New.
+	* svalue.h (svalue::involves_p): New decl.
+
+2021-03-19  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/99614
+	* diagnostic-manager.cc (class epath_finder): Add
+	DISABLE_COPY_AND_ASSIGN.
+
+2021-03-15  Martin Liska  <mliska@suse.cz>
+
+	* sm-file.cc (get_file_using_fns): Add missing comma in initializer.
+
+2021-03-11  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/96374
+	* analyzer.opt (-param=analyzer-max-infeasible-edges=): New param.
+	(fdump-analyzer-feasibility): New flag.
+	* diagnostic-manager.cc: Include "analyzer/trimmed-graph.h" and
+	"analyzer/feasible-graph.h".
+	(epath_finder::epath_finder): Convert m_sep to a pointer and
+	only create it if !flag_analyzer_feasibility.
+	(epath_finder::~epath_finder): New.
+	(epath_finder::m_sep): Convert to a pointer.
+	(epath_finder::get_best_epath): Add param "diag_idx" and use it
+	when logging.  Rather than finding the shortest path and then
+	checking feasibility, instead use explore_feasible_paths unless
+	!flag_analyzer_feasibility, in which case simply use the shortest
+	path, and note if it is infeasible.  Update for m_sep becoming a
+	pointer.
+	(class feasible_worklist): New.
+	(epath_finder::explore_feasible_paths): New.
+	(epath_finder::process_worklist_item): New.
+	(class dump_eg_with_shortest_path): New.
+	(epath_finder::dump_trimmed_graph): New.
+	(epath_finder::dump_feasible_graph): New.
+	(saved_diagnostic::saved_diagnostic): Add "idx" param, using it
+	on new field m_idx.
+	(saved_diagnostic::to_json): Dump m_idx.
+	(saved_diagnostic::calc_best_epath): Pass m_idx to get_best_epath.
+	Remove assertion that m_problem was set when m_best_epath is NULL.
+	(diagnostic_manager::add_diagnostic): Pass an index when created
+	saved_diagnostic instances.
+	* diagnostic-manager.h (saved_diagnostic::saved_diagnostic): Add
+	"idx" param.
+	(saved_diagnostic::get_index): New accessor.
+	(saved_diagnostic::m_idx): New field.
+	* engine.cc (exploded_node::dump_dot): Call args.dump_extra_info.
+	Move code to...
+	(exploded_node::dump_processed_stmts): ...this new function and...
+	(exploded_node::dump_saved_diagnostics): ...this new function.
+	Add index of each diagnostic.
+	(exploded_edge::dump_dot):  Move bulk of code to...
+	(exploded_edge::dump_dot_label): ...this new function.
+	* exploded-graph.h (eg_traits::dump_args_t::dump_extra_info): New
+	vfunc.
+	(exploded_node::dump_processed_stmts): New decl.
+	(exploded_node::dump_saved_diagnostics): New decl.
+	(exploded_edge::dump_dot_label): New decl.
+	* feasible-graph.cc: New file.
+	* feasible-graph.h: New file.
+	* trimmed-graph.cc: New file.
+	* trimmed-graph.h: New file.
+
+2021-03-11  David Malcolm  <dmalcolm@redhat.com>
+
+	* diagnostic-manager.cc (epath_finder::epath_finder):
+	Update shortest_paths init for new param.
+
+2021-03-10  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/96374
+	* engine.cc (exploded_path::feasible_p): Move "snodes_visited" and
+	"model" locals into a new class feasibility_state.  Move heart
+	of per-edge processing into
+	feasibility_state::maybe_update_for_edge.
+	(feasibility_state::feasibility_state): New.
+	(feasibility_state::maybe_update_for_edge): New, based on loop
+	body in exploded_path::feasible_p.
+	* exploded-graph.h (class feasibility_state): New.
+
+2021-03-10  David Malcolm  <dmalcolm@redhat.com>
+
+	* supergraph.h
+	(callgraph_superedge::dyn_cast_callgraph_superedge): New.
+	(call_superedge::dyn_cast_callgraph_superedge): Delete.
+	(return_superedge::dyn_cast_callgraph_superedge): Delete.
+
+2021-03-02  Martin Liska  <mliska@suse.cz>
+
+	* diagnostic-manager.cc (diagnostic_manager::emit_saved_diagnostics):
+	Do not pass engine.
+
+2021-02-26  David Malcolm  <dmalcolm@redhat.com>
+
+	* engine.cc (exploded_path::exploded_path): New copy-ctor.
+	* exploded-graph.h (exploded_path::operator=): Drop decl.
+
+2021-02-26  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/96374
+	* diagnostic-manager.cc (class epath_finder): New.
+	(epath_finder::get_best_epath): New.
+	(saved_diagnostic::saved_diagnostic): Update for replacement of
+	m_state and m_epath_length with m_best_epath.
+	(saved_diagnostic::~saved_diagnostic): Delete m_best_epath.
+	(saved_diagnostic::to_json): Update "path_length" to be optional.
+	(saved_diagnostic::calc_best_epath): New, based on
+	dedupe_winners::add and parts of dedupe_key::dedupe_key.
+	(saved_diagnostic::get_epath_length): New.
+	(saved_diagnostic::add_duplicate): New.
+	(dedupe_key::dedupe_key): Drop epath param.  Move invocation of
+	stmt_finder to saved_diagnostic::calc_best_epath.
+	(class dedupe_candidate): Delete.
+	(class dedupe_hash_map_traits): Update to use saved_diagnotic *
+	rather than dedupe_candidate * as the value_type/compare_type.
+	(dedupe_winners::~dedupe_winners): Don't delete the values.
+	(dedupe_winners::add): Convert param from shortest_exploded_paths to
+	epath_finder.  Drop "eg" param.  Drop dedupe_candidate, moving
+	path generation and feasiblity checking to
+	epath_finder::get_best_epath.  Update winner-selection for move
+	of epaths from dedupe_candidate to saved_diagnostic.
+	(dedupe_winners::emit_best):  Update for removal of class
+	dedupe_candidate.
+	(dedupe_winners::map_t): Update to use saved_diagnotic * rather
+	than dedupe_candidate * as the value_type/compare_type.
+	(diagnostic_manager::emit_saved_diagnostics): Move
+	shortest_exploded_paths instance into epath_finder and pass that
+	around instead.
+	(diagnostic_manager::emit_saved_diagnostic): Drop epath, stmt
+	and num_dupes params, instead getting these from the
+	saved_diagnostic.  Use correct location in inform_n call.
+	* diagnostic-manager.h (class epath_finder): New forward decl.
+	(saved_diagnostic::status): Drop enum.
+	(saved_diagnostic::set_feasible): Drop.
+	(saved_diagnostic::set_infeasible): Drop.
+	(saved_diagnostic::get_status): Drop.
+	(saved_diagnostic::calc_best_epath): New decl.
+	(saved_diagnostic::get_best_epath): New decl.
+	(saved_diagnostic::get_epath_length): New decl.
+	(saved_diagnostic::set_epath_length): Drop.
+	(saved_diagnostic::get_epath_length): Drop inline implementation.
+	(saved_diagnostic::add_duplicate): New.
+	(saved_diagnostic::get_num_dupes): New.
+	(saved_diagnostic::m_d): Document ownership.
+	(saved_diagnostic::m_trailing_eedge): Make const.
+	(saved_diagnostic::m_status): Drop field.
+	(saved_diagnostic::m_epath_length): Drop field.
+	(saved_diagnostic::m_best_epath): New field.
+	(saved_diagnostic::m_problem): Document ownership.
+	(saved_diagnostic::m_duplicates): New field.
+	(diagnostic_manager::emit_saved_diagnostic): Drop params epath,
+	stmt, and num_dupes.
+	* engine.cc (exploded_graph_annotator::print_saved_diagnostic):
+	Update for changes to saved_diagnostic class.
+	* exploded-graph.h (exploded_path::feasible_p): Drop unused
+	overloaded decl.
+
+2021-02-25  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/99193
+	* region-model-impl-calls.cc (region_model::impl_call_realloc): New.
+	* region-model.cc (region_model::on_call_pre): Call it.
+	* region-model.h (region_model::impl_call_realloc): New decl.
+	* sm-malloc.cc (enum wording): Add WORDING_REALLOCATED.
+	(malloc_state_machine::m_realloc): New field.
+	(use_after_free::describe_state_change): Add case for
+	WORDING_REALLOCATED.
+	(use_after_free::describe_final_event): Likewise.
+	(malloc_state_machine::malloc_state_machine): Initialize
+	m_realloc.
+	(malloc_state_machine::on_stmt): Handle realloc by calling...
+	(malloc_state_machine::on_realloc_call): New.
+
+2021-02-22  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/99196
+	* engine.cc (exploded_node::on_stmt): Provide terminate_path
+	flag as a way for on_call_pre to terminate the current analysis
+	path.
+	* region-model-impl-calls.cc (call_details::num_args): New.
+	(region_model::impl_call_error): New.
+	* region-model.cc (region_model::on_call_pre): Add param
+	"out_terminate_path".  Handle "error" and "error_at_line".
+	* region-model.h (call_details::num_args): New decl.
+	(region_model::on_call_pre): Add param "out_terminate_path".
+	(region_model::impl_call_error): New decl.
+
+2021-02-17  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/98969
+	* constraint-manager.cc (dead_svalue_purger::should_purge_p):
+	Update for change to svalue::live_p.
+	* program-state.cc (sm_state_map::on_liveness_change): Likewise.
+	(program_state::detect_leaks): Likewise.
+	* region-model-reachability.cc (reachable_regions::init_cluster):
+	When dealing with a symbolic region, if the underlying pointer is
+	implicitly live, add the region to the reachable regions.
+	* region-model.cc (region_model::compare_initial_and_pointer):
+	Move logic for detecting initial values of params to
+	initial_svalue::initial_value_of_param_p.
+	* svalue.cc (svalue::live_p): Convert "live_svalues" from a
+	reference to a pointer; support it being NULL.
+	(svalue::implicitly_live_p): Convert first param from a
+	refererence to a pointer.
+	(region_svalue::implicitly_live_p): Likewise.
+	(constant_svalue::implicitly_live_p): Likewise.
+	(initial_svalue::implicitly_live_p): Likewise.  Treat the initial
+	values of params for the top level frame as still live.
+	(initial_svalue::initial_value_of_param_p): New function, taken
+	from a test in region_model::compare_initial_and_pointer.
+	(unaryop_svalue::implicitly_live_p): Convert first param from a
+	refererence to a pointer.
+	(binop_svalue::implicitly_live_p): Likewise.
+	(sub_svalue::implicitly_live_p): Likewise.
+	(unmergeable_svalue::implicitly_live_p): Likewise.
+	* svalue.h (svalue::live_p): Likewise.
+	(svalue::implicitly_live_p): Likewise.
+	(region_svalue::implicitly_live_p): Likewise.
+	(constant_svalue::implicitly_live_p): Likewise.
+	(initial_svalue::implicitly_live_p): Likewise.
+	(initial_svalue::initial_value_of_param_p): New decl.
+	(unaryop_svalue::implicitly_live_p): Convert first param from a
+	refererence to a pointer.
+	(binop_svalue::implicitly_live_p): Likewise.
+	(sub_svalue::implicitly_live_p): Likewise.
+	(unmergeable_svalue::implicitly_live_p): Likewise.
+
+2021-02-12  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/98969
+	* engine.cc (readability): Add names for the various arbitrary
+	values.  Handle NOP_EXPR and INTEGER_CST.
+	(readability_comparator): Combine the readability tests for
+	tree and stack depth, rather than performing them sequentially.
+	(impl_region_model_context::on_state_leak): Strip off top-level
+	casts.
+	* region-model.cc (region_model::get_representative_path_var): Add
+	type-checking, moving the bulk of the implementation to...
+	(region_model::get_representative_path_var_1): ...here.  Respect
+	types in casts by recursing and re-adding the cast, rather than
+	merely stripping them off.  Use the correct type when handling
+	region_svalue.
+	(region_model::get_representative_tree): Strip off any top-level
+	cast.
+	(region_model::get_representative_path_var): Add type-checking,
+	moving the bulk of the implementation to...
+	(region_model::get_representative_path_var_1): ...here.
+	* region-model.h (region_model::get_representative_path_var_1):
+	New decl
+	(region_model::get_representative_path_var_1): New decl.
+	* store.cc (append_pathvar_with_type): New.
+	(binding_cluster::get_representative_path_vars): Cast path_vars
+	to the correct type when adding them to *OUT_PVS.
+
+2021-02-09  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/98575
+	* sm-file.cc (is_file_using_fn_p): Support "_IO_"-prefixed
+	variants.
+
+2021-02-09  David Malcolm  <dmalcolm@redhat.com>
+
+	PR analyzer/98575
+	* store.cc (store::set_value): Treat a pointer written to *UNKNOWN
+	as having escaped.
+
 2021-02-02  David Malcolm  <dmalcolm@redhat.com>
 
 	PR analyzer/93355

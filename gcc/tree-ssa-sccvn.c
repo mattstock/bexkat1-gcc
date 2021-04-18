@@ -249,6 +249,55 @@ vn_reference_hasher::equal (const vn_reference_s *v, const vn_reference_s *c)
 typedef hash_table<vn_reference_hasher> vn_reference_table_type;
 typedef vn_reference_table_type::iterator vn_reference_iterator_type;
 
+/* Pretty-print OPS to OUTFILE.  */
+
+void
+print_vn_reference_ops (FILE *outfile, const vec<vn_reference_op_s> ops)
+{
+  vn_reference_op_t vro;
+  unsigned int i;
+  fprintf (outfile, "{");
+  for (i = 0; ops.iterate (i, &vro); i++)
+    {
+      bool closebrace = false;
+      if (vro->opcode != SSA_NAME
+	  && TREE_CODE_CLASS (vro->opcode) != tcc_declaration)
+	{
+	  fprintf (outfile, "%s", get_tree_code_name (vro->opcode));
+	  if (vro->op0)
+	    {
+	      fprintf (outfile, "<");
+	      closebrace = true;
+	    }
+	}
+      if (vro->op0)
+	{
+	  print_generic_expr (outfile, vro->op0);
+	  if (vro->op1)
+	    {
+	      fprintf (outfile, ",");
+	      print_generic_expr (outfile, vro->op1);
+	    }
+	  if (vro->op2)
+	    {
+	      fprintf (outfile, ",");
+	      print_generic_expr (outfile, vro->op2);
+	    }
+	}
+      if (closebrace)
+	fprintf (outfile, ">");
+      if (i != ops.length () - 1)
+	fprintf (outfile, ",");
+    }
+  fprintf (outfile, "}");
+}
+
+DEBUG_FUNCTION void
+debug_vn_reference_ops (const vec<vn_reference_op_s> ops)
+{
+  print_vn_reference_ops (stderr, ops);
+  fputc ('\n', stderr);
+}
 
 /* The set of VN hashtables.  */
 
@@ -298,6 +347,7 @@ static obstack vn_tables_insert_obstack;
 static vn_reference_t last_inserted_ref;
 static vn_phi_t last_inserted_phi;
 static vn_nary_op_t last_inserted_nary;
+static vn_ssa_aux_t last_pushed_avail;
 
 /* Valid hashtables storing information we have proven to be
    correct.  */
@@ -1001,22 +1051,26 @@ ao_ref_init_from_vn_reference (ao_ref *ref,
   poly_offset_int size = -1;
   tree size_tree = NULL_TREE;
 
-  /* First get the final access size from just the outermost expression.  */
+  machine_mode mode = TYPE_MODE (type);
+  if (mode == BLKmode)
+    size_tree = TYPE_SIZE (type);
+  else
+    size = GET_MODE_BITSIZE (mode);
+  if (size_tree != NULL_TREE
+      && poly_int_tree_p (size_tree))
+    size = wi::to_poly_offset (size_tree);
+
+  /* Lower the final access size from the outermost expression.  */
   op = &ops[0];
+  size_tree = NULL_TREE;
   if (op->opcode == COMPONENT_REF)
     size_tree = DECL_SIZE (op->op0);
   else if (op->opcode == BIT_FIELD_REF)
     size_tree = op->op0;
-  else
-    {
-      machine_mode mode = TYPE_MODE (type);
-      if (mode == BLKmode)
-	size_tree = TYPE_SIZE (type);
-      else
-	size = GET_MODE_BITSIZE (mode);
-    }
   if (size_tree != NULL_TREE
-      && poly_int_tree_p (size_tree))
+      && poly_int_tree_p (size_tree)
+      && (!known_size_p (size)
+	  || known_lt (wi::to_poly_offset (size_tree), size)))
     size = wi::to_poly_offset (size_tree);
 
   /* Initially, maxsize is the same as the accessed element size.
@@ -3214,7 +3268,17 @@ vn_reference_lookup_3 (ao_ref *ref, tree vuse, void *data_,
 	return (void *)-1;
       /* This can happen with bitfields.  */
       if (maybe_ne (ref->size, r.size))
-	return (void *)-1;
+	{
+	  /* If the access lacks some subsetting simply apply that by
+	     shortening it.  That in the end can only be successful
+	     if we can pun the lookup result which in turn requires
+	     exact offsets.  */
+	  if (known_eq (r.size, r.max_size)
+	      && known_lt (ref->size, r.size))
+	    r.size = r.max_size = ref->size;
+	  else
+	    return (void *)-1;
+	}
       *ref = r;
 
       /* Do not update last seen VUSE after translating.  */
@@ -4107,7 +4171,7 @@ vn_nary_op_insert_pieces_predicated (unsigned int length, enum tree_code code,
 }
 
 static bool
-dominated_by_p_w_unex (basic_block bb1, basic_block bb2);
+dominated_by_p_w_unex (basic_block bb1, basic_block bb2, bool);
 
 static tree
 vn_nary_op_get_predicated_value (vn_nary_op_t vno, basic_block bb)
@@ -4116,9 +4180,12 @@ vn_nary_op_get_predicated_value (vn_nary_op_t vno, basic_block bb)
     return vno->u.result;
   for (vn_pval *val = vno->u.values; val; val = val->next)
     for (unsigned i = 0; i < val->n; ++i)
-      if (dominated_by_p_w_unex (bb,
-			  BASIC_BLOCK_FOR_FN
-			    (cfun, val->valid_dominated_by_p[i])))
+      /* Do not handle backedge executability optimistically since
+	 when figuring out whether to iterate we do not consider
+	 changed predication.  */
+      if (dominated_by_p_w_unex
+	    (bb, BASIC_BLOCK_FOR_FN (cfun, val->valid_dominated_by_p[i]),
+	     false))
 	return val->result;
   return NULL_TREE;
 }
@@ -4418,10 +4485,11 @@ vn_phi_insert (gimple *phi, tree result, bool backedges_varying_p)
 
 
 /* Return true if BB1 is dominated by BB2 taking into account edges
-   that are not executable.  */
+   that are not executable.  When ALLOW_BACK is false consider not
+   executable backedges as executable.  */
 
 static bool
-dominated_by_p_w_unex (basic_block bb1, basic_block bb2)
+dominated_by_p_w_unex (basic_block bb1, basic_block bb2, bool allow_back)
 {
   edge_iterator ei;
   edge e;
@@ -4438,7 +4506,8 @@ dominated_by_p_w_unex (basic_block bb1, basic_block bb2)
     {
       edge prede = NULL;
       FOR_EACH_EDGE (e, ei, bb1->preds)
-	if (e->flags & EDGE_EXECUTABLE)
+	if ((e->flags & EDGE_EXECUTABLE)
+	    || (!allow_back && (e->flags & EDGE_DFS_BACK)))
 	  {
 	    if (prede)
 	      {
@@ -5188,6 +5257,8 @@ visit_phi (gimple *phi, bool *inserted, bool backedges_varying_p)
       {
 	tree def = PHI_ARG_DEF_FROM_EDGE (phi, e);
 
+	if (def == PHI_RESULT (phi))
+	  continue;
 	++n_executable;
 	if (TREE_CODE (def) == SSA_NAME)
 	  {
@@ -6835,7 +6906,7 @@ rpo_elim::eliminate_avail (basic_block bb, tree op)
 	     may also be able to "pre-compute" (bits of) the next immediate
 	     (non-)dominator during the RPO walk when marking edges as
 	     executable.  */
-	  if (dominated_by_p_w_unex (bb, abb))
+	  if (dominated_by_p_w_unex (bb, abb, true))
 	    {
 	      tree leader = ssa_name (av->leader);
 	      /* Prevent eliminations that break loop-closed SSA.  */
@@ -6898,6 +6969,8 @@ rpo_elim::eliminate_push_avail (basic_block bb, tree leader)
   av->location = bb->index;
   av->leader = SSA_NAME_VERSION (leader);
   av->next = value->avail;
+  av->next_undo = last_pushed_avail;
+  last_pushed_avail = value;
   value->avail = av;
 }
 
@@ -7338,12 +7411,13 @@ struct unwind_state
   vn_reference_t ref_top;
   vn_phi_t phi_top;
   vn_nary_op_t nary_top;
+  vn_avail *avail_top;
 };
 
 /* Unwind the RPO VN state for iteration.  */
 
 static void
-do_unwind (unwind_state *to, int rpo_idx, rpo_elim &avail, int *bb_to_rpo)
+do_unwind (unwind_state *to, rpo_elim &avail)
 {
   gcc_assert (to->iterate);
   for (; last_inserted_nary != to->nary_top;
@@ -7378,20 +7452,14 @@ do_unwind (unwind_state *to, int rpo_idx, rpo_elim &avail, int *bb_to_rpo)
   obstack_free (&vn_tables_obstack, to->ob_top);
 
   /* Prune [rpo_idx, ] from avail.  */
-  /* ???  This is O(number-of-values-in-region) which is
-     O(region-size) rather than O(iteration-piece).  */
-  for (hash_table<vn_ssa_aux_hasher>::iterator i = vn_ssa_aux_hash->begin ();
-       i != vn_ssa_aux_hash->end (); ++i)
+  for (; last_pushed_avail && last_pushed_avail->avail != to->avail_top;)
     {
-      while ((*i)->avail)
-	{
-	  if (bb_to_rpo[(*i)->avail->location] < rpo_idx)
-	    break;
-	  vn_avail *av = (*i)->avail;
-	  (*i)->avail = (*i)->avail->next;
-	  av->next = avail.m_avail_freelist;
-	  avail.m_avail_freelist = av;
-	}
+      vn_ssa_aux_t val = last_pushed_avail;
+      vn_avail *av = val->avail;
+      val->avail = av->next;
+      last_pushed_avail = av->next_undo;
+      av->next = avail.m_avail_freelist;
+      avail.m_avail_freelist = av;
     }
 }
 
@@ -7505,6 +7573,7 @@ do_rpo_vn (function *fn, edge entry, bitmap exit_bbs,
   last_inserted_ref = NULL;
   last_inserted_phi = NULL;
   last_inserted_nary = NULL;
+  last_pushed_avail = NULL;
 
   vn_valueize = rpo_vn_valueize;
 
@@ -7598,6 +7667,8 @@ do_rpo_vn (function *fn, edge entry, bitmap exit_bbs,
 	    rpo_state[idx].ref_top = last_inserted_ref;
 	    rpo_state[idx].phi_top = last_inserted_phi;
 	    rpo_state[idx].nary_top = last_inserted_nary;
+	    rpo_state[idx].avail_top
+	      = last_pushed_avail ? last_pushed_avail->avail : NULL;
 	  }
 
 	if (!(bb->flags & BB_EXECUTABLE))
@@ -7675,7 +7746,7 @@ do_rpo_vn (function *fn, edge entry, bitmap exit_bbs,
 	    }
 	if (iterate_to != -1)
 	  {
-	    do_unwind (&rpo_state[iterate_to], iterate_to, avail, bb_to_rpo);
+	    do_unwind (&rpo_state[iterate_to], avail);
 	    idx = iterate_to;
 	    if (dump_file && (dump_flags & TDF_DETAILS))
 	      fprintf (dump_file, "Iterating to %d BB%d\n",

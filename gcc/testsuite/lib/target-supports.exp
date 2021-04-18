@@ -1067,6 +1067,12 @@ proc check_effective_target_mmap {} {
     return [check_function_available "mmap"]
 }
 
+# Return 1 if the target supports sysconf, 0 otherwise.
+
+proc check_effective_target_sysconf {} {
+    return [check_function_available "sysconf"]
+}
+
 # Return 1 if the target supports dlopen, 0 otherwise.
 proc check_effective_target_dlopen {} {
     return [check_no_compiler_messages dlopen executable {
@@ -4200,6 +4206,46 @@ proc add_options_for_arm_qbit { flags } {
     return "$flags $et_arm_qbit_flags"
 }
 
+# Return 1 if this is an ARM target supporting the DSP intrinsics from
+# arm_acle.h.  Some multilibs may be incompatible with these options.
+# Also set et_arm_dsp_flags to the best options to add.
+# arm_acle.h includes stdint.h which can cause trouble with incompatible
+# -mfloat-abi= options.
+# check_effective_target_arm_dsp also exists, which checks the current
+# multilib, without trying other options.
+
+proc check_effective_target_arm_dsp_ok_nocache { } {
+    global et_arm_dsp_flags
+    set et_arm_dsp_flags ""
+    foreach flags {"" "-march=armv5te" "-march=armv5te -mfloat-abi=softfp" "-march=armv5te -mfloat-abi=hard"} {
+      if { [check_no_compiler_messages_nocache et_arm_dsp_ok object {
+	#include <arm_acle.h>
+	int dummy;
+	#ifndef __ARM_FEATURE_DSP
+	#error not DSP
+	#endif
+      } "$flags"] } {
+	set et_arm_dsp_flags $flags
+	return 1
+      }
+    }
+
+  return 0
+}
+
+proc check_effective_target_arm_dsp_ok { } {
+    return [check_cached_effective_target et_arm_dsp_flags \
+		check_effective_target_arm_dsp_ok_nocache]
+}
+
+proc add_options_for_arm_dsp { flags } {
+    if { ! [check_effective_target_arm_dsp_ok] } {
+	return "$flags"
+    }
+    global et_arm_dsp_flags
+    return "$flags $et_arm_dsp_flags"
+}
+
 # Return 1 if this is an ARM target supporting -mfpu=neon without any
 # -mfloat-abi= option.  Useful in tests where add_options is not
 # supported (such as lto tests).
@@ -5025,7 +5071,7 @@ proc check_effective_target_arm_v8_1m_mve_fp_ok_nocache { } {
 
     # Iterate through sets of options to find the compiler flags that
     # need to be added to the -march option.
-    foreach flags {"" "-mfloat-abi=hard -mfpu=auto -march=armv8.1-m.main+mve.fp" "-mfloat-abi=softfp -mfpu=auto -march=armv8.1-m.main+mve.fp"} {
+    foreach flags {"" "-mfloat-abi=softfp -mfpu=auto -march=armv8.1-m.main+mve.fp" "-mfloat-abi=hard -mfpu=auto -march=armv8.1-m.main+mve.fp"} {
 	if { [check_no_compiler_messages_nocache \
 		  arm_v8_1m_mve_fp_ok object {
 	    #include <arm_mve.h>
@@ -5208,7 +5254,7 @@ proc check_effective_target_arm_v8_1m_mve_ok_nocache { } {
 
     # Iterate through sets of options to find the compiler flags that
     # need to be added to the -march option.
-    foreach flags {"" "-mfloat-abi=hard -mfpu=auto -march=armv8.1-m.main+mve" "-mfloat-abi=softfp -mfpu=auto -march=armv8.1-m.main+mve"} {
+    foreach flags {"" "-mfloat-abi=softfp -mfpu=auto -march=armv8.1-m.main+mve" "-mfloat-abi=hard -mfpu=auto -march=armv8.1-m.main+mve"} {
         if { [check_no_compiler_messages_nocache \
                   arm_v8_1m_mve_ok object {
             #if !defined (__ARM_FEATURE_MVE)
@@ -5267,7 +5313,7 @@ proc check_effective_target_arm_v8_2a_i8mm_ok_nocache { } {
 
     # Iterate through sets of options to find the compiler flags that
     # need to be added to the -march option.
-    foreach flags {"" "-mfloat-abi=hard -mfpu=neon-fp-armv8" "-mfloat-abi=softfp -mfpu=neon-fp-armv8" } {
+    foreach flags {"" "-mfloat-abi=softfp -mfpu=neon-fp-armv8" "-mfloat-abi=hard -mfpu=neon-fp-armv8" } {
         if { [check_no_compiler_messages_nocache \
                   arm_v8_2a_i8mm_ok object {
             #include <arm_neon.h>
@@ -5352,7 +5398,7 @@ proc check_effective_target_arm_v8_2a_bf16_neon_ok_nocache { } {
         return 0;
     }
 
-    foreach flags {"" "-mfloat-abi=hard -mfpu=neon-fp-armv8" "-mfloat-abi=softfp -mfpu=neon-fp-armv8" } {
+    foreach flags {"" "-mfloat-abi=softfp -mfpu=neon-fp-armv8" "-mfloat-abi=hard -mfpu=neon-fp-armv8" } {
         if { [check_no_compiler_messages_nocache arm_v8_2a_bf16_neon_ok object {
             #include <arm_neon.h>
             #if !defined (__ARM_FEATURE_BF16_VECTOR_ARITHMETIC)
@@ -5885,6 +5931,21 @@ proc check_effective_target_powerpc_hard_double { } {
     } else {
 	return 0
     }
+}
+
+# Return 1 if this is a PowerPC target with hardware floating point sqrt.
+
+proc check_effective_target_powerpc_sqrt { } {
+    # We need to be PowerPC, and we need to have hardware fp enabled.
+    if {![check_effective_target_powerpc_fprs]} {
+      return 0;
+    }
+
+    return [check_no_compiler_messages powerpc_sqrt object {
+	#ifndef _ARCH_PPCSQ
+	#error _ARCH_PPCSQ is not defined
+	#endif
+    } {}]
 }
 
 # Return 1 if this is a PowerPC target supporting -maltivec.
@@ -7581,7 +7642,7 @@ proc check_effective_target_vect_call_copysignf { } {
 proc check_effective_target_sqrt_insn { } {
     return [check_cached_effective_target sqrt_insn {
       expr { [istarget i?86-*-*] || [istarget x86_64-*-*]
-	     || [istarget powerpc*-*-*]
+	     || [check_effective_target_powerpc_sqrt]
 	     || [istarget aarch64*-*-*]
 	     || ([istarget arm*-*-*] && [check_effective_target_arm_vfp_ok])
 	     || ([istarget s390*-*-*]
@@ -8191,6 +8252,18 @@ proc check_effective_target_stdint_types { } {
 	int8_t a; int16_t b; int32_t c; int64_t d;
 	uint8_t e; uint16_t f; uint32_t g; uint64_t h;
     }]
+}
+
+# Like check_effective_target_stdint_types, but test what happens when
+# -mbig-endian is passed.  This test only makes sense on targets that
+# support -mbig-endian; it will fail elsewhere.
+
+proc check_effective_target_stdint_types_mbig_endian { } {
+    return [check_no_compiler_messages stdint_types_mbig_endian assembly {
+	#include <stdint.h>
+	int8_t a; int16_t b; int32_t c; int64_t d;
+	uint8_t e; uint16_t f; uint32_t g; uint64_t h;
+    } "-mbig-endian"]
 }
 
 # Return 1 if target has the basic signed and unsigned types in
@@ -8943,6 +9016,16 @@ proc check_effective_target_avx512bw { } {
 							    -1);
 	}
     } "-mavx512bw" ]
+}
+
+# Return 1 if -Wa,-march=+noavx512bw is supported.
+proc check_effective_target_assembler_march_noavx512bw {} {
+    if { [istarget i?86*-*-*] || [istarget x86_64*-*-*] } {
+	return [check_no_compiler_messages assembler_march_noavx512bw object {
+	    void foo (void) {}
+	} "-mno-avx512bw -Wa,-march=+noavx512bw"]
+    }
+    return 0
 }
 
 # Return 1 if avx512vp2intersect instructions can be compiled.
@@ -10264,6 +10347,22 @@ proc check_effective_target_s390_vxe2 { } {
     } "-march=arch13 -mzarch" ]
 }
 
+# Same as above but for the arch14 NNPA facility.
+proc check_effective_target_s390_nnpa { } {
+    if ![istarget s390*-*-*] then {
+	return 0;
+    }
+
+    return [check_runtime s390_check_nnpa {
+	int main (void)
+	{
+	    asm ("vzero %%v24\n\t"
+		 "vcrnf %%v24,%%v24,%%v24,0,2" : : : "v24");
+	    return 0;
+	}
+    } "-march=arch14 -mzarch" ]
+}
+
 #For versions of ARM architectures that have hardware div insn,
 #disable the divmod transform
 
@@ -10964,3 +11063,13 @@ proc check_effective_target_o_flag_in_section { } {
 	}
     }]
 }
+
+# return 1 if LRA is supported.
+
+proc check_effective_target_lra { } {
+    if { [istarget hppa*-*-*] } {
+	return 0
+    }
+    return 1
+}
+

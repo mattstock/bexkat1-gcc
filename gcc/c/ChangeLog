@@ -1,3 +1,63 @@
+2021-04-15  Martin Sebor  <msebor@redhat.com>
+
+	PR c/99420
+	PR c/99972
+	* c-decl.c (pushdecl): Always propagate type attribute.
+
+2021-04-15  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR c/98852
+	* c-typeck.c (c_common_type): Do not drop attributes that
+	affect type identity.
+
+2021-04-10  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/99990
+	* c-decl.c (finish_decl): Don't overwrite TREE_TYPE of
+	error_mark_node.
+
+2021-03-25  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/99565
+	* c-typeck.c (build_conditional_expr): Pass OEP_ADDRESS_OF_SAME_FIELD
+	to operand_equal_p.
+
+2021-03-19  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/99588
+	* c-typeck.c (mark_exp_read): Recognize what build_atomic_assign
+	with modifycode NOP_EXPR produces and mark the _Atomic var as read
+	if found.
+	(build_atomic_assign): For modifycode of NOP_EXPR, use COMPOUND_EXPRs
+	rather than STATEMENT_LIST.  Otherwise call mark_exp_read on lhs.
+	Set TREE_SIDE_EFFECTS on the TARGET_EXPR.
+
+2021-03-15  Tobias Burnus  <tobias@codesourcery.com>
+
+	PR c++/99509
+	* c-decl.c (finish_decl): For 'omp declare target implicit' vars,
+	ensure that the varpool node is marked as offloadable.
+
+2021-03-05  Tobias Burnus  <tobias@codesourcery.com>
+
+	PR c/99137
+	* c-parser.c (c_parser_oacc_clause_async): Reject comma expressions.
+
+2021-02-24  Martin Sebor  <msebor@redhat.com>
+
+	PR middle-end/97172
+	* c-decl.c (free_attr_access_data): Clear attribute arg spec.
+
+2021-02-18  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/99136
+	* c-typeck.c (c_finish_return): Don't wrap retval into
+	EXCESS_PRECISION_EXPR in functions that return void.
+
+2021-02-11  Marek Polacek  <polacek@redhat.com>
+
+	* c-parser.c (c_parser_if_statement): Use vec_free.
+
 2021-02-04  Martin Sebor  <msebor@redhat.com>
 
 	PR c/97882

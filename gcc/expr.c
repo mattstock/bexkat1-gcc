@@ -7214,7 +7214,13 @@ store_field (rtx target, poly_int64 bitsize, poly_int64 bitpos,
 	      || !multiple_p (bitpos, BITS_PER_UNIT)
 	      || !poly_int_tree_p (DECL_SIZE (TREE_OPERAND (exp, 1)),
 				   &decl_bitsize)
-	      || maybe_ne (decl_bitsize, bitsize)))
+	      || maybe_ne (decl_bitsize, bitsize))
+	  /* A call with an addressable return type and return-slot
+	     optimization must not need bitfield operations but we must
+	     pass down the original target.  */
+	  && (TREE_CODE (exp) != CALL_EXPR
+	      || !TREE_ADDRESSABLE (TREE_TYPE (exp))
+	      || !CALL_EXPR_RETURN_SLOT_OPT (exp)))
       /* If we are expanding a MEM_REF of a non-BLKmode non-addressable
          decl we must use bitfield operations.  */
       || (known_size_p (bitsize)
@@ -8198,7 +8204,7 @@ expand_expr_addr_expr_1 (tree exp, rtx target, scalar_int_mode tmode,
 	 array with address of COMPOUND_LITERAL_EXPR in DECL_INITIAL;
 	 the initializers aren't gimplified.  */
       if (COMPOUND_LITERAL_EXPR_DECL (exp)
-	  && TREE_STATIC (COMPOUND_LITERAL_EXPR_DECL (exp)))
+	  && is_global_var (COMPOUND_LITERAL_EXPR_DECL (exp)))
 	return expand_expr_addr_expr_1 (COMPOUND_LITERAL_EXPR_DECL (exp),
 					target, tmode, modifier, as);
       /* FALLTHRU */

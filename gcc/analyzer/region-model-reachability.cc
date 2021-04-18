@@ -91,6 +91,8 @@ reachable_regions::init_cluster (const region *base_reg)
   if (const symbolic_region *sym_reg = base_reg->dyn_cast_symbolic_region ())
     {
       const svalue *ptr = sym_reg->get_pointer ();
+      if (ptr->implicitly_live_p (NULL, m_model))
+	add (base_reg, true);
       switch (ptr->get_kind ())
 	{
 	default:
@@ -168,6 +170,7 @@ void
 reachable_regions::handle_sval (const svalue *sval)
 {
   m_reachable_svals.add (sval);
+  m_mutable_svals.add (sval);
   if (const region_svalue *ptr = sval->dyn_cast_region_svalue ())
     {
       const region *pointee = ptr->get_pointee ();

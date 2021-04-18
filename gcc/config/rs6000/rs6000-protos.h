@@ -193,10 +193,13 @@ extern enum insn_form address_to_insn_form (rtx, machine_mode,
 					    enum non_prefixed_form);
 extern bool address_is_non_pfx_d_or_x (rtx addr, machine_mode mode,
 				       enum non_prefixed_form non_prefix_format);
+extern bool pcrel_opt_valid_mem_p (rtx, machine_mode, rtx);
+enum non_prefixed_form reg_to_non_prefixed (rtx reg, machine_mode mode);
 extern bool prefixed_load_p (rtx_insn *);
 extern bool prefixed_store_p (rtx_insn *);
 extern bool prefixed_paddi_p (rtx_insn *);
 extern void rs6000_asm_output_opcode (FILE *);
+extern void output_pcrel_opt_reloc (rtx);
 extern void rs6000_final_prescan_insn (rtx_insn *, rtx [], int);
 extern int rs6000_adjust_insn_length (rtx_insn *, int);
 
@@ -224,6 +227,7 @@ address_is_prefixed (rtx addr,
 #ifdef TREE_CODE
 extern unsigned int rs6000_data_alignment (tree, unsigned int, enum data_align);
 extern bool rs6000_special_adjust_field_align_p (tree, unsigned int);
+extern unsigned int rs6000_special_adjust_field_align (tree, unsigned int);
 extern unsigned int rs6000_special_round_type_align (tree, unsigned int,
 						     unsigned int);
 extern unsigned int darwin_rs6000_special_round_type_align (tree, unsigned int,
@@ -294,6 +298,7 @@ extern void (*rs6000_target_modify_macros_ptr) (bool, HOST_WIDE_INT,
 
 /* Declare functions in rs6000-d.c  */
 extern void rs6000_d_target_versions (void);
+extern void rs6000_d_register_target_info (void);
 
 #ifdef NO_DOLLAR_IN_LABEL
 const char * rs6000_xcoff_strip_dollar (const char *);
@@ -309,6 +314,7 @@ namespace gcc { class context; }
 class rtl_opt_pass;
 
 extern rtl_opt_pass *make_pass_analyze_swaps (gcc::context *);
+extern rtl_opt_pass *make_pass_pcrel_opt (gcc::context *);
 extern bool rs6000_sum_of_two_registers_p (const_rtx expr);
 extern bool rs6000_quadword_masked_address_p (const_rtx exp);
 extern rtx rs6000_gen_lvx (enum machine_mode, rtx, rtx);

@@ -32,6 +32,7 @@
 
 #pragma GCC system_header
 
+#include <type_traits>
 #include <bits/hash_bytes.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
@@ -269,7 +270,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     };
 #endif
 
-  // @} group hashes
+  /// @} group hashes
 
   // Hint about performance of hash functor. If not fast the hash-based
   // containers will cache the hash code.

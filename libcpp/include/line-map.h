@@ -563,7 +563,7 @@ struct GTY((tag ("2"))) line_map_macro : public line_map {
 #define linemap_assert_fails(EXPR) (! (EXPR))
 #endif
 
-/* Get whether location LOC is an ad-hoc, ordinary or macro location.  */
+/* Get whether location LOC is an ordinary location.  */
 
 inline bool
 IS_ORDINARY_LOC (location_t loc)
@@ -571,16 +571,12 @@ IS_ORDINARY_LOC (location_t loc)
   return loc < LINE_MAP_MAX_LOCATION;
 }
 
+/* Get whether location LOC is an ad-hoc location.  */
+
 inline bool
 IS_ADHOC_LOC (location_t loc)
 {
   return loc > MAX_LOCATION_T;
-}
-
-inline bool
-IS_MACRO_LOC (location_t loc)
-{
-  return !IS_ORDINARY_LOC (loc) && !IS_ADHOC_LOC (loc);
 }
 
 /* Categorize line map kinds.  */
@@ -1136,8 +1132,9 @@ extern location_t linemap_module_loc
 extern void linemap_module_reparent
   (line_maps *, location_t loc, location_t new_parent);
 
-/* Restore the linemap state such that the map at LWM-1 continues.  */
-extern void linemap_module_restore
+/* Restore the linemap state such that the map at LWM-1 continues.
+   Return start location of the new map.  */
+extern unsigned linemap_module_restore
   (line_maps *, unsigned lwm);
 
 /* Given a logical source location, returns the map which the

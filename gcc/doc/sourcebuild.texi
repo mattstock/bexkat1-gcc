@@ -2044,6 +2044,12 @@ ARM Target supports options suitable for accessing the Q-bit manipulation
 intrinsics from @code{arm_acle.h}.
 Some multilibs may be incompatible with these options.
 
+@item arm_dsp_ok
+@anchor{arm_dsp_ok}
+ARM Target supports options suitable for accessing the DSP intrinsics
+from @code{arm_acle.h}.
+Some multilibs may be incompatible with these options.
+
 @item arm_softfp_ok
 @anchor{arm_softfp_ok}
 ARM target supports the @code{-mfloat-abi=softfp} option.
@@ -2441,8 +2447,15 @@ Target has the basic signed and unsigned C types in @code{stdint.h}.
 This will be obsolete when GCC ensures a working @code{stdint.h} for
 all targets.
 
+@item stdint_types_mbig_endian
+Target accepts the option @option{-mbig-endian} and @code{stdint.h}
+can be included without error when @option{-mbig-endian} is passed.
+
 @item stpcpy
 Target provides @code{stpcpy} function.
+
+@item sysconf
+Target supports @code{sysconf}.
 
 @item trampolines
 Target supports trampolines.
@@ -2524,6 +2537,9 @@ Target keeps null pointer checks, either due to the use of
 
 @item llvm_binutils
 Target is using an LLVM assembler and/or linker, instead of GNU Binutils.
+
+@item lra
+Target supports local register allocator (LRA).
 
 @item lto
 Compiler has been configured to support link-time optimization (LTO).
@@ -2774,6 +2790,11 @@ supported by the target; see the
 Add options to enable generation of the @code{VFMAL} and @code{VFMSL}
 instructions, if this is supported by the target; see the
 @ref{arm_fp16fml_neon_ok} effective target keyword.
+
+@item arm_dsp
+Add options for ARM DSP intrinsics support, if this is supported by
+the target; see the @ref{arm_dsp_ok,,arm_dsp_ok effective target
+keyword}.
 
 @item bind_pic_locally
 Add the target-specific flags needed to enable functions to bind

@@ -79,6 +79,14 @@ call_details::call_details (const gcall *call, region_model *model,
     }
 }
 
+/* Get any uncertainty_t associated with the region_model_context.  */
+
+uncertainty_t *
+call_details::get_uncertainty () const
+{
+  return m_ctxt->get_uncertainty ();
+}
+
 /* If the callsite has a left-hand-side region, set it to RESULT
    and return true.
    Otherwise do nothing and return false.  */
@@ -94,6 +102,14 @@ call_details::maybe_set_lhs (const svalue *result) const
     }
   else
     return false;
+}
+
+/* Return the number of arguments used by the call statement.  */
+
+unsigned
+call_details::num_args () const
+{
+  return gimple_call_num_args (m_call);
 }
 
 /* Get argument IDX at the callsite as a tree.  */
@@ -240,6 +256,36 @@ region_model::impl_call_calloc (const call_details &cd)
   return true;
 }
 
+/* Handle the on_call_pre part of "error" and "error_at_line" from
+   GNU's non-standard <error.h>.
+   MIN_ARGS identifies the minimum number of expected arguments
+   to be consistent with such a call (3 and 5 respectively).
+   Return true if handling it as one of these functions.
+   Write true to *OUT_TERMINATE_PATH if this execution path should be
+   terminated (e.g. the function call terminates the process).  */
+
+bool
+region_model::impl_call_error (const call_details &cd, unsigned min_args,
+			       bool *out_terminate_path)
+{
+  /* Bail if not enough args.  */
+  if (cd.num_args () < min_args)
+    return false;
+
+  /* Initial argument ought to be of type "int".  */
+  if (cd.get_arg_type (0) != integer_type_node)
+    return false;
+
+  /* The process exits if status != 0, so it only continues
+     for the case where status == 0.
+     Add that constraint, or terminate this analysis path.  */
+  tree status = cd.get_arg_tree (0);
+  if (!add_constraint (status, EQ_EXPR, integer_zero_node, cd.get_ctxt ()))
+    *out_terminate_path = true;
+
+  return true;
+}
+
 /* Handle the on_call_post part of "free", after sm-handling.
 
    If the ptr points to an underlying heap region, delete the region,
@@ -308,7 +354,7 @@ region_model::impl_call_memcpy (const call_details &cd)
   check_for_writable_region (dest_reg, cd.get_ctxt ());
 
   /* Otherwise, mark region's contents as unknown.  */
-  mark_region_as_unknown (dest_reg);
+  mark_region_as_unknown (dest_reg, cd.get_uncertainty ());
 }
 
 /* Handle the on_call_pre part of "memset" and "__builtin_memset".  */
@@ -351,7 +397,7 @@ region_model::impl_call_memset (const call_details &cd)
   check_for_writable_region (dest_reg, cd.get_ctxt ());
 
   /* Otherwise, mark region's contents as unknown.  */
-  mark_region_as_unknown (dest_reg);
+  mark_region_as_unknown (dest_reg, cd.get_uncertainty ());
   return false;
 }
 
@@ -390,6 +436,17 @@ region_model::impl_call_operator_delete (const call_details &cd)
   return false;
 }
 
+/* Handle the on_call_pre part of "realloc".  */
+
+void
+region_model::impl_call_realloc (const call_details &)
+{
+  /* Currently we don't support bifurcating state, so there's no good
+     way to implement realloc(3).
+     For now, malloc_state_machine::on_realloc_call has a minimal
+     implementation to suppress false positives.  */
+}
+
 /* Handle the on_call_pre part of "strcpy" and "__builtin_strcpy_chk".  */
 
 void
@@ -404,7 +461,7 @@ region_model::impl_call_strcpy (const call_details &cd)
   check_for_writable_region (dest_reg, cd.get_ctxt ());
 
   /* For now, just mark region's contents as unknown.  */
-  mark_region_as_unknown (dest_reg);
+  mark_region_as_unknown (dest_reg, cd.get_uncertainty ());
 }
 
 /* Handle the on_call_pre part of "strlen".

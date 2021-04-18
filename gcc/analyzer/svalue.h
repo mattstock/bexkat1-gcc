@@ -128,13 +128,15 @@ public:
 
   virtual void accept (visitor *v) const  = 0;
 
-  bool live_p (const svalue_set &live_svalues,
+  bool live_p (const svalue_set *live_svalues,
 	       const region_model *model) const;
-  virtual bool implicitly_live_p (const svalue_set &live_svalues,
+  virtual bool implicitly_live_p (const svalue_set *live_svalues,
 				  const region_model *model) const;
 
   static int cmp_ptr (const svalue *, const svalue *);
   static int cmp_ptr_ptr (const void *, const void *);
+
+  bool involves_p (const svalue *other) const;
 
  protected:
   svalue (complexity c, tree type)
@@ -194,7 +196,7 @@ public:
 
   void dump_to_pp (pretty_printer *pp, bool simple) const FINAL OVERRIDE;
   void accept (visitor *v) const FINAL OVERRIDE;
-  bool implicitly_live_p (const svalue_set &,
+  bool implicitly_live_p (const svalue_set *,
 			  const region_model *) const FINAL OVERRIDE;
 
   const region * get_pointee () const { return m_reg; }
@@ -243,7 +245,7 @@ public:
 
   void dump_to_pp (pretty_printer *pp, bool simple) const FINAL OVERRIDE;
   void accept (visitor *v) const FINAL OVERRIDE;
-  bool implicitly_live_p (const svalue_set &,
+  bool implicitly_live_p (const svalue_set *,
 			  const region_model *) const FINAL OVERRIDE;
 
   tree get_constant () const { return m_cst_expr; }
@@ -493,8 +495,10 @@ public:
 
   void dump_to_pp (pretty_printer *pp, bool simple) const FINAL OVERRIDE;
   void accept (visitor *v) const FINAL OVERRIDE;
-  bool implicitly_live_p (const svalue_set &,
+  bool implicitly_live_p (const svalue_set *,
 			  const region_model *) const FINAL OVERRIDE;
+
+  bool initial_value_of_param_p () const;
 
   const region *get_region () const { return m_reg; }
 
@@ -564,7 +568,7 @@ public:
 
   void dump_to_pp (pretty_printer *pp, bool simple) const FINAL OVERRIDE;
   void accept (visitor *v) const FINAL OVERRIDE;
-  bool implicitly_live_p (const svalue_set &,
+  bool implicitly_live_p (const svalue_set *,
 			  const region_model *) const FINAL OVERRIDE;
 
   enum tree_code get_op () const { return m_op; }
@@ -653,7 +657,7 @@ public:
 
   void dump_to_pp (pretty_printer *pp, bool simple) const FINAL OVERRIDE;
   void accept (visitor *v) const FINAL OVERRIDE;
-  bool implicitly_live_p (const svalue_set &,
+  bool implicitly_live_p (const svalue_set *,
 			  const region_model *) const FINAL OVERRIDE;
 
   enum tree_code get_op () const { return m_op; }
@@ -734,7 +738,7 @@ public:
 
   void dump_to_pp (pretty_printer *pp, bool simple) const FINAL OVERRIDE;
   void accept (visitor *v) const FINAL OVERRIDE;
-  bool implicitly_live_p (const svalue_set &,
+  bool implicitly_live_p (const svalue_set *,
 			  const region_model *) const FINAL OVERRIDE;
 
   const svalue *get_parent () const { return m_parent_svalue; }
@@ -788,7 +792,7 @@ public:
 
   void dump_to_pp (pretty_printer *pp, bool simple) const FINAL OVERRIDE;
   void accept (visitor *v) const FINAL OVERRIDE;
-  bool implicitly_live_p (const svalue_set &,
+  bool implicitly_live_p (const svalue_set *,
 			  const region_model *) const FINAL OVERRIDE;
 
   const svalue *get_arg () const { return m_arg; }

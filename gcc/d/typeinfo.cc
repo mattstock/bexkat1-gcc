@@ -210,7 +210,7 @@ make_frontend_typeinfo (Identifier *ident, ClassDeclaration *base = NULL)
   ClassDeclaration *tinfo = ClassDeclaration::create (loc, ident, NULL, NULL,
 						      true);
   tinfo->parent = object_module;
-  tinfo->semantic (object_module->_scope);
+  dsymbolSemantic (tinfo, object_module->_scope);
   tinfo->baseClass = base;
   /* This is a compiler generated class, and shouldn't be mistaken for being
      the type declared in the runtime library.  */
@@ -358,7 +358,7 @@ class TypeInfoVisitor : public Visitor
     DECL_EXTERNAL (decl) = 0;
     TREE_PUBLIC (decl) = 1;
     DECL_VISIBILITY (decl) = VISIBILITY_INTERNAL;
-    d_comdat_linkage (decl);
+    set_linkage_for_decl (decl);
     d_pushdecl (decl);
 
     return decl;
@@ -1320,14 +1320,6 @@ public:
 
     DECL_CONTEXT (tid->csym) = d_decl_context (tid);
     TREE_READONLY (tid->csym) = 1;
-
-    /* Built-in typeinfo will be referenced as one-only.  */
-    gcc_assert (!tid->isInstantiated ());
-
-    if (builtin_typeinfo_p (tid->tinfo))
-      d_linkonce_linkage (tid->csym);
-    else
-      d_comdat_linkage (tid->csym);
   }
 
   void visit (TypeInfoClassDeclaration *tid)
@@ -1467,8 +1459,6 @@ get_cpp_typeinfo_decl (ClassDeclaration *decl)
     = TREE_TYPE (build_ctype (decl->type));
   TREE_READONLY (decl->cpp_type_info_ptr_sym) = 1;
 
-  d_comdat_linkage (decl->cpp_type_info_ptr_sym);
-
   /* Layout the initializer and emit the symbol.  */
   layout_cpp_typeinfo (decl);
 
@@ -1572,9 +1562,6 @@ create_typeinfo (Type *type, Module *mod)
 	case TK_STRUCT_TYPE:
 	  if (!tinfo_types[tk])
 	    {
-	      /* Some ABIs add extra TypeInfo fields on the end.  */
-	      tree argtype = global.params.is64bit ? ptr_type_node : NULL_TREE;
-
 	      ident = Identifier::idPool ("TypeInfo_Struct");
 	      make_internal_typeinfo (tk, ident,
 				      array_type_node, array_type_node,
@@ -1582,7 +1569,7 @@ create_typeinfo (Type *type, Module *mod)
 				      ptr_type_node, ptr_type_node,
 				      d_uint_type, ptr_type_node,
 				      ptr_type_node, d_uint_type,
-				      ptr_type_node, argtype, argtype, NULL);
+				      ptr_type_node, NULL);
 	    }
 	  t->vtinfo = TypeInfoStructDeclaration::create (t);
 	  break;

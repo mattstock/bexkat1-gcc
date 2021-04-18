@@ -859,8 +859,11 @@ process_function_and_variable_attributes (cgraph_node *first,
       if (node->alias
 	  && lookup_attribute ("flatten", DECL_ATTRIBUTES (decl)))
 	{
-	  warning_at (DECL_SOURCE_LOCATION (node->decl), OPT_Wattributes,
-		      "%<flatten%> attribute is ignored on aliases");
+	  tree tdecl = node->get_alias_target_tree ();
+	  if (!tdecl || !DECL_P (tdecl)
+	      || !lookup_attribute ("flatten", DECL_ATTRIBUTES (tdecl)))
+	    warning_at (DECL_SOURCE_LOCATION (decl), OPT_Wattributes,
+			"%<flatten%> attribute is ignored on aliases");
 	}
       if (DECL_PRESERVE_P (decl))
 	node->mark_force_output ();
@@ -1889,10 +1892,6 @@ cgraph_node::expand (void)
      comdat groups.  */
   assemble_thunks_and_aliases ();
   release_body ();
-  /* Eliminate all call edges.  This is important so the GIMPLE_CALL no longer
-     points to the dead function body.  */
-  remove_callees ();
-  remove_all_references ();
 }
 
 /* Node comparator that is responsible for the order that corresponds

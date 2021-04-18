@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (C) 1999-2020 by The D Language Foundation, All Rights Reserved
+ * Copyright (C) 1999-2021 by The D Language Foundation, All Rights Reserved
  * written by Walter Bright
  * http://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -34,8 +34,6 @@ Dsymbols Module::deferred2; // deferred Dsymbol's needing semantic2() run on the
 Dsymbols Module::deferred3; // deferred Dsymbol's needing semantic3() run on them
 unsigned Module::dprogress;
 
-StringExp *semanticString(Scope *sc, Expression *exp, const char *s);
-
 void Module::_init()
 {
     modules = new DsymbolTable();
@@ -54,6 +52,7 @@ Module::Module(const char *filename, Identifier *ident, int doDocComment, int do
     members = NULL;
     isDocFile = 0;
     isPackageFile = false;
+    pkg = NULL;
     needmoduleinfo = 0;
     selfimports = 0;
     rootimports = 0;
@@ -197,7 +196,7 @@ static void checkModFileAlias(OutBuffer *buf, OutBuffer *dotmods,
         const char *m = (*ms)[j];
         const char *q = strchr(m, '=');
         assert(q);
-        if (dotmods->length() <= (size_t)(q - m) && memcmp(dotmods->peekChars(), m, q - m) == 0)
+        if (dotmods->length() == (size_t)(q - m) && memcmp(dotmods->peekChars(), m, q - m) == 0)
         {
             buf->reset();
             size_t qlen = strlen(q + 1);
@@ -687,15 +686,27 @@ Module *Module::parse()
          *
          * To avoid the conflict:
          * 1. If preceding package name insertion had occurred by Package::resolve,
-         *    later package.d loading will change Package::isPkgMod to PKGmodule and set Package::mod.
+         *    reuse the previous wrapping 'Package' if it exists
          * 2. Otherwise, 'package.d' wrapped by 'Package' is inserted to the internal tree in here.
+         *
+         * Then change Package::isPkgMod to PKGmodule and set Package::mod.
+         *
+         * Note that the 'wrapping Package' is the Package that contains package.d and other submodules,
+         * the one inserted to the symbol table.
          */
-        Package *p = new Package(ident);
+        Dsymbol *ps = dst->lookup(ident);
+        Package *p = ps ? ps->isPackage() : NULL;
+        if (p == NULL)
+        {
+            p = new Package(ident);
+            p->tag = this->tag; // reuse the same package tag
+            p->symtab = new DsymbolTable();
+        }
+        this->tag= p->tag; // reuse the 'older' package tag
+        this->pkg = p;
         p->parent = this->parent;
         p->isPkgMod = PKGmodule;
         p->mod = this;
-        p->tag = this->tag; // reuse the same package tag
-        p->symtab = new DsymbolTable();
         s = p;
     }
     if (!dst->insert(s))
@@ -722,15 +733,9 @@ Module *Module::parse()
         }
         else if (Package *pkg = prev->isPackage())
         {
-            if (pkg->isPkgMod == PKGunknown && isPackageFile)
-            {
-                /* If the previous inserted Package is not yet determined as package.d,
-                 * link it to the actual module.
-                 */
-                pkg->isPkgMod = PKGmodule;
-                pkg->mod = this;
-                pkg->tag = this->tag; // reuse the same package tag
-            }
+            // 'package.d' loaded after a previous 'Package' insertion
+            if (isPackageFile)
+                amodules.push(this); // Add to global array of all modules
             else
                 error(md ? md->loc : loc, "from file %s conflicts with package name %s",
                     srcname, pkg->toChars());
@@ -813,113 +818,6 @@ void Module::importAll(Scope *)
 
     sc = sc->pop();
     sc->pop();          // 2 pops because Scope::createGlobal() created 2
-}
-
-void Module::semantic(Scope *)
-{
-    if (semanticRun != PASSinit)
-        return;
-
-    //printf("+Module::semantic(this = %p, '%s'): parent = %p\n", this, toChars(), parent);
-    semanticRun = PASSsemantic;
-
-    // Note that modules get their own scope, from scratch.
-    // This is so regardless of where in the syntax a module
-    // gets imported, it is unaffected by context.
-    Scope *sc = _scope;                  // see if already got one from importAll()
-    if (!sc)
-    {
-        Scope::createGlobal(this);      // create root scope
-    }
-
-    //printf("Module = %p, linkage = %d\n", sc->scopesym, sc->linkage);
-
-    // Pass 1 semantic routines: do public side of the definition
-    for (size_t i = 0; i < members->length; i++)
-    {
-        Dsymbol *s = (*members)[i];
-
-        //printf("\tModule('%s'): '%s'.semantic()\n", toChars(), s->toChars());
-        s->semantic(sc);
-        runDeferredSemantic();
-    }
-
-    if (userAttribDecl)
-    {
-        userAttribDecl->semantic(sc);
-    }
-
-    if (!_scope)
-    {
-        sc = sc->pop();
-        sc->pop();              // 2 pops because Scope::createGlobal() created 2
-    }
-    semanticRun = PASSsemanticdone;
-    //printf("-Module::semantic(this = %p, '%s'): parent = %p\n", this, toChars(), parent);
-}
-
-void Module::semantic2(Scope*)
-{
-    //printf("Module::semantic2('%s'): parent = %p\n", toChars(), parent);
-    if (semanticRun != PASSsemanticdone)       // semantic() not completed yet - could be recursive call
-        return;
-    semanticRun = PASSsemantic2;
-
-    // Note that modules get their own scope, from scratch.
-    // This is so regardless of where in the syntax a module
-    // gets imported, it is unaffected by context.
-    Scope *sc = Scope::createGlobal(this);      // create root scope
-    //printf("Module = %p\n", sc.scopesym);
-
-    // Pass 2 semantic routines: do initializers and function bodies
-    for (size_t i = 0; i < members->length; i++)
-    {
-        Dsymbol *s = (*members)[i];
-        s->semantic2(sc);
-    }
-
-    if (userAttribDecl)
-    {
-        userAttribDecl->semantic2(sc);
-    }
-
-    sc = sc->pop();
-    sc->pop();
-    semanticRun = PASSsemantic2done;
-    //printf("-Module::semantic2('%s'): parent = %p\n", toChars(), parent);
-}
-
-void Module::semantic3(Scope*)
-{
-    //printf("Module::semantic3('%s'): parent = %p\n", toChars(), parent);
-    if (semanticRun != PASSsemantic2done)
-        return;
-    semanticRun = PASSsemantic3;
-
-    // Note that modules get their own scope, from scratch.
-    // This is so regardless of where in the syntax a module
-    // gets imported, it is unaffected by context.
-    Scope *sc = Scope::createGlobal(this);      // create root scope
-    //printf("Module = %p\n", sc.scopesym);
-
-    // Pass 3 semantic routines: do initializers and function bodies
-    for (size_t i = 0; i < members->length; i++)
-    {
-        Dsymbol *s = (*members)[i];
-        //printf("Module %s: %s.semantic3()\n", toChars(), s->toChars());
-        s->semantic3(sc);
-
-        runDeferredSemantic2();
-    }
-
-    if (userAttribDecl)
-    {
-        userAttribDecl->semantic3(sc);
-    }
-
-    sc = sc->pop();
-    sc->pop();
-    semanticRun = PASSsemantic3done;
 }
 
 /**********************************
@@ -1074,7 +972,7 @@ void Module::runDeferredSemantic()
         {
             Dsymbol *s = todo[i];
 
-            s->semantic(NULL);
+            dsymbolSemantic(s, NULL);
             //printf("deferred: %s, parent = %s\n", s->toChars(), s->parent->toChars());
         }
         //printf("\tdeferred.length = %d, len = %d, dprogress = %d\n", deferred.length, len, dprogress);
@@ -1094,7 +992,7 @@ void Module::runDeferredSemantic2()
     {
         Dsymbol *s = (*a)[i];
         //printf("[%d] %s semantic2a\n", i, s->toPrettyChars());
-        s->semantic2(NULL);
+        semantic2(s, NULL);
 
         if (global.errors)
             break;
@@ -1112,7 +1010,7 @@ void Module::runDeferredSemantic3()
         Dsymbol *s = (*a)[i];
         //printf("[%d] %s semantic3a\n", i, s->toPrettyChars());
 
-        s->semantic3(NULL);
+        semantic3(s, NULL);
 
         if (global.errors)
             break;
@@ -1294,12 +1192,6 @@ bool Package::isAncestorPackageOf(const Package * const pkg) const
     if (!pkg || !pkg->parent)
         return false;
     return isAncestorPackageOf(pkg->parent->isPackage());
-}
-
-void Package::semantic(Scope *)
-{
-    if (semanticRun < PASSsemanticdone)
-        semanticRun = PASSsemanticdone;
 }
 
 /****************************************************

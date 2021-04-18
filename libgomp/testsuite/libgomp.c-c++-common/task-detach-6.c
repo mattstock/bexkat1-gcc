@@ -2,6 +2,9 @@
 
 #include <omp.h>
 #include <assert.h>
+#include <unistd.h> // For 'alarm'.
+
+#include "on_device_arch.h"
 
 /* Test tasks with detach clause on an offload device.  Each device
    thread spawns off a chain of tasks, that can then be executed by
@@ -9,15 +12,20 @@
 
 int main (void)
 {
+  //TODO See '../libgomp.c/pr99555-1.c'.
+  if (on_device_arch_nvptx ())
+    alarm (4); /*TODO Until resolved, make sure that we exit quickly, with error status.
+		 { dg-xfail-run-if "PR99555" { offload_device_nvptx } } */
+
   int x = 0, y = 0, z = 0;
   int thread_count;
   omp_event_handle_t detach_event1, detach_event2;
 
-  #pragma omp target map(tofrom: x, y, z) map(from: thread_count)
-    #pragma omp parallel firstprivate(detach_event1, detach_event2)
+  #pragma omp target map (tofrom: x, y, z) map (from: thread_count)
+    #pragma omp parallel private (detach_event1, detach_event2)
       {
 	#pragma omp single
-	  thread_count = omp_get_num_threads();
+	  thread_count = omp_get_num_threads ();
 
 	#pragma omp task detach(detach_event1) untied
 	  #pragma omp atomic update
@@ -36,8 +44,6 @@ int main (void)
 	    z++;
 	  omp_fulfill_event (detach_event2);
 	}
-
-	#pragma omp taskwait
       }
 
   assert (x == thread_count);

@@ -4764,15 +4764,15 @@ Unavailable time and date parameters return blanks.
 
 @var{VALUES} is @code{INTENT(OUT)} and provides the following:
 
-@multitable @columnfractions .15 .30 .40
-@item @tab @code{VALUE(1)}: @tab The year
-@item @tab @code{VALUE(2)}: @tab The month
-@item @tab @code{VALUE(3)}: @tab The day of the month
-@item @tab @code{VALUE(4)}: @tab Time difference with UTC in minutes
-@item @tab @code{VALUE(5)}: @tab The hour of the day
-@item @tab @code{VALUE(6)}: @tab The minutes of the hour
-@item @tab @code{VALUE(7)}: @tab The seconds of the minute
-@item @tab @code{VALUE(8)}: @tab The milliseconds of the second
+@multitable @columnfractions .15 .70
+@item @code{VALUE(1)}: @tab The year
+@item @code{VALUE(2)}: @tab The month
+@item @code{VALUE(3)}: @tab The day of the month
+@item @code{VALUE(4)}: @tab Time difference with UTC in minutes
+@item @code{VALUE(5)}: @tab The hour of the day
+@item @code{VALUE(6)}: @tab The minutes of the hour
+@item @code{VALUE(7)}: @tab The seconds of the minute
+@item @code{VALUE(8)}: @tab The milliseconds of the second
 @end multitable
 
 @item @emph{Standard}:
@@ -5278,10 +5278,10 @@ only one form can be used in any given program unit.
 
 @var{VALUES} and @var{TIME} are @code{INTENT(OUT)} and provide the following:
 
-@multitable @columnfractions .15 .30 .40
-@item @tab @code{VALUES(1)}: @tab User time in seconds.
-@item @tab @code{VALUES(2)}: @tab System time in seconds.
-@item @tab @code{TIME}: @tab Run time since start in seconds.
+@multitable @columnfractions .15 .70
+@item @code{VALUES(1)}: @tab User time in seconds.
+@item @code{VALUES(2)}: @tab System time in seconds.
+@item @code{TIME}: @tab Run time since start in seconds.
 @end multitable
 
 @item @emph{Standard}:
@@ -5587,10 +5587,10 @@ only one form can be used in any given program unit.
 
 @var{VALUES} and @var{TIME} are @code{INTENT(OUT)} and provide the following:
 
-@multitable @columnfractions .15 .30 .60
-@item @tab @code{VALUES(1)}: @tab User time in seconds.
-@item @tab @code{VALUES(2)}: @tab System time in seconds.
-@item @tab @code{TIME}: @tab Run time since start in seconds.
+@multitable @columnfractions .15 .70
+@item @code{VALUES(1)}: @tab User time in seconds.
+@item @code{VALUES(2)}: @tab System time in seconds.
+@item @code{TIME}: @tab Run time since start in seconds.
 @end multitable
 
 @item @emph{Standard}:
@@ -6188,6 +6188,8 @@ conformance with @var{ARRAY}.
 @item @var{DIM} @tab (Optional) Shall be a scalar of type
 @code{INTEGER}, with a value between one and the rank of @var{ARRAY},
 inclusive.  It may not be an optional dummy argument.
+@item @var{MASK} @tab (Optional) Shall be of type @code{LOGICAL},
+and conformable with @var{ARRAY}.
 @item @var{KIND} @tab (Optional) An @code{INTEGER} initialization
 expression indicating the kind parameter of the result.
 @item @var{BACK} @tab (Optional) A scalar of type @code{LOGICAL}.
@@ -10356,7 +10358,7 @@ Transformational function
 @item @var{DIM}   @tab (Optional) Shall be a scalar of type
 @code{INTEGER}, with a value between one and the rank of @var{ARRAY},
 inclusive.  It may not be an optional dummy argument.
-@item @var{MASK}  @tab Shall be an array of type @code{LOGICAL},
+@item @var{MASK}  @tab Shall be of type @code{LOGICAL},
 and conformable with @var{ARRAY}.
 @item @var{KIND} @tab (Optional) An @code{INTEGER} initialization
 expression indicating the kind parameter of the result.
@@ -10417,7 +10419,7 @@ Transformational function
 @item @var{DIM}   @tab (Optional) Shall be a scalar of type
 @code{INTEGER}, with a value between one and the rank of @var{ARRAY},
 inclusive.  It may not be an optional dummy argument.
-@item @var{MASK}  @tab (Optional) Shall be an array of type @code{LOGICAL},
+@item @var{MASK}  @tab (Optional) Shall be of type @code{LOGICAL},
 and conformable with @var{ARRAY}.
 @end multitable
 
@@ -10626,7 +10628,7 @@ permitted.)
 @end multitable
 
 @item @emph{Return value}:
-The return value corresponds to the maximum value among the arguments,
+The return value corresponds to the minimum value among the arguments,
 and has the same type and kind as the first argument.
 
 @item @emph{Specific names}:
@@ -10723,7 +10725,7 @@ Transformational function
 @item @var{DIM}   @tab (Optional) Shall be a scalar of type
 @code{INTEGER}, with a value between one and the rank of @var{ARRAY},
 inclusive.  It may not be an optional dummy argument.
-@item @var{MASK}  @tab Shall be an array of type @code{LOGICAL},
+@item @var{MASK}  @tab Shall be of type @code{LOGICAL},
 and conformable with @var{ARRAY}.
 @item @var{KIND} @tab (Optional) An @code{INTEGER} initialization
 expression indicating the kind parameter of the result.
@@ -10784,7 +10786,7 @@ Transformational function
 @item @var{DIM}   @tab (Optional) Shall be a scalar of type
 @code{INTEGER}, with a value between one and the rank of @var{ARRAY},
 inclusive.  It may not be an optional dummy argument.
-@item @var{MASK}  @tab Shall be an array of type @code{LOGICAL},
+@item @var{MASK}  @tab Shall be of type @code{LOGICAL},
 and conformable with @var{ARRAY}.
 @end multitable
 

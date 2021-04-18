@@ -142,7 +142,8 @@ enum wording
 {
   WORDING_FREED,
   WORDING_DELETED,
-  WORDING_DEALLOCATED
+  WORDING_DEALLOCATED,
+  WORDING_REALLOCATED
 };
 
 /* Base class representing a deallocation function,
@@ -387,6 +388,8 @@ public:
   standard_deallocator_set m_scalar_delete;
   standard_deallocator_set m_vector_delete;
 
+  standard_deallocator m_realloc;
+
   /* States that are independent of api.  */
 
   /* State for a pointer that's known to be NULL.  */
@@ -417,6 +420,9 @@ private:
 			    const gcall *call,
 			    const deallocator *d,
 			    unsigned argno) const;
+  void on_realloc_call (sm_context *sm_ctxt,
+			const supernode *node,
+			const gcall *call) const;
   void on_zero_assignment (sm_context *sm_ctxt,
 			   const gimple *stmt,
 			   tree lhs) const;
@@ -1151,6 +1157,7 @@ public:
 	switch (m_deallocator->m_wording)
 	  {
 	  default:
+	  case WORDING_REALLOCATED:
 	    gcc_unreachable ();
 	  case WORDING_FREED:
 	    return label_text::borrow ("freed here");
@@ -1170,6 +1177,7 @@ public:
       switch (m_deallocator->m_wording)
 	{
 	default:
+	case WORDING_REALLOCATED:
 	  gcc_unreachable ();
 	case WORDING_FREED:
 	  return ev.formatted_print ("use after %<%s%> of %qE; freed at %@",
@@ -1361,7 +1369,8 @@ malloc_state_machine::malloc_state_machine (logger *logger)
 : state_machine ("malloc", logger),
   m_free (this, "free", WORDING_FREED),
   m_scalar_delete (this, "delete", WORDING_DELETED),
-  m_vector_delete (this, "delete[]", WORDING_DELETED)
+  m_vector_delete (this, "delete[]", WORDING_DELETED),
+  m_realloc (this, "realloc", WORDING_REALLOCATED)
 {
   gcc_assert (m_start->get_id () == 0);
   m_null = add_state ("null", RS_FREED, NULL, NULL);
@@ -1553,6 +1562,13 @@ malloc_state_machine::on_stmt (sm_context *sm_ctxt,
 	    return true;
 	  }
 
+	if (is_named_call_p (callee_fndecl, "realloc", call, 2)
+	    || is_named_call_p (callee_fndecl, "__builtin_realloc", call, 2))
+	  {
+	    on_realloc_call (sm_ctxt, node, call);
+	    return true;
+	  }
+
 	/* Cast away const-ness for cache-like operations.  */
 	malloc_state_machine *mutable_this
 	  = const_cast <malloc_state_machine *> (this);
@@ -1584,11 +1600,11 @@ malloc_state_machine::on_stmt (sm_context *sm_ctxt,
 		  if (bitmap_empty_p (nonnull_args)
 		      || bitmap_bit_p (nonnull_args, i))
 		    {
-		      tree diag_arg = sm_ctxt->get_diagnostic_tree (arg);
 		      state_t state = sm_ctxt->get_state (stmt, arg);
 		      /* Can't use a switch as the states are non-const.  */
 		      if (unchecked_p (state))
 			{
+			  tree diag_arg = sm_ctxt->get_diagnostic_tree (arg);
 			  sm_ctxt->warn (node, stmt, arg,
 					 new possible_null_arg (*this, diag_arg,
 								callee_fndecl,
@@ -1600,6 +1616,7 @@ malloc_state_machine::on_stmt (sm_context *sm_ctxt,
 			}
 		      else if (state == m_null)
 			{
+			  tree diag_arg = sm_ctxt->get_diagnostic_tree (arg);
 			  sm_ctxt->warn (node, stmt, arg,
 					 new null_arg (*this, diag_arg,
 						       callee_fndecl, i));
@@ -1658,11 +1675,11 @@ malloc_state_machine::on_stmt (sm_context *sm_ctxt,
       if (TREE_CODE (op) == MEM_REF)
 	{
 	  tree arg = TREE_OPERAND (op, 0);
-	  tree diag_arg = sm_ctxt->get_diagnostic_tree (arg);
 
 	  state_t state = sm_ctxt->get_state (stmt, arg);
 	  if (unchecked_p (state))
 	    {
+	      tree diag_arg = sm_ctxt->get_diagnostic_tree (arg);
 	      sm_ctxt->warn (node, stmt, arg,
 			     new possible_null_deref (*this, diag_arg));
 	      const allocation_state *astate = as_a_allocation_state (state);
@@ -1670,12 +1687,14 @@ malloc_state_machine::on_stmt (sm_context *sm_ctxt,
 	    }
 	  else if (state == m_null)
 	    {
+	      tree diag_arg = sm_ctxt->get_diagnostic_tree (arg);
 	      sm_ctxt->warn (node, stmt, arg,
 			     new null_deref (*this, diag_arg));
 	      sm_ctxt->set_next_state (stmt, arg, m_stop);
 	    }
 	  else if (freed_p (state))
 	    {
+	      tree diag_arg = sm_ctxt->get_diagnostic_tree (arg);
 	      const allocation_state *astate = as_a_allocation_state (state);
 	      sm_ctxt->warn (node, stmt, arg,
 			     new use_after_free (*this, diag_arg,
@@ -1722,7 +1741,6 @@ malloc_state_machine::on_deallocator_call (sm_context *sm_ctxt,
   if (argno >= gimple_call_num_args (call))
     return;
   tree arg = gimple_call_arg (call, argno);
-  tree diag_arg = sm_ctxt->get_diagnostic_tree (arg);
 
   state_t state = sm_ctxt->get_state (call, arg);
 
@@ -1736,6 +1754,7 @@ malloc_state_machine::on_deallocator_call (sm_context *sm_ctxt,
       if (!astate->m_deallocators->contains_p (d))
 	{
 	  /* Wrong allocator.  */
+	  tree diag_arg = sm_ctxt->get_diagnostic_tree (arg);
 	  pending_diagnostic *pd
 	    = new mismatching_deallocation (*this, diag_arg,
 					    astate->m_deallocators,
@@ -1750,6 +1769,7 @@ malloc_state_machine::on_deallocator_call (sm_context *sm_ctxt,
   else if (state == d->m_freed)
     {
       /* freed -> stop, with warning.  */
+      tree diag_arg = sm_ctxt->get_diagnostic_tree (arg);
       sm_ctxt->warn (node, call, arg,
 		     new double_free (*this, diag_arg, d->m_name));
       sm_ctxt->set_next_state (call, arg, m_stop);
@@ -1757,11 +1777,62 @@ malloc_state_machine::on_deallocator_call (sm_context *sm_ctxt,
   else if (state == m_non_heap)
     {
       /* non-heap -> stop, with warning.  */
+      tree diag_arg = sm_ctxt->get_diagnostic_tree (arg);
       sm_ctxt->warn (node, call, arg,
 		     new free_of_non_heap (*this, diag_arg,
 					   d->m_name));
       sm_ctxt->set_next_state (call, arg, m_stop);
     }
+}
+
+/* Implementation of realloc(3):
+
+     void *realloc(void *ptr, size_t size);
+
+   realloc(3) is awkward.
+
+   We currently don't have a way to express multiple possible outcomes
+   from a function call, "bifurcating" the state such as:
+   - success: non-NULL is returned
+   - failure: NULL is returned, existing buffer is not freed.
+   or even an N-way state split e.g.:
+   - buffer grew successfully in-place
+   - buffer was successfully moved to a larger allocation
+   - buffer was successfully contracted
+   - realloc failed, returning NULL, without freeing existing buffer.
+   (PR analyzer/99260 tracks this)
+
+   Given that we can currently only express one outcome, eliminate
+   false positives by dropping state from the buffer.  */
+
+void
+malloc_state_machine::on_realloc_call (sm_context *sm_ctxt,
+				       const supernode *node ATTRIBUTE_UNUSED,
+				       const gcall *call) const
+{
+  tree ptr = gimple_call_arg (call, 0);
+
+  state_t state = sm_ctxt->get_state (call, ptr);
+
+  /* Detect mismatches.  */
+  if (unchecked_p (state) || nonnull_p (state))
+    {
+      const allocation_state *astate = as_a_allocation_state (state);
+      gcc_assert (astate->m_deallocators);
+      if (astate->m_deallocators != &m_free)
+	{
+	  /* Wrong allocator.  */
+	  tree diag_ptr = sm_ctxt->get_diagnostic_tree (ptr);
+	  pending_diagnostic *pd
+	    = new mismatching_deallocation (*this, diag_ptr,
+					    astate->m_deallocators,
+					    &m_realloc);
+	  sm_ctxt->warn (node, call, ptr, pd);
+	}
+    }
+
+  /* Transition ptr to "stop" state.  */
+  sm_ctxt->set_next_state (call, ptr, m_stop);
 }
 
 /* Implementation of state_machine::on_phi vfunc for malloc_state_machine.  */

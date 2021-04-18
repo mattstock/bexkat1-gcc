@@ -789,9 +789,22 @@ cgraph_edge::set_call_stmt (cgraph_edge *e, gcall *new_stmt,
 {
   tree decl;
 
+  cgraph_node *new_direct_callee = NULL;
+  if ((e->indirect_unknown_callee || e->speculative)
+      && (decl = gimple_call_fndecl (new_stmt)))
+    {
+      /* Constant propagation and especially inlining can turn an indirect call
+	 into a direct one.  */
+      new_direct_callee = cgraph_node::get (decl);
+      gcc_checking_assert (new_direct_callee);
+    }
+
   /* Speculative edges has three component, update all of them
      when asked to.  */
-  if (update_speculative && e->speculative)
+  if (update_speculative && e->speculative
+      /* If we are about to resolve the speculation by calling make_direct
+	 below, do not bother going over all the speculative edges now.  */
+      && !new_direct_callee)
     {
       cgraph_edge *direct, *indirect, *next;
       ipa_ref *ref;
@@ -821,6 +834,9 @@ cgraph_edge::set_call_stmt (cgraph_edge *e, gcall *new_stmt,
       return e_indirect ? indirect : direct;
     }
 
+  if (new_direct_callee)
+    e = make_direct (e, new_direct_callee);
+
   /* Only direct speculative edges go to call_site_hash.  */
   if (e->caller->call_site_hash
       && (!e->speculative || !e->indirect_unknown_callee)
@@ -831,16 +847,6 @@ cgraph_edge::set_call_stmt (cgraph_edge *e, gcall *new_stmt,
       (e->call_stmt, cgraph_edge_hasher::hash (e->call_stmt));
 
   e->call_stmt = new_stmt;
-  if (e->indirect_unknown_callee
-      && (decl = gimple_call_fndecl (new_stmt)))
-    {
-      /* Constant propagation (and possibly also inlining?) can turn an
-	 indirect call into a direct one.  */
-      cgraph_node *new_callee = cgraph_node::get (decl);
-
-      gcc_checking_assert (new_callee);
-      e = make_direct (e, new_callee);
-    }
 
   function *fun = DECL_STRUCT_FUNCTION (e->caller->decl);
   e->can_throw_external = stmt_can_throw_external (fun, new_stmt);
@@ -1279,14 +1285,15 @@ cgraph_edge::speculative_call_for_target (cgraph_node *target)
   return NULL;
 }
 
-/* Make an indirect edge with an unknown callee an ordinary edge leading to
-   CALLEE.  Speculations can be resolved in the process and EDGE can be removed
-   and deallocated.  Return the edge that now represents the call.  */
+/* Make an indirect or speculative EDGE with an unknown callee an ordinary edge
+   leading to CALLEE.  Speculations can be resolved in the process and EDGE can
+   be removed and deallocated.  Return the edge that now represents the
+   call.  */
 
 cgraph_edge *
 cgraph_edge::make_direct (cgraph_edge *edge, cgraph_node *callee)
 {
-  gcc_assert (edge->indirect_unknown_callee);
+  gcc_assert (edge->indirect_unknown_callee || edge->speculative);
 
   /* If we are redirecting speculative call, make it non-speculative.  */
   if (edge->speculative)
@@ -1853,6 +1860,17 @@ cgraph_node::release_body (bool keep_arguments)
       lto_free_function_in_decl_state_for_node (this);
       lto_file_data = NULL;
     }
+  if (flag_checking && clones)
+    {
+      /* It is invalid to release body before materializing clones except
+	 for thunks that don't really need a body.  Verify also that we do
+	 not leak pointers to the call statements.  */
+      for (cgraph_node *node = clones; node;
+	   node = node->next_sibling_clone)
+	gcc_assert (node->thunk && !node->callees->call_stmt);
+    }
+  remove_callees ();
+  remove_all_references ();
 }
 
 /* Remove function from symbol table.  */

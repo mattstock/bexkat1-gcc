@@ -748,9 +748,10 @@ init_asm_output (const char *name)
 	  print_version (asm_out_file, ASM_COMMENT_START, true);
 	  fputs (ASM_COMMENT_START, asm_out_file);
 	  fputs (" options passed: ", asm_out_file);
-	  fputs (gen_command_line_string (save_decoded_options,
-					  save_decoded_options_count),
-		 asm_out_file);
+	  char *cmdline = gen_command_line_string (save_decoded_options,
+						   save_decoded_options_count);
+	  fputs (cmdline, asm_out_file);
+	  free (cmdline);
 	  fputc ('\n', asm_out_file);
 	}
     }
@@ -1384,8 +1385,11 @@ process_options (void)
       if (!quiet_flag)
 	{
 	  fputs ("options passed: ", stderr);
-	  fputs (gen_command_line_string (save_decoded_options,
-					  save_decoded_options_count), stderr);
+	  char *cmdline = gen_command_line_string (save_decoded_options,
+						   save_decoded_options_count);
+
+	  fputs (cmdline, stderr);
+	  free (cmdline);
 	  fputc ('\n', stderr);
 	}
     }
@@ -1725,10 +1729,14 @@ process_options (void)
       flag_sanitize &= ~SANITIZE_HWADDRESS;
     }
 
+  HOST_WIDE_INT patch_area_size, patch_area_start;
+  parse_and_check_patch_area (flag_patchable_function_entry, false,
+			      &patch_area_size, &patch_area_start);
+
  /* Do not use IPA optimizations for register allocation if profiler is active
     or patchable function entries are inserted for run-time instrumentation
     or port does not emit prologue and epilogue as RTL.  */
-  if (profile_flag || function_entry_patch_area_size
+  if (profile_flag || patch_area_size
       || !targetm.have_prologue () || !targetm.have_epilogue ())
     flag_ipa_ra = 0;
 

@@ -342,9 +342,6 @@ d_init_options_struct (gcc_options *opts)
   /* GCC options.  */
   opts->x_flag_exceptions = 1;
 
-  /* Avoid range issues for complex multiply and divide.  */
-  opts->x_flag_complex_method = 2;
-
   /* Unlike C, there is no global `errno' variable.  */
   opts->x_flag_errno_math = 0;
   opts->frontend_set_flag_errno_math = true;
@@ -389,7 +386,7 @@ d_init (void)
     using_eh_for_cleanups ();
 
   if (!supports_one_only ())
-    flag_weak = 0;
+    flag_weak_templates = 0;
 
   /* This is the C main, not the D main.  */
   main_identifier_node = get_identifier ("main");
@@ -1051,7 +1048,7 @@ d_parse_file (void)
       if (global.params.verbose)
 	message ("semantic  %s", m->toChars ());
 
-      m->semantic (NULL);
+      dsymbolSemantic (m, NULL);
     }
 
   /* Do deferred semantic analysis.  */
@@ -1083,7 +1080,7 @@ d_parse_file (void)
       if (global.params.verbose)
 	message ("semantic2 %s", m->toChars ());
 
-      m->semantic2 (NULL);
+      semantic2 (m, NULL);
     }
 
   Module::runDeferredSemantic2 ();
@@ -1099,7 +1096,7 @@ d_parse_file (void)
       if (global.params.verbose)
 	message ("semantic3 %s", m->toChars ());
 
-      m->semantic3 (NULL);
+      semantic3 (m, NULL);
     }
 
   Module::runDeferredSemantic3 ();
@@ -1722,6 +1719,16 @@ d_build_eh_runtime_type (tree type)
   return convert (ptr_type_node, build_address (decl));
 }
 
+/* Implements the lang_hooks.enum_underlying_base_type routine for language D.
+   Returns the underlying type of the given enumeration TYPE.  */
+
+static tree
+d_enum_underlying_base_type (const_tree type)
+{
+  gcc_assert (TREE_CODE (type) == ENUMERAL_TYPE);
+  return TREE_TYPE (type);
+}
+
 /* Definitions for our language-specific hooks.  */
 
 #undef LANG_HOOKS_NAME
@@ -1747,6 +1754,7 @@ d_build_eh_runtime_type (tree type)
 #undef LANG_HOOKS_DUP_LANG_SPECIFIC_DECL
 #undef LANG_HOOKS_EH_PERSONALITY
 #undef LANG_HOOKS_EH_RUNTIME_TYPE
+#undef LANG_HOOKS_ENUM_UNDERLYING_BASE_TYPE
 #undef LANG_HOOKS_PUSHDECL
 #undef LANG_HOOKS_GETDECLS
 #undef LANG_HOOKS_GLOBAL_BINDINGS_P
@@ -1777,6 +1785,7 @@ d_build_eh_runtime_type (tree type)
 #define LANG_HOOKS_DUP_LANG_SPECIFIC_DECL   d_dup_lang_specific_decl
 #define LANG_HOOKS_EH_PERSONALITY	    d_eh_personality
 #define LANG_HOOKS_EH_RUNTIME_TYPE	    d_build_eh_runtime_type
+#define LANG_HOOKS_ENUM_UNDERLYING_BASE_TYPE d_enum_underlying_base_type
 #define LANG_HOOKS_PUSHDECL		    d_pushdecl
 #define LANG_HOOKS_GETDECLS		    d_getdecls
 #define LANG_HOOKS_GLOBAL_BINDINGS_P	    d_global_bindings_p
