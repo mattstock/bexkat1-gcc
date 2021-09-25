@@ -832,10 +832,22 @@ write_encoding (const tree decl)
       write_bare_function_type (fn_type,
 				mangle_return_type_p (decl),
 				d);
+
+      /* If this is a coroutine helper, then append an appropriate string to
+	 identify which.  */
+      if (tree ramp = DECL_RAMP_FN (decl))
+	{
+	  if (DECL_ACTOR_FN (ramp) == decl)
+	    write_string (JOIN_STR "actor");
+	  else if (DECL_DESTROY_FN (ramp) == decl)
+	    write_string (JOIN_STR "destroy");
+	  else
+	    gcc_unreachable ();
+	}
     }
 }
 
-/* Interface to substitution and identifer mangling, used by the
+/* Interface to substitution and identifier mangling, used by the
    module name mangler.  */
 
 void
@@ -1308,10 +1320,10 @@ find_decomp_unqualified_name (tree decl, size_t *len)
   const char *p = IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl));
   const char *end = p + IDENTIFIER_LENGTH (DECL_ASSEMBLER_NAME (decl));
   bool nested = false;
-  if (strncmp (p, "_Z", 2))
+  if (!startswith (p, "_Z"))
     return NULL;
   p += 2;
-  if (!strncmp (p, "St", 2))
+  if (startswith (p, "St"))
     p += 2;
   else if (*p == 'N')
     {
@@ -1327,7 +1339,7 @@ find_decomp_unqualified_name (tree decl, size_t *len)
 	    break;
 	}
     }
-  if (strncmp (p, "DC", 2))
+  if (!startswith (p, "DC"))
     return NULL;
   if (nested)
     {
@@ -1423,9 +1435,12 @@ write_unqualified_name (tree decl)
 	}
       else if (DECL_OVERLOADED_OPERATOR_P (decl))
 	{
+	  tree t;
+	  if (!(t = DECL_RAMP_FN (decl)))
+	    t = decl;
 	  const char *mangled_name
-	    = (ovl_op_info[DECL_ASSIGNMENT_OPERATOR_P (decl)]
-	       [DECL_OVERLOADED_OPERATOR_CODE_RAW (decl)].mangled_name);
+	    = (ovl_op_info[DECL_ASSIGNMENT_OPERATOR_P (t)]
+	       [DECL_OVERLOADED_OPERATOR_CODE_RAW (t)].mangled_name);
 	  write_string (mangled_name);
 	}
       else if (UDLIT_OPER_P (DECL_NAME (decl)))
@@ -4430,7 +4445,7 @@ static void
 write_guarded_var_name (const tree variable)
 {
   if (DECL_NAME (variable)
-      && strncmp (IDENTIFIER_POINTER (DECL_NAME (variable)), "_ZGR", 4) == 0)
+      && startswith (IDENTIFIER_POINTER (DECL_NAME (variable)), "_ZGR"))
     /* The name of a guard variable for a reference temporary should refer
        to the reference, not the temporary.  */
     write_string (IDENTIFIER_POINTER (DECL_NAME (variable)) + 4);
@@ -4488,8 +4503,7 @@ decl_tls_wrapper_p (const tree fn)
   if (TREE_CODE (fn) != FUNCTION_DECL)
     return false;
   tree name = DECL_NAME (fn);
-  return strncmp (IDENTIFIER_POINTER (name), TLS_WRAPPER_PREFIX,
-		  strlen (TLS_WRAPPER_PREFIX)) == 0;
+  return startswith (IDENTIFIER_POINTER (name), TLS_WRAPPER_PREFIX);
 }
 
 /* Return an identifier for the name of a temporary variable used to

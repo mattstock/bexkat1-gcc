@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2015-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 2015-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,35 +23,39 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Aspects;  use Aspects;
-with Atree;    use Atree;
-with Einfo;    use Einfo;
-with Elists;   use Elists;
-with Errout;   use Errout;
-with Exp_Prag; use Exp_Prag;
-with Exp_Tss;  use Exp_Tss;
-with Exp_Util; use Exp_Util;
-with Freeze;   use Freeze;
-with Lib;      use Lib;
-with Namet;    use Namet;
-with Nlists;   use Nlists;
-with Nmake;    use Nmake;
-with Opt;      use Opt;
-with Sem;      use Sem;
-with Sem_Aux;  use Sem_Aux;
-with Sem_Ch6;  use Sem_Ch6;
-with Sem_Ch8;  use Sem_Ch8;
-with Sem_Ch12; use Sem_Ch12;
-with Sem_Ch13; use Sem_Ch13;
-with Sem_Disp; use Sem_Disp;
-with Sem_Prag; use Sem_Prag;
-with Sem_Util; use Sem_Util;
-with Sinfo;    use Sinfo;
-with Sinput;   use Sinput;
-with Snames;   use Snames;
-with Stand;    use Stand;
-with Stringt;  use Stringt;
-with Tbuild;   use Tbuild;
+with Aspects;        use Aspects;
+with Atree;          use Atree;
+with Einfo;          use Einfo;
+with Einfo.Entities; use Einfo.Entities;
+with Einfo.Utils;    use Einfo.Utils;
+with Elists;         use Elists;
+with Errout;         use Errout;
+with Exp_Prag;       use Exp_Prag;
+with Exp_Tss;        use Exp_Tss;
+with Exp_Util;       use Exp_Util;
+with Freeze;         use Freeze;
+with Lib;            use Lib;
+with Namet;          use Namet;
+with Nlists;         use Nlists;
+with Nmake;          use Nmake;
+with Opt;            use Opt;
+with Sem;            use Sem;
+with Sem_Aux;        use Sem_Aux;
+with Sem_Ch6;        use Sem_Ch6;
+with Sem_Ch8;        use Sem_Ch8;
+with Sem_Ch12;       use Sem_Ch12;
+with Sem_Ch13;       use Sem_Ch13;
+with Sem_Disp;       use Sem_Disp;
+with Sem_Prag;       use Sem_Prag;
+with Sem_Util;       use Sem_Util;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinfo.Utils;    use Sinfo.Utils;
+with Sinput;         use Sinput;
+with Snames;         use Snames;
+with Stand;          use Stand;
+with Stringt;        use Stringt;
+with Tbuild;         use Tbuild;
 
 package body Contracts is
 
@@ -140,7 +144,13 @@ package body Contracts is
       --    Part_Of
 
       if Ekind (Id) = E_Constant then
-         if Prag_Nam = Name_Part_Of then
+         if Prag_Nam in Name_Async_Readers
+                      | Name_Async_Writers
+                      | Name_Effective_Reads
+                      | Name_Effective_Writes
+                      | Name_No_Caching
+                      | Name_Part_Of
+         then
             Add_Classification;
 
          --  The pragma is not a proper contract item
@@ -774,25 +784,9 @@ package body Contracts is
    procedure Check_Type_Or_Object_External_Properties
      (Type_Or_Obj_Id : Entity_Id)
    is
-      function Decl_Kind (Is_Type     : Boolean;
-                          Object_Kind : String) return String;
-      --  Returns "type" or Object_Kind, depending on Is_Type
-
-      ---------------
-      -- Decl_Kind --
-      ---------------
-
-      function Decl_Kind (Is_Type     : Boolean;
-                          Object_Kind : String) return String is
-      begin
-         if Is_Type then
-            return "type";
-         else
-            return Object_Kind;
-         end if;
-      end Decl_Kind;
-
       Is_Type_Id : constant Boolean := Is_Type (Type_Or_Obj_Id);
+      Decl_Kind  : constant String :=
+        (if Is_Type_Id then "type" else "object");
 
       --  Local variables
 
@@ -919,8 +913,7 @@ package body Contracts is
             if not Is_Library_Level_Entity (Type_Or_Obj_Id) then
                Error_Msg_N
                  ("effectively volatile "
-                    & Decl_Kind (Is_Type     => Is_Type_Id,
-                                 Object_Kind => "variable")
+                    & Decl_Kind
                     & " & must be declared at library level "
                     & "(SPARK RM 7.1.3(3))", Type_Or_Obj_Id);
 
@@ -931,10 +924,7 @@ package body Contracts is
               and then not Is_Protected_Type (Obj_Typ)
             then
                Error_Msg_N
-                ("discriminated "
-                   & Decl_Kind (Is_Type     => Is_Type_Id,
-                                Object_Kind => "object")
-                   & " & cannot be volatile",
+                ("discriminated " & Decl_Kind & " & cannot be volatile",
                  Type_Or_Obj_Id);
             end if;
 
@@ -1015,7 +1005,7 @@ package body Contracts is
       Saved_SMP : constant Node_Id         := SPARK_Mode_Pragma;
       --  Save the SPARK_Mode-related data to restore on exit
 
-      NC_Val   : Boolean := False;
+      NC_Val   : Boolean;
       Items    : Node_Id;
       Prag     : Node_Id;
       Ref_Elmt : Elmt_Id;
@@ -1052,6 +1042,19 @@ package body Contracts is
          Set_SPARK_Mode (Obj_Id);
       end if;
 
+      --  Checks related to external properties, same for constants and
+      --  variables.
+
+      Check_Type_Or_Object_External_Properties (Type_Or_Obj_Id => Obj_Id);
+
+      --  Analyze the non-external volatility property No_Caching
+
+      Prag := Get_Pragma (Obj_Id, Pragma_No_Caching);
+
+      if Present (Prag) then
+         Analyze_External_Property_In_Decl_Part (Prag, NC_Val);
+      end if;
+
       --  Constant-related checks
 
       if Ekind (Obj_Id) = E_Constant then
@@ -1067,34 +1070,9 @@ package body Contracts is
             Check_Missing_Part_Of (Obj_Id);
          end if;
 
-         --  A constant cannot be effectively volatile (SPARK RM 7.1.3(4)).
-         --  This check is relevant only when SPARK_Mode is on, as it is not
-         --  a standard Ada legality rule. Internally-generated constants that
-         --  map generic formals to actuals in instantiations are allowed to
-         --  be volatile.
-
-         if SPARK_Mode = On
-           and then Comes_From_Source (Obj_Id)
-           and then Is_Effectively_Volatile (Obj_Id)
-           and then No (Corresponding_Generic_Association (Parent (Obj_Id)))
-         then
-            Error_Msg_N ("constant cannot be volatile", Obj_Id);
-         end if;
-
       --  Variable-related checks
 
       else pragma Assert (Ekind (Obj_Id) = E_Variable);
-
-         Check_Type_Or_Object_External_Properties
-           (Type_Or_Obj_Id => Obj_Id);
-
-         --  Analyze the non-external volatility property No_Caching
-
-         Prag := Get_Pragma (Obj_Id, Pragma_No_Caching);
-
-         if Present (Prag) then
-            Analyze_External_Property_In_Decl_Part (Prag, NC_Val);
-         end if;
 
          --  The anonymous object created for a single task type carries
          --  pragmas Depends and Global of the type.
@@ -1576,7 +1554,7 @@ package body Contracts is
       --  in its visible declarations.
 
       if Nkind (Templ) = N_Generic_Package_Declaration then
-         Set_Ekind (Templ_Id, E_Generic_Package);
+         Mutate_Ekind (Templ_Id, E_Generic_Package);
 
          if Present (Visible_Declarations (Specification (Templ))) then
             Decl := First (Visible_Declarations (Specification (Templ)));
@@ -1586,7 +1564,7 @@ package body Contracts is
       --  declarations.
 
       elsif Nkind (Templ) = N_Package_Body then
-         Set_Ekind (Templ_Id, E_Package_Body);
+         Mutate_Ekind (Templ_Id, E_Package_Body);
 
          if Present (Declarations (Templ)) then
             Decl := First (Declarations (Templ));
@@ -1596,9 +1574,9 @@ package body Contracts is
 
       elsif Nkind (Templ) = N_Generic_Subprogram_Declaration then
          if Nkind (Specification (Templ)) = N_Function_Specification then
-            Set_Ekind (Templ_Id, E_Generic_Function);
+            Mutate_Ekind (Templ_Id, E_Generic_Function);
          else
-            Set_Ekind (Templ_Id, E_Generic_Procedure);
+            Mutate_Ekind (Templ_Id, E_Generic_Procedure);
          end if;
 
          --  When the generic subprogram acts as a compilation unit, inspect
@@ -1622,7 +1600,7 @@ package body Contracts is
       --  its declarations.
 
       elsif Nkind (Templ) = N_Subprogram_Body then
-         Set_Ekind (Templ_Id, E_Subprogram_Body);
+         Mutate_Ekind (Templ_Id, E_Subprogram_Body);
 
          if Present (Declarations (Templ)) then
             Decl := First (Declarations (Templ));
@@ -2367,6 +2345,10 @@ package body Contracts is
          --  postconditions until finalization has been performed when cleanup
          --  actions are present.
 
+         --  NOTE: This flag could be made into a predicate since we should be
+         --  able at compile time to recognize when finalization and cleanup
+         --  actions occur, but in practice this is not possible ???
+
          --  Generate:
          --
          --    Postcond_Enabled : Boolean := True;
@@ -2405,16 +2387,16 @@ package body Contracts is
          --  the postconditions: this would cause confusing debug info to be
          --  produced, interfering with coverage-analysis tools.
 
-         --  Also, wrap the postcondition checks in a conditional which can be
-         --  used to delay their evaluation when clean-up actions are present.
+         --  NOTE: Coverage-analysis and static-analysis tools rely on the
+         --  postconditions procedure being free of internally generated code
+         --  since some of these tools, like CodePeer, treat _postconditions
+         --  as original source.
 
          --  Generate:
          --
          --    procedure _postconditions is
          --    begin
-         --       if Postcond_Enabled and then Return_Success_For_Postcond then
-         --          [Stmts];
-         --       end if;
+         --       [Stmts];
          --    end;
 
          Proc_Bod :=
@@ -2425,19 +2407,7 @@ package body Contracts is
              Handled_Statement_Sequence =>
                Make_Handled_Sequence_Of_Statements (Loc,
                  End_Label  => Make_Identifier (Loc, Chars (Proc_Id)),
-                 Statements => New_List (
-                   Make_If_Statement (Loc,
-                     Condition      =>
-                       Make_And_Then (Loc,
-                         Left_Opnd  =>
-                           New_Occurrence_Of
-                             (Defining_Identifier
-                               (Postcond_Enabled_Decl), Loc),
-                         Right_Opnd =>
-                           New_Occurrence_Of
-                             (Defining_Identifier
-                               (Return_Success_Decl), Loc)),
-                      Then_Statements => Stmts))));
+                 Statements => Stmts));
          Insert_After_And_Analyze (Last_Decl, Proc_Bod);
 
       end Build_Postconditions_Procedure;
@@ -2614,7 +2584,21 @@ package body Contracts is
 
             for Index in Subps'Range loop
                Subp_Id := Subps (Index);
-               Items   := Contract (Subp_Id);
+
+               if Present (Alias (Subp_Id)) then
+                  Subp_Id := Ultimate_Alias (Subp_Id);
+               end if;
+
+               --  Wrappers of class-wide pre/post conditions reference the
+               --  parent primitive that has the inherited contract.
+
+               if Is_Wrapper (Subp_Id)
+                 and then Present (LSP_Subprogram (Subp_Id))
+               then
+                  Subp_Id := LSP_Subprogram (Subp_Id);
+               end if;
+
+               Items := Contract (Subp_Id);
 
                if Present (Items) then
                   Prag := Pre_Post_Conditions (Items);
@@ -2896,7 +2880,21 @@ package body Contracts is
 
             for Index in Subps'Range loop
                Subp_Id := Subps (Index);
-               Items   := Contract (Subp_Id);
+
+               if Present (Alias (Subp_Id)) then
+                  Subp_Id := Ultimate_Alias (Subp_Id);
+               end if;
+
+               --  Wrappers of class-wide pre/post conditions reference the
+               --  parent primitive that has the inherited contract.
+
+               if Is_Wrapper (Subp_Id)
+                 and then Present (LSP_Subprogram (Subp_Id))
+               then
+                  Subp_Id := LSP_Subprogram (Subp_Id);
+               end if;
+
+               Items := Contract (Subp_Id);
 
                if Present (Items) then
                   Prag := Pre_Post_Conditions (Items);
@@ -3442,7 +3440,7 @@ package body Contracts is
    -- Get_Postcond_Enabled --
    --------------------------
 
-   function Get_Postcond_Enabled (Subp : Entity_Id) return Node_Id is
+   function Get_Postcond_Enabled (Subp : Entity_Id) return Entity_Id is
       Decl : Node_Id;
    begin
       Decl :=
@@ -3467,7 +3465,7 @@ package body Contracts is
    ------------------------------------
 
    function Get_Result_Object_For_Postcond
-     (Subp : Entity_Id) return Node_Id
+     (Subp : Entity_Id) return Entity_Id
    is
       Decl : Node_Id;
    begin
@@ -3492,7 +3490,7 @@ package body Contracts is
    -- Get_Return_Success_For_Postcond --
    -------------------------------------
 
-   function Get_Return_Success_For_Postcond (Subp : Entity_Id) return Node_Id
+   function Get_Return_Success_For_Postcond (Subp : Entity_Id) return Entity_Id
    is
       Decl : Node_Id;
    begin

@@ -97,8 +97,9 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-eh.h"
 #include "ssa.h"
 #include "internal-fn.h"
-#include "range-op.h"
 #include "vr-values.h"
+#include "range-op.h"
+#include "tree-ssa-loop-ivopts.h"
 
 static struct datadep_stats
 {
@@ -170,10 +171,7 @@ ref_contains_union_access_p (tree ref)
 static void
 dump_data_references (FILE *file, vec<data_reference_p> datarefs)
 {
-  unsigned int i;
-  struct data_reference *dr;
-
-  FOR_EACH_VEC_ELT (datarefs, i, dr)
+  for (data_reference *dr : datarefs)
     dump_data_reference (file, dr);
 }
 
@@ -378,10 +376,7 @@ DEBUG_FUNCTION void
 print_dir_vectors (FILE *outf, vec<lambda_vector> dir_vects,
 		   int length)
 {
-  unsigned j;
-  lambda_vector v;
-
-  FOR_EACH_VEC_ELT (dir_vects, j, v)
+  for (lambda_vector v : dir_vects)
     print_direction_vector (outf, v, length);
 }
 
@@ -403,18 +398,14 @@ DEBUG_FUNCTION void
 print_dist_vectors (FILE *outf, vec<lambda_vector> dist_vects,
 		    int length)
 {
-  unsigned j;
-  lambda_vector v;
-
-  FOR_EACH_VEC_ELT (dist_vects, j, v)
+  for (lambda_vector v : dist_vects)
     print_lambda_vector (outf, v, length);
 }
 
 /* Dump function for a DATA_DEPENDENCE_RELATION structure.  */
 
 DEBUG_FUNCTION void
-dump_data_dependence_relation (FILE *outf,
-			       struct data_dependence_relation *ddr)
+dump_data_dependence_relation (FILE *outf, const data_dependence_relation *ddr)
 {
   struct data_reference *dra, *drb;
 
@@ -488,7 +479,7 @@ dump_data_dependence_relation (FILE *outf,
 /* Debug version.  */
 
 DEBUG_FUNCTION void
-debug_data_dependence_relation (struct data_dependence_relation *ddr)
+debug_data_dependence_relation (const struct data_dependence_relation *ddr)
 {
   dump_data_dependence_relation (stderr, ddr);
 }
@@ -496,13 +487,9 @@ debug_data_dependence_relation (struct data_dependence_relation *ddr)
 /* Dump into FILE all the dependence relations from DDRS.  */
 
 DEBUG_FUNCTION void
-dump_data_dependence_relations (FILE *file,
-				vec<ddr_p> ddrs)
+dump_data_dependence_relations (FILE *file, const vec<ddr_p> &ddrs)
 {
-  unsigned int i;
-  struct data_dependence_relation *ddr;
-
-  FOR_EACH_VEC_ELT (ddrs, i, ddr)
+  for (auto ddr : ddrs)
     dump_data_dependence_relation (file, ddr);
 }
 
@@ -538,21 +525,17 @@ debug_data_dependence_relations (vec<ddr_p> ddrs)
 DEBUG_FUNCTION void
 dump_dist_dir_vectors (FILE *file, vec<ddr_p> ddrs)
 {
-  unsigned int i, j;
-  struct data_dependence_relation *ddr;
-  lambda_vector v;
-
-  FOR_EACH_VEC_ELT (ddrs, i, ddr)
+  for (data_dependence_relation *ddr : ddrs)
     if (DDR_ARE_DEPENDENT (ddr) == NULL_TREE && DDR_AFFINE_P (ddr))
       {
-	FOR_EACH_VEC_ELT (DDR_DIST_VECTS (ddr), j, v)
+	for (lambda_vector v : DDR_DIST_VECTS (ddr))
 	  {
 	    fprintf (file, "DISTANCE_V (");
 	    print_lambda_vector (file, v, DDR_NB_LOOPS (ddr));
 	    fprintf (file, ")\n");
 	  }
 
-	FOR_EACH_VEC_ELT (DDR_DIR_VECTS (ddr), j, v)
+	for (lambda_vector v : DDR_DIR_VECTS (ddr))
 	  {
 	    fprintf (file, "DIRECTION_V (");
 	    print_direction_vector (file, v, DDR_NB_LOOPS (ddr));
@@ -568,10 +551,7 @@ dump_dist_dir_vectors (FILE *file, vec<ddr_p> ddrs)
 DEBUG_FUNCTION void
 dump_ddrs (FILE *file, vec<ddr_p> ddrs)
 {
-  unsigned int i;
-  struct data_dependence_relation *ddr;
-
-  FOR_EACH_VEC_ELT (ddrs, i, ddr)
+  for (data_dependence_relation *ddr : ddrs)
     dump_data_dependence_relation (file, ddr);
 
   fprintf (file, "\n\n");
@@ -1035,14 +1015,23 @@ split_constant_offset (tree exp, tree *var, tree *off, value_range *exp_range,
       *exp_range = type;
       if (code == SSA_NAME)
 	{
-	  wide_int var_min, var_max;
-	  value_range_kind vr_kind = get_range_info (exp, &var_min, &var_max);
+	  value_range vr;
+	  get_range_query (cfun)->range_of_expr (vr, exp);
+	  if (vr.undefined_p ())
+	    vr.set_varying (TREE_TYPE (exp));
+	  wide_int var_min = wi::to_wide (vr.min ());
+	  wide_int var_max = wi::to_wide (vr.max ());
+	  value_range_kind vr_kind = vr.kind ();
 	  wide_int var_nonzero = get_nonzero_bits (exp);
 	  vr_kind = intersect_range_with_nonzero_bits (vr_kind,
 						       &var_min, &var_max,
 						       var_nonzero,
 						       TYPE_SIGN (type));
-	  if (vr_kind == VR_RANGE)
+	  /* This check for VR_VARYING is here because the old code
+	     using get_range_info would return VR_RANGE for the entire
+	     domain, instead of VR_VARYING.  The new code normalizes
+	     full-domain ranges to VR_VARYING.  */
+	  if (vr_kind == VR_RANGE || vr_kind == VR_VARYING)
 	    *exp_range = value_range (type, var_min, var_max);
 	}
     }
@@ -1060,12 +1049,12 @@ split_constant_offset (tree exp, tree *var, tree *off, value_range *exp_range,
   if (INTEGRAL_TYPE_P (type))
     *var = fold_convert (sizetype, *var);
   *off = ssize_int (0);
-  if (exp_range && code != SSA_NAME)
-    {
-      wide_int var_min, var_max;
-      if (determine_value_range (exp, &var_min, &var_max) == VR_RANGE)
-	*exp_range = value_range (type, var_min, var_max);
-    }
+
+  value_range r;
+  if (exp_range && code != SSA_NAME
+      && get_range_query (cfun)->range_of_expr (r, exp)
+      && !r.undefined_p ())
+    *exp_range = r;
 }
 
 /* Expresses EXP as VAR + OFF, where OFF is a constant.  VAR has the same
@@ -1312,22 +1301,18 @@ base_supports_access_fn_components_p (tree base)
    DR, analyzed in LOOP and instantiated before NEST.  */
 
 static void
-dr_analyze_indices (struct data_reference *dr, edge nest, loop_p loop)
+dr_analyze_indices (struct indices *dri, tree ref, edge nest, loop_p loop)
 {
-  vec<tree> access_fns = vNULL;
-  tree ref, op;
-  tree base, off, access_fn;
-
   /* If analyzing a basic-block there are no indices to analyze
      and thus no access functions.  */
   if (!nest)
     {
-      DR_BASE_OBJECT (dr) = DR_REF (dr);
-      DR_ACCESS_FNS (dr).create (0);
+      dri->base_object = ref;
+      dri->access_fns.create (0);
       return;
     }
 
-  ref = DR_REF (dr);
+  vec<tree> access_fns = vNULL;
 
   /* REALPART_EXPR and IMAGPART_EXPR can be handled like accesses
      into a two element array with a constant index.  The base is
@@ -1350,8 +1335,8 @@ dr_analyze_indices (struct data_reference *dr, edge nest, loop_p loop)
     {
       if (TREE_CODE (ref) == ARRAY_REF)
 	{
-	  op = TREE_OPERAND (ref, 1);
-	  access_fn = analyze_scalar_evolution (loop, op);
+	  tree op = TREE_OPERAND (ref, 1);
+	  tree access_fn = analyze_scalar_evolution (loop, op);
 	  access_fn = instantiate_scev (nest, loop, access_fn);
 	  access_fns.safe_push (access_fn);
 	}
@@ -1382,16 +1367,16 @@ dr_analyze_indices (struct data_reference *dr, edge nest, loop_p loop)
      analyzed nest, add it as an additional independent access-function.  */
   if (TREE_CODE (ref) == MEM_REF)
     {
-      op = TREE_OPERAND (ref, 0);
-      access_fn = analyze_scalar_evolution (loop, op);
+      tree op = TREE_OPERAND (ref, 0);
+      tree access_fn = analyze_scalar_evolution (loop, op);
       access_fn = instantiate_scev (nest, loop, access_fn);
       if (TREE_CODE (access_fn) == POLYNOMIAL_CHREC)
 	{
-	  tree orig_type;
 	  tree memoff = TREE_OPERAND (ref, 1);
-	  base = initial_condition (access_fn);
-	  orig_type = TREE_TYPE (base);
+	  tree base = initial_condition (access_fn);
+	  tree orig_type = TREE_TYPE (base);
 	  STRIP_USELESS_TYPE_CONVERSION (base);
+	  tree off;
 	  split_constant_offset (base, &base, &off);
 	  STRIP_USELESS_TYPE_CONVERSION (base);
 	  /* Fold the MEM_REF offset into the evolutions initial
@@ -1436,7 +1421,7 @@ dr_analyze_indices (struct data_reference *dr, edge nest, loop_p loop)
 				 base, memoff);
 	  MR_DEPENDENCE_CLIQUE (ref) = MR_DEPENDENCE_CLIQUE (old);
 	  MR_DEPENDENCE_BASE (ref) = MR_DEPENDENCE_BASE (old);
-	  DR_UNCONSTRAINED_BASE (dr) = true;
+	  dri->unconstrained_base = true;
 	  access_fns.safe_push (access_fn);
 	}
     }
@@ -1448,8 +1433,8 @@ dr_analyze_indices (struct data_reference *dr, edge nest, loop_p loop)
 		    build_int_cst (reference_alias_ptr_type (ref), 0));
     }
 
-  DR_BASE_OBJECT (dr) = ref;
-  DR_ACCESS_FNS (dr) = access_fns;
+  dri->base_object = ref;
+  dri->access_fns = access_fns;
 }
 
 /* Extracts the alias analysis information from the memory reference DR.  */
@@ -1475,6 +1460,8 @@ void
 free_data_ref (data_reference_p dr)
 {
   DR_ACCESS_FNS (dr).release ();
+  if (dr->alt_indices.base_object)
+    dr->alt_indices.access_fns.release ();
   free (dr);
 }
 
@@ -1509,7 +1496,7 @@ create_data_ref (edge nest, loop_p loop, tree memref, gimple *stmt,
 
   dr_analyze_innermost (&DR_INNERMOST (dr), memref,
 			nest != NULL ? loop : NULL, stmt);
-  dr_analyze_indices (dr, nest, loop);
+  dr_analyze_indices (&dr->indices, DR_REF (dr), nest, loop);
   dr_analyze_alias (dr);
 
   if (dump_file && (dump_flags & TDF_DETAILS))
@@ -2653,25 +2640,23 @@ create_intersect_range_checks (class loop *loop, tree *cond_expr,
 
 void
 create_runtime_alias_checks (class loop *loop,
-			     vec<dr_with_seg_len_pair_t> *alias_pairs,
+			     const vec<dr_with_seg_len_pair_t> *alias_pairs,
 			     tree * cond_expr)
 {
   tree part_cond_expr;
 
   fold_defer_overflow_warnings ();
-  dr_with_seg_len_pair_t *alias_pair;
-  unsigned int i;
-  FOR_EACH_VEC_ELT (*alias_pairs, i, alias_pair)
+  for (const dr_with_seg_len_pair_t &alias_pair : alias_pairs)
     {
-      gcc_assert (alias_pair->flags);
+      gcc_assert (alias_pair.flags);
       if (dump_enabled_p ())
 	dump_printf (MSG_NOTE,
 		     "create runtime check for data references %T and %T\n",
-		     DR_REF (alias_pair->first.dr),
-		     DR_REF (alias_pair->second.dr));
+		     DR_REF (alias_pair.first.dr),
+		     DR_REF (alias_pair.second.dr));
 
       /* Create condition expression for each pair data references.  */
-      create_intersect_range_checks (loop, &part_cond_expr, *alias_pair);
+      create_intersect_range_checks (loop, &part_cond_expr, alias_pair);
       if (*cond_expr)
 	*cond_expr = fold_build2 (TRUTH_AND_EXPR, boolean_type_node,
 				  *cond_expr, part_cond_expr);
@@ -3080,41 +3065,30 @@ access_fn_components_comparable_p (tree ref_a, tree ref_b)
 			     TREE_TYPE (TREE_OPERAND (ref_b, 0)));
 }
 
-/* Initialize a data dependence relation between data accesses A and
-   B.  NB_LOOPS is the number of loops surrounding the references: the
-   size of the classic distance/direction vectors.  */
+/* Initialize a data dependence relation RES in LOOP_NEST.  USE_ALT_INDICES
+   is true when the main indices of A and B were not comparable so we try again
+   with alternate indices computed on an indirect reference.  */
 
 struct data_dependence_relation *
-initialize_data_dependence_relation (struct data_reference *a,
-				     struct data_reference *b,
- 				     vec<loop_p> loop_nest)
+initialize_data_dependence_relation (struct data_dependence_relation *res,
+				     vec<loop_p> loop_nest,
+				     bool use_alt_indices)
 {
-  struct data_dependence_relation *res;
+  struct data_reference *a = DDR_A (res);
+  struct data_reference *b = DDR_B (res);
   unsigned int i;
 
-  res = XCNEW (struct data_dependence_relation);
-  DDR_A (res) = a;
-  DDR_B (res) = b;
-  DDR_LOOP_NEST (res).create (0);
-  DDR_SUBSCRIPTS (res).create (0);
-  DDR_DIR_VECTS (res).create (0);
-  DDR_DIST_VECTS (res).create (0);
-
-  if (a == NULL || b == NULL)
+  struct indices *indices_a = &a->indices;
+  struct indices *indices_b = &b->indices;
+  if (use_alt_indices)
     {
-      DDR_ARE_DEPENDENT (res) = chrec_dont_know;
-      return res;
+      if (TREE_CODE (DR_REF (a)) != MEM_REF)
+	indices_a = &a->alt_indices;
+      if (TREE_CODE (DR_REF (b)) != MEM_REF)
+	indices_b = &b->alt_indices;
     }
-
-  /* If the data references do not alias, then they are independent.  */
-  if (!dr_may_alias_p (a, b, loop_nest.exists () ? loop_nest[0] : NULL))
-    {
-      DDR_ARE_DEPENDENT (res) = chrec_known;
-      return res;
-    }
-
-  unsigned int num_dimensions_a = DR_NUM_DIMENSIONS (a);
-  unsigned int num_dimensions_b = DR_NUM_DIMENSIONS (b);
+  unsigned int num_dimensions_a = indices_a->access_fns.length ();
+  unsigned int num_dimensions_b = indices_b->access_fns.length ();
   if (num_dimensions_a == 0 || num_dimensions_b == 0)
     {
       DDR_ARE_DEPENDENT (res) = chrec_dont_know;
@@ -3139,9 +3113,9 @@ initialize_data_dependence_relation (struct data_reference *a,
 
      the a and b accesses have a single ARRAY_REF component reference [0]
      but have two subscripts.  */
-  if (DR_UNCONSTRAINED_BASE (a))
+  if (indices_a->unconstrained_base)
     num_dimensions_a -= 1;
-  if (DR_UNCONSTRAINED_BASE (b))
+  if (indices_b->unconstrained_base)
     num_dimensions_b -= 1;
 
   /* These structures describe sequences of component references in
@@ -3224,6 +3198,10 @@ initialize_data_dependence_relation (struct data_reference *a,
         B: [3, 4]  (i.e. s.e)  */
   while (index_a < num_dimensions_a && index_b < num_dimensions_b)
     {
+      /* The alternate indices form always has a single dimension
+	 with unconstrained base.  */
+      gcc_assert (!use_alt_indices);
+
       /* REF_A and REF_B must be one of the component access types
 	 allowed by dr_analyze_indices.  */
       gcc_checking_assert (access_fn_component_p (ref_a));
@@ -3294,11 +3272,12 @@ initialize_data_dependence_relation (struct data_reference *a,
   /* See whether FULL_SEQ ends at the base and whether the two bases
      are equal.  We do not care about TBAA or alignment info so we can
      use OEP_ADDRESS_OF to avoid false negatives.  */
-  tree base_a = DR_BASE_OBJECT (a);
-  tree base_b = DR_BASE_OBJECT (b);
+  tree base_a = indices_a->base_object;
+  tree base_b = indices_b->base_object;
   bool same_base_p = (full_seq.start_a + full_seq.length == num_dimensions_a
 		      && full_seq.start_b + full_seq.length == num_dimensions_b
-		      && DR_UNCONSTRAINED_BASE (a) == DR_UNCONSTRAINED_BASE (b)
+		      && (indices_a->unconstrained_base
+			  == indices_b->unconstrained_base)
 		      && operand_equal_p (base_a, base_b, OEP_ADDRESS_OF)
 		      && (types_compatible_p (TREE_TYPE (base_a),
 					      TREE_TYPE (base_b))
@@ -3337,7 +3316,7 @@ initialize_data_dependence_relation (struct data_reference *a,
      both lvalues are distinct from the object's declared type.  */
   if (same_base_p)
     {
-      if (DR_UNCONSTRAINED_BASE (a))
+      if (indices_a->unconstrained_base)
 	full_seq.length += 1;
     }
   else
@@ -3346,8 +3325,41 @@ initialize_data_dependence_relation (struct data_reference *a,
   /* Punt if we didn't find a suitable sequence.  */
   if (full_seq.length == 0)
     {
-      DDR_ARE_DEPENDENT (res) = chrec_dont_know;
-      return res;
+      if (use_alt_indices
+	  || (TREE_CODE (DR_REF (a)) == MEM_REF
+	      && TREE_CODE (DR_REF (b)) == MEM_REF)
+	  || may_be_nonaddressable_p (DR_REF (a))
+	  || may_be_nonaddressable_p (DR_REF (b)))
+	{
+	  /* Fully exhausted possibilities.  */
+	  DDR_ARE_DEPENDENT (res) = chrec_dont_know;
+	  return res;
+	}
+
+      /* Try evaluating both DRs as dereferences of pointers.  */
+      if (!a->alt_indices.base_object
+	  && TREE_CODE (DR_REF (a)) != MEM_REF)
+	{
+	  tree alt_ref = build2 (MEM_REF, TREE_TYPE (DR_REF (a)),
+				 build1 (ADDR_EXPR, ptr_type_node, DR_REF (a)),
+				 build_int_cst
+				   (reference_alias_ptr_type (DR_REF (a)), 0));
+	  dr_analyze_indices (&a->alt_indices, alt_ref,
+			      loop_preheader_edge (loop_nest[0]),
+			      loop_containing_stmt (DR_STMT (a)));
+	}
+      if (!b->alt_indices.base_object
+	  && TREE_CODE (DR_REF (b)) != MEM_REF)
+	{
+	  tree alt_ref = build2 (MEM_REF, TREE_TYPE (DR_REF (b)),
+				 build1 (ADDR_EXPR, ptr_type_node, DR_REF (b)),
+				 build_int_cst
+				   (reference_alias_ptr_type (DR_REF (b)), 0));
+	  dr_analyze_indices (&b->alt_indices, alt_ref,
+			      loop_preheader_edge (loop_nest[0]),
+			      loop_containing_stmt (DR_STMT (b)));
+	}
+      return initialize_data_dependence_relation (res, loop_nest, true);
     }
 
   if (!same_base_p)
@@ -3395,8 +3407,8 @@ initialize_data_dependence_relation (struct data_reference *a,
       struct subscript *subscript;
 
       subscript = XNEW (struct subscript);
-      SUB_ACCESS_FN (subscript, 0) = DR_ACCESS_FN (a, full_seq.start_a + i);
-      SUB_ACCESS_FN (subscript, 1) = DR_ACCESS_FN (b, full_seq.start_b + i);
+      SUB_ACCESS_FN (subscript, 0) = indices_a->access_fns[full_seq.start_a + i];
+      SUB_ACCESS_FN (subscript, 1) = indices_b->access_fns[full_seq.start_b + i];
       SUB_CONFLICTS_IN_A (subscript) = conflict_fn_not_known ();
       SUB_CONFLICTS_IN_B (subscript) = conflict_fn_not_known ();
       SUB_LAST_CONFLICT (subscript) = chrec_dont_know;
@@ -3406,6 +3418,40 @@ initialize_data_dependence_relation (struct data_reference *a,
 
   return res;
 }
+
+/* Initialize a data dependence relation between data accesses A and
+   B.  NB_LOOPS is the number of loops surrounding the references: the
+   size of the classic distance/direction vectors.  */
+
+struct data_dependence_relation *
+initialize_data_dependence_relation (struct data_reference *a,
+				     struct data_reference *b,
+				     vec<loop_p> loop_nest)
+{
+  data_dependence_relation *res = XCNEW (struct data_dependence_relation);
+  DDR_A (res) = a;
+  DDR_B (res) = b;
+  DDR_LOOP_NEST (res).create (0);
+  DDR_SUBSCRIPTS (res).create (0);
+  DDR_DIR_VECTS (res).create (0);
+  DDR_DIST_VECTS (res).create (0);
+
+  if (a == NULL || b == NULL)
+    {
+      DDR_ARE_DEPENDENT (res) = chrec_dont_know;
+      return res;
+    }
+
+  /* If the data references do not alias, then they are independent.  */
+  if (!dr_may_alias_p (a, b, loop_nest.exists () ? loop_nest[0] : NULL))
+    {
+      DDR_ARE_DEPENDENT (res) = chrec_known;
+      return res;
+    }
+
+  return initialize_data_dependence_relation (res, loop_nest, false);
+}
+
 
 /* Frees memory used by the conflict function F.  */
 
@@ -3427,10 +3473,7 @@ free_conflict_function (conflict_function *f)
 static void
 free_subscripts (vec<subscript_p> subscripts)
 {
-  unsigned i;
-  subscript_p s;
-
-  FOR_EACH_VEC_ELT (subscripts, i, s)
+  for (subscript_p s : subscripts)
     {
       free_conflict_function (s->conflicting_iterations_in_a);
       free_conflict_function (s->conflicting_iterations_in_b);
@@ -4971,10 +5014,7 @@ analyze_overlapping_iterations (tree chrec_a,
 static void
 save_dist_v (struct data_dependence_relation *ddr, lambda_vector dist_v)
 {
-  unsigned i;
-  lambda_vector v;
-
-  FOR_EACH_VEC_ELT (DDR_DIST_VECTS (ddr), i, v)
+  for (lambda_vector v : DDR_DIST_VECTS (ddr))
     if (lambda_vector_equal (v, dist_v, DDR_NB_LOOPS (ddr)))
       return;
 
@@ -4986,10 +5026,7 @@ save_dist_v (struct data_dependence_relation *ddr, lambda_vector dist_v)
 static void
 save_dir_v (struct data_dependence_relation *ddr, lambda_vector dir_v)
 {
-  unsigned i;
-  lambda_vector v;
-
-  FOR_EACH_VEC_ELT (DDR_DIR_VECTS (ddr), i, v)
+  for (lambda_vector v : DDR_DIR_VECTS (ddr))
     if (lambda_vector_equal (v, dir_v, DDR_NB_LOOPS (ddr)))
       return;
 
@@ -5112,6 +5149,8 @@ build_classic_dist_vector_1 (struct data_dependence_relation *ddr,
 	  non_affine_dependence_relation (ddr);
 	  return false;
 	}
+      else
+	*init_b = true;
     }
 
   return true;
@@ -5124,10 +5163,7 @@ static bool
 invariant_access_functions (const struct data_dependence_relation *ddr,
 			    int lnum)
 {
-  unsigned i;
-  subscript *sub;
-
-  FOR_EACH_VEC_ELT (DDR_SUBSCRIPTS (ddr), i, sub)
+  for (subscript *sub : DDR_SUBSCRIPTS (ddr))
     if (!evolution_function_is_invariant_p (SUB_ACCESS_FN (sub, 0), lnum)
 	|| !evolution_function_is_invariant_p (SUB_ACCESS_FN (sub, 1), lnum))
       return false;
@@ -5296,10 +5332,7 @@ add_distance_for_zero_overlaps (struct data_dependence_relation *ddr)
 static inline bool
 same_access_functions (const struct data_dependence_relation *ddr)
 {
-  unsigned i;
-  subscript *sub;
-
-  FOR_EACH_VEC_ELT (DDR_SUBSCRIPTS (ddr), i, sub)
+  for (subscript *sub : DDR_SUBSCRIPTS (ddr))
     if (!eq_evolutions_p (SUB_ACCESS_FN (sub, 0),
 			  SUB_ACCESS_FN (sub, 1)))
       return false;
@@ -5576,11 +5609,8 @@ static bool
 access_functions_are_affine_or_constant_p (const struct data_reference *a,
 					   const class loop *loop_nest)
 {
-  unsigned int i;
   vec<tree> fns = DR_ACCESS_FNS (a);
-  tree t;
-
-  FOR_EACH_VEC_ELT (fns, i, t)
+  for (tree t : fns)
     if (!evolution_function_is_invariant_p (t, loop_nest->num)
 	&& !evolution_function_is_affine_multivariate_p (t, loop_nest->num))
       return false;
@@ -5607,9 +5637,13 @@ compute_affine_dependence (struct data_dependence_relation *ddr,
   if (dump_file && (dump_flags & TDF_DETAILS))
     {
       fprintf (dump_file, "(compute_affine_dependence\n");
-      fprintf (dump_file, "  stmt_a: ");
+      fprintf (dump_file, "  ref_a: ");
+      print_generic_expr (dump_file, DR_REF (dra));
+      fprintf (dump_file, ", stmt_a: ");
       print_gimple_stmt (dump_file, DR_STMT (dra), 0, TDF_SLIM);
-      fprintf (dump_file, "  stmt_b: ");
+      fprintf (dump_file, "  ref_b: ");
+      print_generic_expr (dump_file, DR_REF (drb));
+      fprintf (dump_file, ", stmt_b: ");
       print_gimple_stmt (dump_file, DR_STMT (drb), 0, TDF_SLIM);
     }
 
@@ -5659,9 +5693,9 @@ compute_affine_dependence (struct data_dependence_relation *ddr,
    is small enough to be handled.  */
 
 bool
-compute_all_dependences (vec<data_reference_p> datarefs,
+compute_all_dependences (const vec<data_reference_p> &datarefs,
 			 vec<ddr_p> *dependence_relations,
-			 vec<loop_p> loop_nest,
+			 const vec<loop_p> &loop_nest,
 			 bool compute_self_and_rr)
 {
   struct data_dependence_relation *ddr;
@@ -5887,20 +5921,18 @@ opt_result
 find_data_references_in_stmt (class loop *nest, gimple *stmt,
 			      vec<data_reference_p> *datarefs)
 {
-  unsigned i;
   auto_vec<data_ref_loc, 2> references;
-  data_ref_loc *ref;
   data_reference_p dr;
 
   if (get_references_in_stmt (stmt, &references))
     return opt_result::failure_at (stmt, "statement clobbers memory: %G",
 				   stmt);
 
-  FOR_EACH_VEC_ELT (references, i, ref)
+  for (const data_ref_loc &ref : references)
     {
       dr = create_data_ref (nest ? loop_preheader_edge (nest) : NULL,
-			    loop_containing_stmt (stmt), ref->ref,
-			    stmt, ref->is_read, ref->is_conditional_in_stmt);
+			    loop_containing_stmt (stmt), ref.ref,
+			    stmt, ref.is_read, ref.is_conditional_in_stmt);
       gcc_assert (dr != NULL);
       datarefs->safe_push (dr);
     }
@@ -5918,19 +5950,17 @@ bool
 graphite_find_data_references_in_stmt (edge nest, loop_p loop, gimple *stmt,
 				       vec<data_reference_p> *datarefs)
 {
-  unsigned i;
   auto_vec<data_ref_loc, 2> references;
-  data_ref_loc *ref;
   bool ret = true;
   data_reference_p dr;
 
   if (get_references_in_stmt (stmt, &references))
     return false;
 
-  FOR_EACH_VEC_ELT (references, i, ref)
+  for (const data_ref_loc &ref : references)
     {
-      dr = create_data_ref (nest, loop, ref->ref, stmt, ref->is_read,
-			    ref->is_conditional_in_stmt);
+      dr = create_data_ref (nest, loop, ref.ref, stmt, ref.is_read,
+			    ref.is_conditional_in_stmt);
       gcc_assert (dr != NULL);
       datarefs->safe_push (dr);
     }
@@ -6236,12 +6266,9 @@ free_dependence_relation (struct data_dependence_relation *ddr)
    DEPENDENCE_RELATIONS.  */
 
 void
-free_dependence_relations (vec<ddr_p> dependence_relations)
+free_dependence_relations (vec<ddr_p>& dependence_relations)
 {
-  unsigned int i;
-  struct data_dependence_relation *ddr;
-
-  FOR_EACH_VEC_ELT (dependence_relations, i, ddr)
+  for (data_dependence_relation *ddr : dependence_relations)
     if (ddr)
       free_dependence_relation (ddr);
 
@@ -6251,12 +6278,9 @@ free_dependence_relations (vec<ddr_p> dependence_relations)
 /* Free the memory used by the data references from DATAREFS.  */
 
 void
-free_data_refs (vec<data_reference_p> datarefs)
+free_data_refs (vec<data_reference_p>& datarefs)
 {
-  unsigned int i;
-  struct data_reference *dr;
-
-  FOR_EACH_VEC_ELT (datarefs, i, dr)
+  for (data_reference *dr : datarefs)
     free_data_ref (dr);
   datarefs.release ();
 }
@@ -6298,11 +6322,18 @@ dr_step_indicator (struct data_reference *dr, int useful_min)
 
       /* Get the range of values that the unconverted step actually has.  */
       wide_int step_min, step_max;
+      value_range vr;
       if (TREE_CODE (step) != SSA_NAME
-	  || get_range_info (step, &step_min, &step_max) != VR_RANGE)
+	  || !get_range_query (cfun)->range_of_expr (vr, step)
+	  || vr.kind () != VR_RANGE)
 	{
 	  step_min = wi::to_wide (TYPE_MIN_VALUE (type));
 	  step_max = wi::to_wide (TYPE_MAX_VALUE (type));
+	}
+      else
+	{
+	  step_min = vr.lower_bound ();
+	  step_max = vr.upper_bound ();
 	}
 
       /* Check whether the unconverted step has an acceptable range.  */

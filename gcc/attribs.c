@@ -165,15 +165,12 @@ register_scoped_attributes (const struct attribute_spec *attributes,
 static scoped_attributes*
 find_attribute_namespace (const char* ns)
 {
-  unsigned ix;
-  scoped_attributes *iter;
-
-  FOR_EACH_VEC_ELT (attributes_table, ix, iter)
-    if (ns == iter->ns
-	|| (iter->ns != NULL
+  for (scoped_attributes &iter : attributes_table)
+    if (ns == iter.ns
+	|| (iter.ns != NULL
 	    && ns != NULL
-	    && !strcmp (iter->ns, ns)))
-      return iter;
+	    && !strcmp (iter.ns, ns)))
+      return &iter;
   return NULL;
 }
 
@@ -520,14 +517,9 @@ decl_attributes (tree *node, tree attributes, int flags,
   if (TREE_CODE (*node) == FUNCTION_DECL
       && attributes
       && lookup_attribute ("naked", attributes) != NULL
-      && lookup_attribute_spec (get_identifier ("naked")))
-    {
-      if (lookup_attribute ("noinline", attributes) == NULL)
-	attributes = tree_cons (get_identifier ("noinline"), NULL, attributes);
-
-      if (lookup_attribute ("noclone", attributes) == NULL)
-	attributes = tree_cons (get_identifier ("noclone"),  NULL, attributes);
-    }
+      && lookup_attribute_spec (get_identifier ("naked"))
+      && lookup_attribute ("noipa", attributes) == NULL)
+	attributes = tree_cons (get_identifier ("noipa"), NULL, attributes);
 
   /* A "noipa" function attribute implies "noinline", "noclone" and "no_icf"
      for those targets that support it.  */
@@ -1028,40 +1020,6 @@ common_function_versions (tree fn1, tree fn2)
   XDELETEVEC (target2);
 
   return result;
-}
-
-/* Return a new name by appending SUFFIX to the DECL name.  If make_unique
-   is true, append the full path name of the source file.  */
-
-char *
-make_unique_name (tree decl, const char *suffix, bool make_unique)
-{
-  char *global_var_name;
-  int name_len;
-  const char *name;
-  const char *unique_name = NULL;
-
-  name = IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl));
-
-  /* Get a unique name that can be used globally without any chances
-     of collision at link time.  */
-  if (make_unique)
-    unique_name = IDENTIFIER_POINTER (get_file_function_name ("\0"));
-
-  name_len = strlen (name) + strlen (suffix) + 2;
-
-  if (make_unique)
-    name_len += strlen (unique_name) + 1;
-  global_var_name = XNEWVEC (char, name_len);
-
-  /* Use '.' to concatenate names as it is demangler friendly.  */
-  if (make_unique)
-    snprintf (global_var_name, name_len, "%s.%s.%s", name, unique_name,
-	      suffix);
-  else
-    snprintf (global_var_name, name_len, "%s.%s", name, suffix);
-
-  return global_var_name;
 }
 
 /* Make a dispatcher declaration for the multi-versioned function DECL.
@@ -2126,13 +2084,13 @@ init_attr_rdwr_indices (rdwr_map *rwm, tree attrs)
 
       /* The (optional) list of VLA bounds.  */
       tree vblist = TREE_CHAIN (mode);
-      if (vblist)
-       vblist = TREE_VALUE (vblist);
-
       mode = TREE_VALUE (mode);
       if (TREE_CODE (mode) != STRING_CST)
 	continue;
       gcc_assert (TREE_CODE (mode) == STRING_CST);
+
+      if (vblist)
+	vblist = nreverse (copy_list (TREE_VALUE (vblist)));
 
       for (const char *m = TREE_STRING_POINTER (mode); *m; )
 	{
@@ -2308,11 +2266,18 @@ attr_access::to_external_string () const
 unsigned
 attr_access::vla_bounds (unsigned *nunspec) const
 {
+  unsigned nbounds = 0;
   *nunspec = 0;
-  for (const char* p = strrchr (str, ']'); p && *p != '['; --p)
-    if (*p == '*')
-      ++*nunspec;
-  return list_length (size);
+  /* STR points to the beginning of the specified string for the current
+     argument that may be followed by the string for the next argument.  */
+  for (const char* p = strchr (str, ']'); p && *p != '['; --p)
+    {
+      if (*p == '*')
+	++*nunspec;
+      else if (*p == '$')
+	++nbounds;
+    }
+  return nbounds;
 }
 
 /* Reset front end-specific attribute access data from ATTRS.
@@ -2388,7 +2353,8 @@ attr_access::array_as_string (tree type) const
 	  const char *p = end;
 	  for ( ; p != str && *p-- != ']'; );
 	  if (*p == '$')
-	    index_type = build_index_type (TREE_VALUE (size));
+	    /* SIZE may have been cleared.  Use it with care.  */
+	    index_type = build_index_type (size ? TREE_VALUE (size) : size);
 	}
       else if (minsize)
 	index_type = build_index_type (size_int (minsize - 1));

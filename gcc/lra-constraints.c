@@ -1276,7 +1276,7 @@ check_and_process_move (bool *change_p, bool *sec_mem_p ATTRIBUTE_UNUSED)
   sclass = dclass = NO_REGS;
   if (REG_P (dreg))
     dclass = get_reg_class (REGNO (dreg));
-  gcc_assert (dclass < LIM_REG_CLASSES);
+  gcc_assert (dclass < LIM_REG_CLASSES && dclass >= NO_REGS);
   if (dclass == ALL_REGS)
     /* ALL_REGS is used for new pseudos created by transformations
        like reload of SUBREG_REG (see function
@@ -1288,7 +1288,7 @@ check_and_process_move (bool *change_p, bool *sec_mem_p ATTRIBUTE_UNUSED)
     return false;
   if (REG_P (sreg))
     sclass = get_reg_class (REGNO (sreg));
-  gcc_assert (sclass < LIM_REG_CLASSES);
+  gcc_assert (sclass < LIM_REG_CLASSES && sclass >= NO_REGS);
   if (sclass == ALL_REGS)
     /* See comments above.  */
     return false;
@@ -2771,7 +2771,7 @@ process_alt_operands (int only_alternative)
 		  if (lra_dump_file != NULL)
 		    fprintf
 		      (lra_dump_file,
-		       "            alt=%d: No input/otput reload -- refuse\n",
+		       "            alt=%d: No input/output reload -- refuse\n",
 		       nalt);
 		  goto fail;
 		}
@@ -3989,15 +3989,9 @@ curr_insn_transform (bool check_only_p)
   no_input_reloads_p = no_output_reloads_p = false;
   goal_alt_number = -1;
   change_p = sec_mem_p = false;
-  /* CALL_INSNs are not allowed to have any output reloads; neither
-     are insns that SET cc0.  Insns that use CC0 are not allowed to
-     have any input reloads.  */
-  if (CALL_P (curr_insn))
-    no_output_reloads_p = true;
 
-  if (HAVE_cc0 && reg_referenced_p (cc0_rtx, PATTERN (curr_insn)))
-    no_input_reloads_p = true;
-  if (HAVE_cc0 && reg_set_p (cc0_rtx, PATTERN (curr_insn)))
+  /* CALL_INSNs are not allowed to have any output reloads.  */
+  if (CALL_P (curr_insn))
     no_output_reloads_p = true;
 
   n_operands = curr_static_id->n_operands;

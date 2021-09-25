@@ -860,16 +860,25 @@ gfc_get_array_span (tree desc, gfc_expr *expr)
 	 size of the array. Attempt to deal with unbounded character
 	 types if possible. Otherwise, return NULL_TREE.  */
       tmp = gfc_get_element_type (TREE_TYPE (desc));
-      if (tmp && TREE_CODE (tmp) == ARRAY_TYPE
-	  && (TYPE_MAX_VALUE (TYPE_DOMAIN (tmp)) == NULL_TREE
-	      || integer_zerop (TYPE_MAX_VALUE (TYPE_DOMAIN (tmp)))))
+      if (tmp && TREE_CODE (tmp) == ARRAY_TYPE && TYPE_STRING_FLAG (tmp))
 	{
-	  if (expr->expr_type == EXPR_VARIABLE
-	      && expr->ts.type == BT_CHARACTER)
-	    tmp = fold_convert (gfc_array_index_type,
-				gfc_get_expr_charlen (expr));
-	  else
-	    tmp = NULL_TREE;
+	  gcc_assert (expr->ts.type == BT_CHARACTER);
+	  
+	  tmp = gfc_get_character_len_in_bytes (tmp);
+	  
+	  if (tmp == NULL_TREE || integer_zerop (tmp))
+	    {
+	      tree bs;
+
+	      tmp = gfc_get_expr_charlen (expr);
+	      tmp = fold_convert (gfc_array_index_type, tmp);
+	      bs = build_int_cst (gfc_array_index_type, expr->ts.kind);
+	      tmp = fold_build2_loc (input_location, MULT_EXPR,
+				     gfc_array_index_type, tmp, bs);
+	    }
+	  
+	  tmp = (tmp && !integer_zerop (tmp))
+	    ? (fold_convert (gfc_array_index_type, tmp)) : (NULL_TREE);
 	}
       else
 	tmp = fold_convert (gfc_array_index_type,
@@ -2755,7 +2764,7 @@ trans_array_constructor (gfc_ss * ss, locus * where)
   desc = ss_info->data.array.descriptor;
   offset = gfc_index_zero_node;
   offsetvar = gfc_create_var_np (gfc_array_index_type, "offset");
-  TREE_NO_WARNING (offsetvar) = 1;
+  suppress_warning (offsetvar);
   TREE_USED (offsetvar) = 0;
   gfc_trans_array_constructor_value (&outer_loop->pre, type, desc, c,
 				     &offset, &offsetvar, dynamic);
@@ -4718,8 +4727,9 @@ done:
 
 	  /* For optional arguments, only check bounds if the argument is
 	     present.  */
-	  if (expr->symtree->n.sym->attr.optional
-	      || expr->symtree->n.sym->attr.not_always_present)
+	  if ((expr->symtree->n.sym->attr.optional
+	       || expr->symtree->n.sym->attr.not_always_present)
+	      && expr->symtree->n.sym->attr.dummy)
 	    tmp = build3_v (COND_EXPR,
 			    gfc_conv_expr_present (expr->symtree->n.sym),
 			    tmp, build_empty_stmt (input_location));
@@ -6524,7 +6534,14 @@ gfc_trans_g77_array (gfc_symbol * sym, gfc_wrapped_block * block)
   /* Set the pointer itself if we aren't using the parameter directly.  */
   if (TREE_CODE (parm) != PARM_DECL)
     {
-      tmp = convert (TREE_TYPE (parm), GFC_DECL_SAVED_DESCRIPTOR (parm));
+      tmp = GFC_DECL_SAVED_DESCRIPTOR (parm);
+      if (sym->ts.type == BT_CLASS)
+	{
+	  tmp = build_fold_indirect_ref_loc (input_location, tmp);
+	  tmp = gfc_class_data_get (tmp);
+	  tmp = gfc_conv_descriptor_data_get (tmp);
+	}
+      tmp = convert (TREE_TYPE (parm), tmp);
       gfc_add_modify (&init, parm, tmp);
     }
   stmt = gfc_finish_block (&init);
@@ -6626,7 +6643,8 @@ gfc_trans_dummy_array_bias (gfc_symbol * sym, tree tmpdesc,
       && VAR_P (sym->ts.u.cl->backend_decl))
     gfc_conv_string_length (sym->ts.u.cl, NULL, &init);
 
-  checkparm = (as->type == AS_EXPLICIT
+  /* TODO: Fix the exclusion of class arrays from extent checking.  */
+  checkparm = (as->type == AS_EXPLICIT && !is_classarray
 	       && (gfc_option.rtcheck & GFC_RTCHECK_BOUNDS));
 
   no_repack = !(GFC_DECL_PACKED_ARRAY (tmpdesc)
@@ -7319,6 +7337,9 @@ gfc_conv_expr_descriptor (gfc_se *se, gfc_expr *expr)
       expr = expr->value.function.actual->expr;
     }
 
+  if (!se->direct_byref)
+    se->unlimited_polymorphic = UNLIMITED_POLY (expr);
+  
   /* Special case things we know we can pass easily.  */
   switch (expr->expr_type)
     {
@@ -7342,9 +7363,11 @@ gfc_conv_expr_descriptor (gfc_se *se, gfc_expr *expr)
 	  && TREE_CODE (desc) == COMPONENT_REF)
 	deferred_array_component = true;
 
-      subref_array_target = se->direct_byref && is_subref_array (expr);
-      need_tmp = gfc_ref_needs_temporary_p (expr->ref)
-			&& !subref_array_target;
+      subref_array_target = (is_subref_array (expr)
+			     && (se->direct_byref
+				 || expr->ts.type == BT_CHARACTER));
+      need_tmp = (gfc_ref_needs_temporary_p (expr->ref)
+		  && !subref_array_target);
 
       if (se->force_tmp)
 	need_tmp = 1;
@@ -7381,9 +7404,8 @@ gfc_conv_expr_descriptor (gfc_se *se, gfc_expr *expr)
 				      subref_array_target, expr);
 
 	      /* ....and set the span field.  */
-	      tmp = gfc_get_array_span (desc, expr);
-	      if (tmp != NULL_TREE && !integer_zerop (tmp))
-		gfc_conv_descriptor_span_set (&se->pre, se->expr, tmp);
+	      tmp = gfc_conv_descriptor_span_get (desc);
+	      gfc_conv_descriptor_span_set (&se->pre, se->expr, tmp);
 	    }
 	  else if (se->want_pointer)
 	    {
@@ -7598,6 +7620,7 @@ gfc_conv_expr_descriptor (gfc_se *se, gfc_expr *expr)
       int dim, ndim, codim;
       tree parm;
       tree parmtype;
+      tree dtype;
       tree stride;
       tree from;
       tree to;
@@ -7680,7 +7703,7 @@ gfc_conv_expr_descriptor (gfc_se *se, gfc_expr *expr)
       else
 	{
 	  /* Otherwise make a new one.  */
-	  if (expr->ts.type == BT_CHARACTER && expr->ts.deferred)
+	  if (expr->ts.type == BT_CHARACTER)
 	    parmtype = gfc_typenode_for_spec (&expr->ts);
 	  else
 	    parmtype = gfc_get_element_type (TREE_TYPE (desc));
@@ -7714,11 +7737,8 @@ gfc_conv_expr_descriptor (gfc_se *se, gfc_expr *expr)
 	}
 
       /* Set the span field.  */
-      if (expr->ts.type == BT_CHARACTER && ss_info->string_length)
-	tmp = ss_info->string_length;
-      else
-	tmp = gfc_get_array_span (desc, expr);
-      if (tmp != NULL_TREE)
+      tmp = gfc_get_array_span (desc, expr);
+      if (tmp)
 	gfc_conv_descriptor_span_set (&loop.pre, parm, tmp);
 
       /* The following can be somewhat confusing.  We have two
@@ -7732,7 +7752,11 @@ gfc_conv_expr_descriptor (gfc_se *se, gfc_expr *expr)
 
       /* Set the dtype.  */
       tmp = gfc_conv_descriptor_dtype (parm);
-      gfc_add_modify (&loop.pre, tmp, gfc_get_dtype (parmtype));
+      if (se->unlimited_polymorphic)
+	dtype = gfc_get_dtype (TREE_TYPE (desc), &loop.dimen);
+      else
+	dtype = gfc_get_dtype (parmtype);
+      gfc_add_modify (&loop.pre, tmp, dtype);
 
       /* The 1st element in the section.  */
       base = gfc_index_zero_node;

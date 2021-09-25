@@ -3416,6 +3416,7 @@ register_vector_type (vector_type_index type)
      installing an incorrect type.  */
   if (decl
       && TREE_CODE (decl) == TYPE_DECL
+      && TREE_TYPE (decl) != error_mark_node
       && TYPE_MAIN_VARIANT (TREE_TYPE (decl)) == vectype)
     vectype = TREE_TYPE (decl);
   acle_vector_types[0][type] = vectype;
@@ -3499,7 +3500,7 @@ register_svpattern ()
 #undef PUSH
 
   acle_svpattern = lang_hooks.types.simulate_enum_decl (input_location,
-							"svpattern", values);
+							"svpattern", &values);
 }
 
 /* Register the svprfop enum.  */
@@ -3513,7 +3514,7 @@ register_svprfop ()
 #undef PUSH
 
   acle_svprfop = lang_hooks.types.simulate_enum_decl (input_location,
-						      "svprfop", values);
+						      "svprfop", &values);
 }
 
 /* Implement #pragma GCC aarch64 "arm_sve.h".  */

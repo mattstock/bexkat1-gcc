@@ -155,7 +155,7 @@ overflow_warning (location_t loc, tree value, tree expr)
 			 value);
 
   if (warned)
-    TREE_NO_WARNING (value) = 1;
+    suppress_warning (value, OPT_Woverflow);
 }
 
 /* Helper function for walk_tree.  Unwrap C_MAYBE_CONST_EXPRs in an expression
@@ -219,7 +219,7 @@ warn_logical_operator (location_t location, enum tree_code code, tree type,
       && INTEGRAL_TYPE_P (TREE_TYPE (op_left))
       && !CONSTANT_CLASS_P (stripped_op_left)
       && TREE_CODE (stripped_op_left) != CONST_DECL
-      && !TREE_NO_WARNING (op_left)
+      && !warning_suppressed_p (op_left, OPT_Wlogical_op)
       && TREE_CODE (op_right) == INTEGER_CST
       && !integer_zerop (op_right)
       && !integer_onep (op_right))
@@ -234,7 +234,7 @@ warn_logical_operator (location_t location, enum tree_code code, tree type,
 	  = warning_at (location, OPT_Wlogical_op,
 			"logical %<and%> applied to non-boolean constant");
       if (warned)
-	TREE_NO_WARNING (op_left) = true;
+	suppress_warning (op_left, OPT_Wlogical_op);
       return;
     }
 
@@ -588,7 +588,7 @@ bool
 warn_if_unused_value (const_tree exp, location_t locus, bool quiet)
 {
  restart:
-  if (TREE_USED (exp) || TREE_NO_WARNING (exp))
+  if (TREE_USED (exp) || warning_suppressed_p (exp, OPT_Wunused_value))
     return false;
 
   /* Don't warn about void constructs.  This includes casting to void,
@@ -2240,18 +2240,6 @@ warn_for_sign_compare (location_t location,
   int op1_signed = !TYPE_UNSIGNED (TREE_TYPE (orig_op1));
   int unsignedp0, unsignedp1;
 
-  /* In C++, check for comparison of different enum types.  */
-  if (c_dialect_cxx()
-      && TREE_CODE (TREE_TYPE (orig_op0)) == ENUMERAL_TYPE
-      && TREE_CODE (TREE_TYPE (orig_op1)) == ENUMERAL_TYPE
-      && TYPE_MAIN_VARIANT (TREE_TYPE (orig_op0))
-	 != TYPE_MAIN_VARIANT (TREE_TYPE (orig_op1)))
-    {
-      warning_at (location,
-		  OPT_Wsign_compare, "comparison between types %qT and %qT",
-		  TREE_TYPE (orig_op0), TREE_TYPE (orig_op1));
-    }
-
   /* Do not warn if the comparison is being done in a signed type,
      since the signed type will only be chosen if it can represent
      all the values of the unsigned type.  */
@@ -2422,7 +2410,7 @@ do_warn_unused_parameter (tree fn)
        decl; decl = DECL_CHAIN (decl))
     if (!TREE_USED (decl) && TREE_CODE (decl) == PARM_DECL
 	&& DECL_NAME (decl) && !DECL_ARTIFICIAL (decl)
-	&& !TREE_NO_WARNING (decl))
+	&& !warning_suppressed_p (decl, OPT_Wunused_parameter))
       warning_at (DECL_SOURCE_LOCATION (decl), OPT_Wunused_parameter,
 		  "unused parameter %qD", decl);
 }
@@ -3287,7 +3275,8 @@ warn_parm_ptrarray_mismatch (location_t origloc, tree curparms, tree newparms)
 	  /* Move on if the bounds look the same.  */
 	  if (!pcurbndpos && !pnewbndpos
 	      && curbnd && newbnd
-	      && operand_equal_p (curbnd, newbnd, OEP_LEXICOGRAPHIC))
+	      && operand_equal_p (curbnd, newbnd,
+				  OEP_DECL_NAME | OEP_LEXICOGRAPHIC))
 	    continue;
 
 	  if ((curbnd && TREE_CODE (curbnd) != INTEGER_CST)
@@ -3511,7 +3500,7 @@ warn_parm_array_mismatch (location_t origloc, tree fndecl, tree newparms)
 	  && newa->sizarg != UINT_MAX
 	  && newa->sizarg == cura->sizarg
 	  && newa->minsize == cura->minsize
-	  && !TREE_CHAIN (newa->size) && !TREE_CHAIN (cura->size))
+	  && !TREE_PURPOSE (newa->size) && !TREE_PURPOSE (cura->size))
 	continue;
 
       if (newa->size || cura->size)
@@ -3658,7 +3647,8 @@ warn_parm_array_mismatch (location_t origloc, tree fndecl, tree newparms)
 	      /* The VLA bounds don't refer to other function parameters.
 		 Compare them lexicographically to detect gross mismatches
 		 such as between T[foo()] and T[bar()].  */
-	      if (operand_equal_p (newbnd, curbnd, OEP_LEXICOGRAPHIC))
+	      if (operand_equal_p (newbnd, curbnd,
+				   OEP_DECL_NAME | OEP_LEXICOGRAPHIC))
 		continue;
 
 	      if (warning_at (newloc, OPT_Wvla_parameter,

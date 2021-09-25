@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,13 +23,17 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
-with Atree;  use Atree;
-with Einfo;  use Einfo;
-with Nlists; use Nlists;
-with Sinfo;  use Sinfo;
-with Snames; use Snames;
-with Stand;  use Stand;
-with Uintp;  use Uintp;
+with Atree;          use Atree;
+with Einfo;          use Einfo;
+with Einfo.Entities; use Einfo.Entities;
+with Einfo.Utils;    use Einfo.Utils;
+with Nlists;         use Nlists;
+with Sinfo;          use Sinfo;
+with Sinfo.Nodes;    use Sinfo.Nodes;
+with Sinfo.Utils;    use Sinfo.Utils;
+with Snames;         use Snames;
+with Stand;          use Stand;
+with Uintp;          use Uintp;
 
 package body Sem_Aux is
 
@@ -842,10 +846,7 @@ package body Sem_Aux is
       Btype : constant Entity_Id := Base_Type (Ent);
 
    begin
-      if Error_Posted (Ent) or else Error_Posted (Btype) then
-         return False;
-
-      elsif Is_Private_Type (Btype) then
+      if Is_Private_Type (Btype) then
          declare
             Utyp : constant Entity_Id := Underlying_Type (Btype);
          begin
@@ -1072,14 +1073,18 @@ package body Sem_Aux is
    ---------------------
 
    function Is_Limited_Type (Ent : Entity_Id) return Boolean is
-      Btype : constant E := Base_Type (Ent);
-      Rtype : constant E := Root_Type (Btype);
+      Btype : Entity_Id;
+      Rtype : Entity_Id;
 
    begin
       if not Is_Type (Ent) then
          return False;
+      end if;
 
-      elsif Ekind (Btype) = E_Limited_Private_Type
+      Btype := Base_Type (Ent);
+      Rtype := Root_Type (Btype);
+
+      if Ekind (Btype) = E_Limited_Private_Type
         or else Is_Limited_Composite (Btype)
       then
          return True;
@@ -1397,6 +1402,31 @@ package body Sem_Aux is
    end Object_Type_Has_Constrained_Partial_View;
 
    ------------------
+   -- Package_Body --
+   ------------------
+
+   function Package_Body (E : Entity_Id) return Node_Id is
+      Body_Decl : Node_Id;
+      Body_Id   : constant Opt_E_Package_Body_Id :=
+        Corresponding_Body (Package_Spec (E));
+
+   begin
+      if Present (Body_Id) then
+         Body_Decl := Parent (Body_Id);
+
+         if Nkind (Body_Decl) = N_Defining_Program_Unit_Name then
+            Body_Decl := Parent (Body_Decl);
+         end if;
+
+         pragma Assert (Nkind (Body_Decl) = N_Package_Body);
+
+         return Body_Decl;
+      else
+         return Empty;
+      end if;
+   end Package_Body;
+
+   ------------------
    -- Package_Spec --
    ------------------
 
@@ -1413,11 +1443,15 @@ package body Sem_Aux is
       N : Node_Id;
 
    begin
+      pragma Assert (Is_Package_Or_Generic_Package (E));
+
       N := Parent (E);
 
       if Nkind (N) = N_Defining_Program_Unit_Name then
          N := Parent (N);
       end if;
+
+      pragma Assert (Nkind (N) = N_Package_Specification);
 
       return N;
    end Package_Specification;

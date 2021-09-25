@@ -3363,12 +3363,9 @@ set_decl_context_in_fn (tree ctx, tree decl)
 
   if (!DECL_CONTEXT (decl)
       /* When parsing the parameter list of a function declarator,
-	 don't set DECL_CONTEXT to an enclosing function.  When we
-	 push the PARM_DECLs in order to process the function body,
-	 current_binding_level->this_entity will be set.  */
+	 don't set DECL_CONTEXT to an enclosing function.  */
       && !(TREE_CODE (decl) == PARM_DECL
-	   && current_binding_level->kind == sk_function_parms
-	   && current_binding_level->this_entity == NULL))
+	   && parsing_function_declarator ()))
     DECL_CONTEXT (decl) = ctx;
 }
 
@@ -5236,7 +5233,7 @@ set_inherited_value_binding_p (cxx_binding *binding, tree decl,
     {
       tree context;
 
-      if (TREE_CODE (decl) == OVERLOAD)
+      if (is_overloaded_fn (decl))
 	context = ovl_scope (decl);
       else
 	{
@@ -5337,28 +5334,6 @@ get_class_binding (tree name, cp_binding_level *scope)
   value_binding = lookup_member (class_type, name,
 				 /*protect=*/2, /*want_type=*/false,
 				 tf_warning_or_error);
-
-  if (value_binding
-      && (TREE_CODE (value_binding) == TYPE_DECL
-	  || DECL_CLASS_TEMPLATE_P (value_binding)
-	  || (TREE_CODE (value_binding) == TREE_LIST
-	      && TREE_TYPE (value_binding) == error_mark_node
-	      && (TREE_CODE (TREE_VALUE (value_binding))
-		  == TYPE_DECL))))
-    /* We found a type binding, even when looking for a non-type
-       binding.  This means that we already processed this binding
-       above.  */
-    ;
-  else if (value_binding)
-    {
-      if (TREE_CODE (value_binding) == TREE_LIST
-	  && TREE_TYPE (value_binding) == error_mark_node)
-	/* NAME is ambiguous.  */
-	;
-      else if (BASELINK_P (value_binding))
-	/* NAME is some overloaded functions.  */
-	value_binding = BASELINK_FUNCTIONS (value_binding);
-    }
 
   /* If we found either a type binding or a value binding, create a
      new binding object.  */
@@ -8582,6 +8557,7 @@ finish_using_directive (tree target, tree attribs)
   add_using_namespace (current_binding_level->using_directives,
 		       ORIGINAL_NAMESPACE (target));
 
+  bool diagnosed = false;
   if (attribs != error_mark_node)
     for (tree a = attribs; a; a = TREE_CHAIN (a))
       {
@@ -8593,6 +8569,16 @@ finish_using_directive (tree target, tree attribs)
 		&& CP_DECL_CONTEXT (target) == current_namespace)
 	      inform (DECL_SOURCE_LOCATION (target),
 		      "you can use an inline namespace instead");
+	  }
+	else if ((flag_openmp || flag_openmp_simd)
+		 && get_attribute_namespace (a) == omp_identifier
+		 && (is_attribute_p ("directive", name)
+		     || is_attribute_p ("sequence", name)))
+	  {
+	    if (!diagnosed)
+	      error ("%<omp::%E%> not allowed to be specified in this "
+		     "context", name);
+	    diagnosed = true;
 	  }
 	else
 	  warning (OPT_Wattributes, "%qD attribute directive ignored", name);
@@ -9116,7 +9102,7 @@ static const char *const op_bind_attrname = "operator bindings";
 void
 maybe_save_operator_binding (tree e)
 {
-  /* This is only useful in a generic lambda.  */
+  /* This is only useful in a template.  */
   if (!processing_template_decl)
     return;
 
@@ -9124,22 +9110,24 @@ maybe_save_operator_binding (tree e)
   if (!cfn)
     return;
 
-  /* Do this for lambdas and code that will emit a CMI.  In a module's
-     GMF we don't yet know whether there will be a CMI.  */
-  if (!module_has_cmi_p () && !global_purview_p () && !current_lambda_expr())
-     return;
-
-  tree fnname = ovl_op_identifier (false, TREE_CODE (e));
-  if (!fnname)
+  tree fnname;
+  if(TREE_CODE (e) == MODOP_EXPR)
+    fnname = ovl_op_identifier (true, TREE_CODE (TREE_OPERAND (e, 1)));
+  else
+    fnname = ovl_op_identifier (false, TREE_CODE (e));
+  if (!fnname || fnname == assign_op_identifier)
     return;
 
   tree attributes = DECL_ATTRIBUTES (cfn);
   tree op_attr = lookup_attribute (op_bind_attrname, attributes);
   if (!op_attr)
     {
+      tree *ap = &DECL_ATTRIBUTES (cfn);
+      while (*ap && ATTR_IS_DEPENDENT (*ap))
+	ap = &TREE_CHAIN (*ap);
       op_attr = tree_cons (get_identifier (op_bind_attrname),
-			   NULL_TREE, attributes);
-      DECL_ATTRIBUTES (cfn) = op_attr;
+			   NULL_TREE, *ap);
+      *ap = op_attr;
     }
 
   tree op_bind = purpose_member (fnname, TREE_VALUE (op_attr));

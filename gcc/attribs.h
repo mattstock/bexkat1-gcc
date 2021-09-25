@@ -44,7 +44,6 @@ extern struct scoped_attributes* register_scoped_attributes (const struct attrib
 
 extern char *sorted_attr_string (tree);
 extern bool common_function_versions (tree, tree);
-extern char *make_unique_name (tree, const char *, bool);
 extern tree make_dispatcher_decl (const tree);
 extern bool is_function_default_version (const tree);
 
@@ -315,7 +314,5 @@ typedef hash_map<rdwr_access_hash, attr_access> rdwr_map;
 extern void init_attr_rdwr_indices (rdwr_map *, tree);
 extern attr_access *get_parm_access (rdwr_map &, tree,
 				     tree = current_function_decl);
-
-extern unsigned fndecl_dealloc_argno (tree fndecl);
 
 #endif // GCC_ATTRIBS_H

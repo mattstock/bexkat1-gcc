@@ -469,7 +469,7 @@ layout_aggregate_type (AggregateDeclaration *decl, tree type,
 	      insert_aggregate_field (type, field, 0);
 	    }
 
-	  if (!id && !cd->isCPPclass ())
+	  if (!id && cd->hasMonitor ())
 	    {
 	      tree field = create_field_decl (ptr_type_node, "__monitor", 1,
 					      inherited_p);
@@ -874,7 +874,7 @@ public:
 	Type *underlying = NULL;
 
 	/* Skip over the prefixing `__c_'.  */
-	gcc_assert (strncmp (ident, "__c_", strlen ("__c_")) == 0);
+	gcc_assert (startswith (ident, "__c_"));
 	ident = ident + strlen ("__c_");
 
 	/* To keep things compatible within the code generation we stick to
@@ -886,7 +886,8 @@ public:
 	else if (strcmp (ident, "ulong") == 0)
 	  underlying = build_frontend_type (long_unsigned_type_node);
 	else if (strcmp (ident, "wchar_t") == 0)
-	  underlying = target.c.twchar_t;
+	  underlying =
+	    build_frontend_type (make_unsigned_type (WCHAR_TYPE_SIZE));
 	else if (strcmp (ident, "longlong") == 0)
 	  underlying = build_frontend_type (long_long_integer_type_node);
 	else if (strcmp (ident, "ulonglong") == 0)

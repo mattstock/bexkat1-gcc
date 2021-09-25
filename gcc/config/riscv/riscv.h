@@ -98,6 +98,7 @@ extern const char *riscv_default_mtune (int argc, const char **argv);
 %{" FPIE_OR_FPIC_SPEC ":-fpic} \
 %{march=*} \
 %{mabi=*} \
+%{mno-relax} \
 %{mbig-endian} \
 %{mlittle-endian} \
 %(subtarget_asm_spec)" \
@@ -145,6 +146,10 @@ ASM_MISA_SPEC
 #ifndef IN_LIBGCC2
 #define MIN_UNITS_PER_WORD 4
 #endif
+
+/* Allows SImode op in builtin overflow pattern, see internal-fn.c.  */
+#undef TARGET_MIN_ARITHMETIC_PRECISION
+#define TARGET_MIN_ARITHMETIC_PRECISION riscv_min_arithmetic_precision
 
 /* The `Q' extension is not yet supported.  */
 #define UNITS_PER_FP_REG (TARGET_DOUBLE_FLOAT ? 8 : 4)

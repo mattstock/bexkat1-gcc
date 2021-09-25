@@ -158,9 +158,12 @@ static size_t rtvec_alloc_sizes;
    Store the length, and initialize all elements to zero.  */
 
 rtvec
-rtvec_alloc (int n)
+rtvec_alloc (size_t n)
 {
   rtvec rt;
+
+  /* rtvec_def.num_elem is an int.  */
+  gcc_assert (n < INT_MAX);
 
   rt = ggc_alloc_rtvec_sized (n);
   /* Clear out the vector.  */
@@ -295,14 +298,13 @@ copy_rtx (rtx orig)
     case SYMBOL_REF:
     case CODE_LABEL:
     case PC:
-    case CC0:
     case RETURN:
     case SIMPLE_RETURN:
     case SCRATCH:
       /* SCRATCH must be shared because they represent distinct values.  */
       return orig;
     case CLOBBER:
-      /* Share clobbers of hard registers (like cc0), but do not share pseudo reg
+      /* Share clobbers of hard registers, but do not share pseudo reg
          clobbers or clobbers of hard registers that originated as pseudos.
          This is needed to allow safe register renaming.  */
       if (REG_P (XEXP (orig, 0)) && REGNO (XEXP (orig, 0)) < FIRST_PSEUDO_REGISTER
@@ -388,14 +390,15 @@ shallow_copy_rtx (const_rtx orig MEM_STAT_DECL)
     case SYMBOL_REF:
     case CODE_LABEL:
     case PC:
-    case CC0:
     case RETURN:
     case SIMPLE_RETURN:
     case SCRATCH:
       break;
     default:
-      /* For all other RTXes clear the used flag on the copy.  */
-      RTX_FLAG (copy, used) = 0;
+      /* For all other RTXes clear the used flag on the copy.
+	 CALL_INSN use "used" flag to indicate it's a fake call.  */
+      if (!INSN_P (orig))
+	RTX_FLAG (copy, used) = 0;
       break;
     }
   return copy;
@@ -731,6 +734,21 @@ rtvec_all_equal_p (const_rtvec vec)
 	  return false;
       return true;
     }
+}
+
+/* Return true if VEC contains a linear series of integers
+   { START, START+1, START+2, ... }.  */
+
+bool
+rtvec_series_p (rtvec vec, int start)
+{
+  for (int i = 0; i < GET_NUM_ELEM (vec); i++)
+    {
+      rtx x = RTVEC_ELT (vec, i);
+      if (!CONST_INT_P (x) || INTVAL (x) != i + start)
+	return false;
+    }
+  return true;
 }
 
 /* Return an indication of which type of insn should have X as a body.

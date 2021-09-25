@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- This specification is derived from the Ada Reference Manual for use with --
 -- GNAT. The copyright notice above, and the license provisions that follow --
@@ -41,7 +41,7 @@ pragma Assertion_Policy (Pre => Ignore);
 
 with Ada.Strings.Maps;
 with Ada.Finalization;
-private with Ada.Strings.Text_Output;
+private with Ada.Strings.Text_Buffers;
 
 --  The language-defined package Strings.Unbounded provides a private type
 --  Unbounded_String and a set of operations. An object of type
@@ -53,6 +53,7 @@ private with Ada.Strings.Text_Output;
 --  and selector operations are provided.
 
 package Ada.Strings.Unbounded with
+  SPARK_Mode,
   Initial_Condition => Length (Null_Unbounded_String) = 0
 is
    pragma Preelaborate;
@@ -73,7 +74,7 @@ is
    --  Provides a (nonprivate) access type for explicit processing of
    --  unbounded-length strings.
 
-   procedure Free (X : in out String_Access);
+   procedure Free (X : in out String_Access) with SPARK_Mode => Off;
    --  Performs an unchecked deallocation of an object of type String_Access
 
    --------------------------------------------------------
@@ -81,7 +82,7 @@ is
    --------------------------------------------------------
 
    function To_Unbounded_String
-     (Source : String) return Unbounded_String
+     (Source : String)  return Unbounded_String
    with
      Post   => Length (To_Unbounded_String'Result) = Source'Length,
      Global => null;
@@ -91,8 +92,7 @@ is
      (Length : Natural) return Unbounded_String
    with
      Post   =>
-       Ada.Strings.Unbounded.Length (To_Unbounded_String'Result)
-     = Length,
+       Ada.Strings.Unbounded.Length (To_Unbounded_String'Result) = Length,
      Global => null;
    --  Returns an Unbounded_String that represents an uninitialized String
    --  whose length is Length.
@@ -524,11 +524,11 @@ is
    with
      Pre            =>
        Low - 1 <= Length (Source)
-       and then (if High >= Low
-                 then Low - 1
-                   <= Natural'Last - By'Length
-                    - Natural'Max (Length (Source) - High, 0)
-                 else Length (Source) <= Natural'Last - By'Length),
+         and then (if High >= Low
+                   then Low - 1
+                     <= Natural'Last - By'Length
+                      - Natural'Max (Length (Source) - High, 0)
+                   else Length (Source) <= Natural'Last - By'Length),
      Contract_Cases =>
        (High >= Low =>
           Length (Replace_Slice'Result)
@@ -545,11 +545,11 @@ is
    with
      Pre            =>
        Low - 1 <= Length (Source)
-       and then (if High >= Low
-                 then Low - 1
-                   <= Natural'Last - By'Length
-                    - Natural'Max (Length (Source) - High, 0)
-                 else Length (Source) <= Natural'Last - By'Length),
+         and then (if High >= Low
+                   then Low - 1
+                     <= Natural'Last - By'Length
+                      - Natural'Max (Length (Source) - High, 0)
+                   else Length (Source) <= Natural'Last - By'Length),
      Contract_Cases =>
        (High >= Low =>
           Length (Source)
@@ -586,7 +586,7 @@ is
      Pre    => Position - 1 <= Length (Source)
                  and then (if New_Item'Length /= 0
                            then
-                           New_Item'Length <= Natural'Last - (Position - 1)),
+                             New_Item'Length <= Natural'Last - (Position - 1)),
      Post   =>
        Length (Overwrite'Result)
      = Natural'Max (Length (Source), Position - 1 + New_Item'Length),
@@ -600,7 +600,7 @@ is
      Pre    => Position - 1 <= Length (Source)
                  and then (if New_Item'Length /= 0
                            then
-                           New_Item'Length <= Natural'Last - (Position - 1)),
+                             New_Item'Length <= Natural'Last - (Position - 1)),
      Post   =>
        Length (Source)
      = Natural'Max (Length (Source)'Old, Position - 1 + New_Item'Length),
@@ -733,6 +733,8 @@ is
    --  strings applied to the string represented by Source's original value.
 
 private
+   pragma SPARK_Mode (Off);  --  Controlled types are not in SPARK
+
    pragma Inline (Length);
 
    package AF renames Ada.Finalization;
@@ -748,7 +750,8 @@ private
    end record with Put_Image => Put_Image;
 
    procedure Put_Image
-     (S : in out Ada.Strings.Text_Output.Sink'Class; V : Unbounded_String);
+     (S : in out Ada.Strings.Text_Buffers.Root_Buffer_Type'Class;
+      V : Unbounded_String);
 
    --  The Unbounded_String is using a buffered implementation to increase
    --  speed of the Append/Delete/Insert procedures. The Reference string

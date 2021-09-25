@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -102,7 +102,7 @@ package Table is
       --  mode parameters with scalar values.
 
       type Table_Type is
-        array (Table_Index_Type range <>) of Table_Component_Type;
+        array (Table_Index_Type range <>) of aliased Table_Component_Type;
 
       subtype Big_Table_Type is
         Table_Type (Table_Low_Bound .. Table_Index_Type'Last);

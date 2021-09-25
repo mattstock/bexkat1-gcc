@@ -5382,7 +5382,7 @@ fi
 
 
   gdc_save_DFLAGS=$GDCFLAGS
-  GDCFLAGS="-fno-moduleinfo -nostdinc -I $phobos_cv_abs_srcdir/libdruntime  $GDCFLAGS"
+  GDCFLAGS="-fno-druntime -nostdinc -I $phobos_cv_abs_srcdir/libdruntime  $GDCFLAGS"
 
   ac_ext=d
 ac_compile='$GDC -c $GDCFLAGS conftest.$ac_ext >&5'
@@ -5392,7 +5392,7 @@ ac_compiler_gnu=yes
     { $as_echo "$as_me:${as_lineno-$LINENO}: checking If $GDC can compile D sources" >&5
 $as_echo_n "checking If $GDC can compile D sources... " >&6; }
     cat > conftest.$ac_ext <<_ACEOF
-module mod;
+module object;
 
 
 extern(C) int main() {
@@ -12097,7 +12097,7 @@ CC="$lt_save_CC"
 
 
   gdc_save_DFLAGS=$GDCFLAGS
-  GDCFLAGS="-fno-moduleinfo -nostdinc -I $phobos_cv_abs_srcdir/libdruntime  $GDCFLAGS"
+  GDCFLAGS="-fno-druntime -nostdinc -I $phobos_cv_abs_srcdir/libdruntime  $GDCFLAGS"
 
 
 # Source file extension for D test sources.
@@ -14089,7 +14089,7 @@ fi
 
 
   gdc_save_DFLAGS=$GDCFLAGS
-  GDCFLAGS="-fno-moduleinfo -nostdinc -I $phobos_cv_abs_srcdir/libdruntime -nophoboslib $GDCFLAGS"
+  GDCFLAGS="-fno-druntime -nostdinc -I $phobos_cv_abs_srcdir/libdruntime -nophoboslib $GDCFLAGS"
 
     ac_ext=d
 ac_compile='$GDC -c $GDCFLAGS conftest.$ac_ext >&5'
@@ -14098,7 +14098,7 @@ ac_compiler_gnu=yes
 
     GDCFLAGS="$GDCFLAGS -g -Werror -ffunction-sections -fdata-sections"
     cat > conftest.$ac_ext <<_ACEOF
-module mod;
+module object;
 int foo; void bar() { }
 
 extern(C) int main() {
@@ -14422,6 +14422,8 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 
 
+
+
   ac_ext=c
 ac_cpp='$CPP $CPPFLAGS'
 ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
@@ -14430,17 +14432,29 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for minfo section bracketing" >&5
 $as_echo_n "checking for minfo section bracketing... " >&6; }
+  case "$druntime_cv_target_os" in
+      darwin*)
+	section="__DATA,__minfodata"
+	start="section\$start\$__DATA\$__minfodata"
+	stop="section\$end\$__DATA\$__minfodata"
+	;;
+      *)
+	section="minfo"
+	start="__start_minfo"
+	stop="__stop_minfo"
+	;;
+  esac
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
 
-    void* module_info_ptr __attribute__((section ("minfo")));
-    extern void* __start_minfo __attribute__((visibility ("hidden")));
-    extern void* __stop_minfo __attribute__((visibility ("hidden")));
+    void* module_info_ptr __attribute__((section ("$section")));
+    extern void* start_minfo __asm__("$start") __attribute__((visibility ("hidden")));
+    extern void* stop_minfo __asm__("$stop") __attribute__((visibility ("hidden")));
 
     int main()
     {
         // Never run, just to prevent compiler from optimizing access
-        return &__start_minfo == &__stop_minfo;
+        return (int)(&stop_minfo - &start_minfo);
     }
 
 _ACEOF
@@ -14548,7 +14562,7 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 
   gdc_save_DFLAGS=$GDCFLAGS
-  GDCFLAGS="-fno-moduleinfo -nostdinc -I $phobos_cv_abs_srcdir/libdruntime -nophoboslib $GDCFLAGS"
+  GDCFLAGS="-fno-druntime -nostdinc -I $phobos_cv_abs_srcdir/libdruntime -nophoboslib $GDCFLAGS"
 
   ac_ext=d
 ac_compile='$GDC -c $GDCFLAGS conftest.$ac_ext >&5'
@@ -14562,7 +14576,7 @@ if ${ac_cv_search_malloc+:} false; then :
 else
   ac_func_search_save_LIBS=$LIBS
 cat > conftest.$ac_ext <<_ACEOF
-module mod;
+module object;
  extern(C) int malloc();
 
 extern(C) int main() {
@@ -14608,7 +14622,7 @@ if ${ac_cv_search_pthread_create+:} false; then :
 else
   ac_func_search_save_LIBS=$LIBS
 cat > conftest.$ac_ext <<_ACEOF
-module mod;
+module object;
  extern(C) int pthread_create();
 
 extern(C) int main() {
@@ -14654,7 +14668,7 @@ if ${ac_cv_search_cosf+:} false; then :
 else
   ac_func_search_save_LIBS=$LIBS
 cat > conftest.$ac_ext <<_ACEOF
-module mod;
+module object;
  extern(C) int cosf();
 
 extern(C) int main() {
@@ -14700,7 +14714,7 @@ if ${ac_cv_search_clock_gettime+:} false; then :
 else
   ac_func_search_save_LIBS=$LIBS
 cat > conftest.$ac_ext <<_ACEOF
-module mod;
+module object;
  extern(C) int clock_gettime();
 
 extern(C) int main() {
@@ -14751,7 +14765,7 @@ $as_echo_n "checking for atomic builtins for byte... " >&6; }
 else
 
     cat > conftest.$ac_ext <<_ACEOF
-module mod;
+module object;
 import gcc.builtins;
 
 extern(C) int main() {
@@ -14785,7 +14799,7 @@ $as_echo_n "checking for atomic builtins for short... " >&6; }
 else
 
     cat > conftest.$ac_ext <<_ACEOF
-module mod;
+module object;
 import gcc.builtins;
 
 extern(C) int main() {
@@ -14819,7 +14833,7 @@ $as_echo_n "checking for atomic builtins for int... " >&6; }
 else
 
     cat > conftest.$ac_ext <<_ACEOF
-module mod;
+module object;
 import gcc.builtins;
 
 extern(C) int main() {
@@ -14853,7 +14867,7 @@ $as_echo_n "checking for atomic builtins for long... " >&6; }
 else
 
     cat > conftest.$ac_ext <<_ACEOF
-module mod;
+module object;
 import gcc.builtins;
 
 extern(C) int main() {
@@ -14917,7 +14931,7 @@ fi
 
   DCFG_HAVE_LIBATOMIC=false
   LIBATOMIC=
-  if test "x$with_libatomic" != "xno"; then :
+  if test "x$enable_libatomic" != "xno" && test "x$with_libatomic" != "xno"; then :
 
     DCFG_HAVE_LIBATOMIC=true
     LIBATOMIC=../../libatomic/libatomic_convenience.la
@@ -14953,7 +14967,7 @@ if test "${with_libbacktrace+set}" = set; then :
 fi
 
 
-  if test "x$with_libbacktrace" != "xno"; then :
+  if test "x$enable_libbacktrace" != "xno" && test "x$with_libbacktrace" != "xno"; then :
 
     LIBBACKTRACE=../../libbacktrace/libbacktrace.la
 

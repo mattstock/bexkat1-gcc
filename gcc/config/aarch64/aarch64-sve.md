@@ -1287,7 +1287,7 @@
 ;; -------------------------------------------------------------------------
 
 ;; Predicated load and extend, with 8 elements per 128-bit block.
-(define_insn_and_rewrite "@aarch64_load_<ANY_EXTEND:optab><SVE_HSDI:mode><SVE_PARTIAL_I:mode>"
+(define_insn_and_rewrite "@aarch64_load<SVE_PRED_LOAD:pred_load>_<ANY_EXTEND:optab><SVE_HSDI:mode><SVE_PARTIAL_I:mode>"
   [(set (match_operand:SVE_HSDI 0 "register_operand" "=w")
 	(unspec:SVE_HSDI
 	  [(match_operand:<SVE_HSDI:VPRED> 3 "general_operand" "UplDnm")
@@ -1295,7 +1295,7 @@
 	     (unspec:SVE_PARTIAL_I
 	       [(match_operand:<SVE_PARTIAL_I:VPRED> 2 "register_operand" "Upl")
 		(match_operand:SVE_PARTIAL_I 1 "memory_operand" "m")]
-	       UNSPEC_LD1_SVE))]
+	       SVE_PRED_LOAD))]
 	  UNSPEC_PRED_X))]
   "TARGET_SVE && (~<SVE_HSDI:narrower_mask> & <SVE_PARTIAL_I:self_mask>) == 0"
   "ld1<ANY_EXTEND:s><SVE_PARTIAL_I:Vesize>\t%0.<SVE_HSDI:Vctype>, %2/z, %1"
@@ -6870,7 +6870,7 @@
   [(set_attr "movprfx" "*,yes")]
 )
 
-(define_insn "@aarch64_<sur>dot_prod<vsi2qi>"
+(define_insn "@<sur>dot_prod<vsi2qi>"
   [(set (match_operand:VNx4SI_ONLY 0 "register_operand" "=w, ?&w")
         (plus:VNx4SI_ONLY
 	  (unspec:VNx4SI_ONLY

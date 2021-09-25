@@ -166,7 +166,6 @@ target_modules = { module= libquadmath; };
 target_modules = { module= libgfortran; };
 target_modules = { module= libobjc; };
 target_modules = { module= libgo; };
-target_modules = { module= libhsail-rt; };
 target_modules = { module= libphobos;
 		   lib_path=src/.libs; };
 target_modules = { module= libtermcap; no_check=true;
@@ -292,6 +291,7 @@ flags_to_pass = { flag= CFLAGS_FOR_TARGET ; };
 flags_to_pass = { flag= CPPFLAGS_FOR_TARGET ; };
 flags_to_pass = { flag= CXXFLAGS_FOR_TARGET ; };
 flags_to_pass = { flag= DLLTOOL_FOR_TARGET ; };
+flags_to_pass = { flag= DSYMUTIL_FOR_TARGET ; };
 flags_to_pass = { flag= FLAGS_FOR_TARGET ; };
 flags_to_pass = { flag= GFORTRAN_FOR_TARGET ; };
 flags_to_pass = { flag= GOC_FOR_TARGET ; };
@@ -423,6 +423,7 @@ dependencies = { module=all-gdb; on=all-sim; };
 dependencies = { module=all-gdb; on=all-libdecnumber; };
 dependencies = { module=all-gdb; on=all-libtermcap; };
 dependencies = { module=all-gdb; on=all-libctf; };
+dependencies = { module=all-gdb; on=all-libbacktrace; };
 
 // Host modules specific to gdbserver.
 dependencies = { module=configure-gdbserver; on=all-gnulib; };
@@ -469,6 +470,14 @@ dependencies = { module=all-ld; on=all-libctf; };
 // library.
 dependencies = { module=install-binutils; on=install-opcodes; };
 dependencies = { module=install-strip-binutils; on=install-strip-opcodes; };
+
+// Likewise for ld, libctf, and bfd.
+dependencies = { module=install-libctf; on=install-bfd; };
+dependencies = { module=install-ld; on=install-bfd; };
+dependencies = { module=install-ld; on=install-libctf; };
+dependencies = { module=install-strip-libctf; on=install-strip-bfd; };
+dependencies = { module=install-strip-ld; on=install-strip-bfd; };
+dependencies = { module=install-strip-ld; on=install-strip-libctf; };
 
 // libopcodes depends on libbfd
 dependencies = { module=install-opcodes; on=install-bfd; };
@@ -541,6 +550,7 @@ dependencies = { module=install-strip-sid; on=install-strip-tcl; };
 dependencies = { module=install-sid; on=install-tk; };
 dependencies = { module=install-strip-sid; on=install-strip-tk; };
 
+dependencies = { module=configure-sim; on=all-gnulib; };
 dependencies = { module=configure-sim; on=configure-intl; };
 dependencies = { module=all-sim; on=all-intl; };
 dependencies = { module=all-sim; on=all-libiberty; };
@@ -561,6 +571,12 @@ dependencies = { module=configure-libctf; on=all-intl; };
 dependencies = { module=configure-libctf; on=all-zlib; };
 dependencies = { module=configure-libctf; on=all-libiconv; };
 dependencies = { module=check-libctf; on=all-ld; };
+
+// The Makefiles in gdb and gdbserver pull in a file that configure
+// generates in the gnulib directory, so distclean gnulib only after
+// gdb and gdbserver.
+dependencies = { module=distclean-gnulib; on=distclean-gdb; };
+dependencies = { module=distclean-gnulib; on=distclean-gdbserver; };
 
 // Warning, these are not well tested.
 dependencies = { module=all-bison; on=all-intl; };
@@ -590,6 +606,7 @@ dependencies = { module=configure-target-fastjar; on=configure-target-zlib; };
 dependencies = { module=all-target-fastjar; on=all-target-zlib; };
 dependencies = { module=configure-target-libgo; on=configure-target-libffi; };
 dependencies = { module=configure-target-libgo; on=all-target-libstdc++-v3; };
+dependencies = { module=configure-target-libffi; on=all-target-libstdc++-v3; };
 dependencies = { module=all-target-libgo; on=all-target-libbacktrace; };
 dependencies = { module=all-target-libgo; on=all-target-libffi; };
 dependencies = { module=all-target-libgo; on=all-target-libatomic; };
@@ -651,10 +668,9 @@ languages = { language=obj-c++;	gcc-check-target=check-obj-c++; };
 languages = { language=go;	gcc-check-target=check-go;
 				lib-check-target=check-target-libgo;
 				lib-check-target=check-gotools; };
-languages = { language=brig;	gcc-check-target=check-brig;
-				lib-check-target=check-target-libhsail-rt; };
 languages = { language=d;	gcc-check-target=check-d;
 				lib-check-target=check-target-libphobos; };
+languages = { language=jit;	gcc-check-target=check-jit; };
 
 // Toplevel bootstrap
 bootstrap_stage = { id=1 ; };

@@ -278,21 +278,6 @@ get_concept_check_template (tree t)
   return tmpl;
 }
 
-/* Returns true if any of the arguments in the template argument list is
-   a wildcard or wildcard pack.  */
-
-bool
-contains_wildcard_p (tree args)
-{
-  for (int i = 0; i < TREE_VEC_LENGTH (args); ++i)
-    {
-      tree arg = TREE_VEC_ELT (args, i);
-      if (TREE_CODE (arg) == WILDCARD_DECL)
-	return true;
-    }
-  return false;
-}
-
 /*---------------------------------------------------------------------------
                     Resolution of qualified concept names
 ---------------------------------------------------------------------------*/
@@ -933,25 +918,22 @@ get_normalized_constraints_from_decl (tree d, bool diag = false)
       tmpl = most_general_template (tmpl);
   }
 
+  d = tmpl ? tmpl : decl;
+
   /* If we're not diagnosing errors, use cached constraints, if any.  */
   if (!diag)
-    if (tree *p = hash_map_safe_get (normalized_map, tmpl))
+    if (tree *p = hash_map_safe_get (normalized_map, d))
       return *p;
 
   tree norm = NULL_TREE;
-  if (tree ci = get_constraints (decl))
+  if (tree ci = get_constraints (d))
     {
-      push_nested_class_guard pncs (DECL_CONTEXT (d));
-
-      temp_override<tree> ovr (current_function_decl);
-      if (TREE_CODE (decl) == FUNCTION_DECL)
-	current_function_decl = decl;
-
+      push_access_scope_guard pas (decl);
       norm = get_normalized_constraints_from_info (ci, tmpl, diag);
     }
 
   if (!diag)
-    hash_map_safe_put<hm_ggc> (normalized_map, tmpl, norm);
+    hash_map_safe_put<hm_ggc> (normalized_map, d, norm);
 
   return norm;
 }
@@ -1308,18 +1290,6 @@ maybe_substitute_reqs_for (tree reqs, const_tree decl_)
 				tf_warning_or_error, NULL_TREE);
     }
   return reqs;
-}
-
-/* Returns the template-head requires clause for the template
-   declaration T or NULL_TREE if none.  */
-
-tree
-get_template_head_requirements (tree t)
-{
-  tree ci = get_constraints (t);
-  if (!ci)
-    return NULL_TREE;
-  return CI_TEMPLATE_REQS (ci);
 }
 
 /* Returns the trailing requires clause of the declarator of
@@ -2298,7 +2268,8 @@ tsubst_requires_expr (tree t, tree args, sat_info info)
   /* A requires-expression is an unevaluated context.  */
   cp_unevaluated u;
 
-  args = add_extra_args (REQUIRES_EXPR_EXTRA_ARGS (t), args);
+  args = add_extra_args (REQUIRES_EXPR_EXTRA_ARGS (t), args,
+			 info.complain, info.in_decl);
   if (processing_template_decl)
     {
       /* We're partially instantiating a generic lambda.  Substituting into
@@ -2747,6 +2718,7 @@ tsubst_constraint (tree t, tree args, tsubst_flags_t complain, tree in_decl)
   /* We also don't want to evaluate concept-checks when substituting the
      constraint-expressions of a declaration.  */
   processing_constraint_expression_sentinel s;
+  cp_unevaluated u;
   tree expr = tsubst_expr (t, args, complain, in_decl, false);
   return expr;
 }
@@ -3005,7 +2977,10 @@ satisfy_atom (tree t, tree args, sat_info info)
 
   /* Compute the value of the constraint.  */
   if (info.noisy ())
-    result = cxx_constant_value (result);
+    {
+      iloc_sentinel ils (EXPR_LOCATION (result));
+      result = cxx_constant_value (result);
+    }
   else
     {
       result = maybe_constant_value (result, NULL_TREE,
@@ -3088,6 +3063,15 @@ normalize_placeholder_type_constraints (tree t, bool diag)
      scope for this placeholder type; use them as the initial template
      parameters for normalization.  */
   tree initial_parms = TREE_PURPOSE (ci);
+
+  if (!initial_parms && TEMPLATE_TYPE_LEVEL (t) == 2)
+    /* This is a return-type-requirement of a non-templated requires-expression,
+       which are parsed under processing_template_decl == 1 and empty
+       current_template_parms; hence the 'auto' has level 2 and initial_parms
+       is empty.  Fix up initial_parms to be consistent with the value of
+       processing_template_decl whence the 'auto' was created.  */
+    initial_parms = build_tree_list (size_int (1), make_tree_vec (0));
+
   /* The 'auto' itself is used as the first argument in its own constraints,
      and its level is one greater than its template depth.  So in order to
      capture all used template parameters, we need to add an extra level of
@@ -3304,14 +3288,14 @@ constraint_satisfaction_value (tree t, tree args, sat_info info)
   else
     r = satisfy_nondeclaration_constraints (t, args, info);
   if (r == error_mark_node && info.quiet ()
-      && !(DECL_P (t) && TREE_NO_WARNING (t)))
+      && !(DECL_P (t) && warning_suppressed_p (t)))
     {
       /* Replay the error noisily.  */
       sat_info noisy (tf_warning_or_error, info.in_decl);
       constraint_satisfaction_value (t, args, noisy);
       if (DECL_P (t) && !args)
 	/* Avoid giving these errors again.  */
-	TREE_NO_WARNING (t) = true;
+	suppress_warning (t);
     }
   return r;
 }
@@ -3354,7 +3338,7 @@ evaluate_concept_check (tree check)
 }
 
 /* Evaluate the requires-expression T, returning either boolean_true_node
-   or boolean_false_node.  This is used during gimplification and constexpr
+   or boolean_false_node.  This is used during folding and constexpr
    evaluation.  */
 
 tree
@@ -3465,31 +3449,6 @@ check_function_concept (tree fn)
   return NULL_TREE;
 }
 
-
-// Check that a constrained friend declaration function declaration,
-// FN, is admissible. This is the case only when the declaration depends
-// on template parameters and does not declare a specialization.
-void
-check_constrained_friend (tree fn, tree reqs)
-{
-  if (fn == error_mark_node)
-    return;
-  gcc_assert (TREE_CODE (fn) == FUNCTION_DECL);
-
-  // If there are not constraints, this cannot be an error.
-  if (!reqs)
-    return;
-
-  // Constrained friend functions that don't depend on template
-  // arguments are effectively meaningless.
-  if (!uses_template_parms (TREE_TYPE (fn)))
-    {
-      error_at (location_of (fn),
-		"constrained friend does not depend on template parameters");
-      return;
-    }
-}
-
 /*---------------------------------------------------------------------------
                         Equivalence of constraints
 ---------------------------------------------------------------------------*/
@@ -3516,16 +3475,6 @@ equivalently_constrained (tree d1, tree d2)
 /*---------------------------------------------------------------------------
                      Partial ordering of constraints
 ---------------------------------------------------------------------------*/
-
-/* Returns true when the constraints in A subsume those in B.  */
-
-bool
-subsumes_constraints (tree a, tree b)
-{
-  gcc_assert (!a || TREE_CODE (a) == CONSTRAINT_INFO);
-  gcc_assert (!b || TREE_CODE (b) == CONSTRAINT_INFO);
-  return subsumes (a, b);
-}
 
 /* Returns true when the constraints in CI strictly subsume
    the associated constraints of TMPL.  */
@@ -3681,8 +3630,15 @@ diagnose_trait_expr (tree expr, tree args)
     case CPTK_IS_FINAL:
       inform (loc, "  %qT is not a final class", t1);
       break;
+    case CPTK_IS_LAYOUT_COMPATIBLE:
+      inform (loc, "  %qT is not layout compatible with %qT", t1, t2);
+      break;
     case CPTK_IS_LITERAL_TYPE:
       inform (loc, "  %qT is not a literal type", t1);
+      break;
+    case CPTK_IS_POINTER_INTERCONVERTIBLE_BASE_OF:
+      inform (loc, "  %qT is not pointer-interconvertible base of %qT",
+	      t1, t2);
       break;
     case CPTK_IS_POD:
       inform (loc, "  %qT is not a POD type", t1);

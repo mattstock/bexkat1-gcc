@@ -35,6 +35,7 @@
 // { dg-xfail-run-if "Non-conforming printf (see PR98384)" { *-*-solaris* *-*-darwin* } }
 
 // { dg-require-effective-target ieee-floats }
+// { dg-require-effective-target size32plus }
 
 #include <charconv>
 
@@ -69,7 +70,7 @@ test01()
   // Verifies correctness of the hexadecimal form [BEGIN,END) for VALUE by
   // round-tripping it through from_chars (if available).
   auto verify_via_from_chars = [] (char *begin, char *end, long double value) {
-#if __cpp_lib_to_chars >= 201611L || _GLIBCXX_HAVE_USELOCALE
+#if __cpp_lib_to_chars >= 201611L
     long double roundtrip;
     auto result = from_chars(begin, end, roundtrip, chars_format::hex);
     VERIFY( result.ec == errc{} );

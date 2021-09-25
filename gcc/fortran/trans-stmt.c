@@ -1226,7 +1226,8 @@ gfc_trans_sync (gfc_code *code, gfc_exec_op type)
 
   if (code->expr2)
     {
-      gcc_assert (code->expr2->expr_type == EXPR_VARIABLE);
+      gcc_assert (code->expr2->expr_type == EXPR_VARIABLE
+		  || code->expr2->expr_type == EXPR_FUNCTION);
       gfc_init_se (&argse, NULL);
       gfc_conv_expr_val (&argse, code->expr2);
       stat = argse.expr;
@@ -1236,7 +1237,8 @@ gfc_trans_sync (gfc_code *code, gfc_exec_op type)
 
   if (code->expr3 && flag_coarray == GFC_FCOARRAY_LIB)
     {
-      gcc_assert (code->expr3->expr_type == EXPR_VARIABLE);
+      gcc_assert (code->expr3->expr_type == EXPR_VARIABLE
+		  || code->expr3->expr_type == EXPR_FUNCTION);
       gfc_init_se (&argse, NULL);
       argse.want_pointer = 1;
       gfc_conv_expr (&argse, code->expr3);
@@ -1786,9 +1788,10 @@ trans_associate_var (gfc_symbol *sym, gfc_wrapped_block *block)
 	  /* Go straight to the class data.  */
 	  if (sym2->attr.dummy && !sym2->attr.optional)
 	    {
-	      class_decl = DECL_LANG_SPECIFIC (sym2->backend_decl) ?
-			   GFC_DECL_SAVED_DESCRIPTOR (sym2->backend_decl) :
-			   sym2->backend_decl;
+	      class_decl = sym2->backend_decl;
+	      if (DECL_LANG_SPECIFIC (class_decl)
+		  && GFC_DECL_SAVED_DESCRIPTOR (class_decl))
+		class_decl = GFC_DECL_SAVED_DESCRIPTOR (class_decl);
 	      if (POINTER_TYPE_P (TREE_TYPE (class_decl)))
 		class_decl = build_fold_indirect_ref_loc (input_location,
 							  class_decl);

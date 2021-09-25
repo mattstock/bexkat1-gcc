@@ -990,6 +990,34 @@ done:
 }
 
 
+/* Standard intrinsics listed under F2018:10.1.2 (6), which are excluded in
+   constant expressions, except TRANSFER (c.f. item (8)), which would need
+   separate treatment.  */
+
+static bool
+is_non_constant_intrinsic (gfc_expr *e)
+{
+  if (e->expr_type == EXPR_FUNCTION
+      && e->value.function.isym)
+    {
+      switch (e->value.function.isym->id)
+	{
+	  case GFC_ISYM_COMMAND_ARGUMENT_COUNT:
+	  case GFC_ISYM_GET_TEAM:
+	  case GFC_ISYM_NULL:
+	  case GFC_ISYM_NUM_IMAGES:
+	  case GFC_ISYM_TEAM_NUMBER:
+	  case GFC_ISYM_THIS_IMAGE:
+	    return true;
+
+	default:
+	  return false;
+	}
+    }
+  return false;
+}
+
+
 /* Determine if an expression is constant in the sense of F08:7.1.12.
  * This function expects that the expression has already been simplified.  */
 
@@ -1022,6 +1050,10 @@ gfc_is_constant_expr (gfc_expr *e)
     case EXPR_COMPCALL:
       gcc_assert (e->symtree || e->value.function.esym
 		  || e->value.function.isym);
+
+      /* Check for intrinsics excluded in constant expressions.  */
+      if (e->value.function.isym && is_non_constant_intrinsic (e))
+	return false;
 
       /* Call to intrinsic with at least one argument.  */
       if (e->value.function.isym && e->value.function.actual)
@@ -1337,7 +1369,9 @@ find_array_element (gfc_constructor_base base, gfc_array_ref *ar,
   for (i = 0; i < ar->dimen; i++)
     {
       if (!gfc_reduce_init_expr (ar->as->lower[i])
-	  || !gfc_reduce_init_expr (ar->as->upper[i]))
+	  || !gfc_reduce_init_expr (ar->as->upper[i])
+	  || ar->as->upper[i]->expr_type != EXPR_CONSTANT
+	  || ar->as->lower[i]->expr_type != EXPR_CONSTANT)
 	{
 	  t = false;
 	  cons = NULL;
@@ -1350,9 +1384,6 @@ find_array_element (gfc_constructor_base base, gfc_array_ref *ar,
 	  cons = NULL;
 	  goto depart;
 	}
-
-      gcc_assert (ar->as->upper[i]->expr_type == EXPR_CONSTANT
-		  && ar->as->lower[i]->expr_type == EXPR_CONSTANT);
 
       /* Check the bounds.  */
       if ((ar->as->upper[i]
@@ -1725,8 +1756,8 @@ find_substring_ref (gfc_expr *p, gfc_expr **newp)
   *newp = gfc_copy_expr (p);
   free ((*newp)->value.character.string);
 
-  end = (gfc_charlen_t) mpz_get_ui (p->ref->u.ss.end->value.integer);
-  start = (gfc_charlen_t) mpz_get_ui (p->ref->u.ss.start->value.integer);
+  end = (gfc_charlen_t) mpz_get_si (p->ref->u.ss.end->value.integer);
+  start = (gfc_charlen_t) mpz_get_si (p->ref->u.ss.start->value.integer);
   if (end >= start)
     length = end - start + 1;
   else
@@ -3814,6 +3845,9 @@ gfc_check_pointer_assign (gfc_expr *lvalue, gfc_expr *rvalue,
   bool is_pure, is_implicit_pure, rank_remap;
   int proc_pointer;
   bool same_rank;
+
+  if (!lvalue->symtree)
+    return false;
 
   lhs_attr = gfc_expr_attr (lvalue);
   if (lvalue->ts.type == BT_UNKNOWN && !lhs_attr.proc_pointer)
@@ -6121,7 +6155,9 @@ gfc_check_vardef_context (gfc_expr* e, bool pointer, bool alloc_obj,
     }
   if (!pointer && sym->attr.flavor != FL_VARIABLE
       && !(sym->attr.flavor == FL_PROCEDURE && sym == sym->result)
-      && !(sym->attr.flavor == FL_PROCEDURE && sym->attr.proc_pointer))
+      && !(sym->attr.flavor == FL_PROCEDURE && sym->attr.proc_pointer)
+      && !(sym->attr.flavor == FL_PROCEDURE
+	   && sym->attr.function && sym->attr.pointer))
     {
       if (context)
 	gfc_error ("%qs in variable definition context (%s) at %L is not"
@@ -6193,6 +6229,16 @@ gfc_check_vardef_context (gfc_expr* e, bool pointer, bool alloc_obj,
 	  ptr_component = true;
 	  if (!pointer)
 	    check_intentin = false;
+	}
+      if (ref->type == REF_INQUIRY
+	  && (ref->u.i == INQUIRY_KIND || ref->u.i == INQUIRY_LEN))
+	{
+	  if (context)
+	    gfc_error ("%qs parameter inquiry for %qs in "
+		       "variable definition context (%s) at %L",
+		       ref->u.i == INQUIRY_KIND ? "KIND" : "LEN",
+		       sym->name, context, &e->where);
+	  return false;
 	}
     }
 

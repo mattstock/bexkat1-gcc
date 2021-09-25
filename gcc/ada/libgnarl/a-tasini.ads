@@ -6,7 +6,7 @@
 --                                                                          --
 --                                  S p e c                                 --
 --                                                                          --
---             Copyright (C) 2020, Free Software Foundation, Inc.           --
+--             Copyright (C) 2020-2021, Free Software Foundation, Inc.      --
 --                                                                          --
 -- GNARL is free software; you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -30,7 +30,8 @@
 --  when tasks start.
 
 package Ada.Task_Initialization is
-   pragma Preelaborate (Task_Initialization);
+   pragma Preelaborate;
+   pragma No_Elaboration_Code_All;
 
    type Initialization_Handler is access procedure;
 

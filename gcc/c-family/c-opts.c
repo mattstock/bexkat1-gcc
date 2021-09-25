@@ -188,6 +188,14 @@ c_common_diagnostics_set_defaults (diagnostic_context *context)
   context->opt_permissive = OPT_fpermissive;
 }
 
+/* Input charset configuration for diagnostics.  */
+static const char *
+c_common_input_charset_cb (const char * /*filename*/)
+{
+  const char *cs = cpp_opts->input_charset;
+  return cpp_input_conversion_is_trivial (cs) ? nullptr : cs;
+}
+
 /* Whether options from all C-family languages should be accepted
    quietly.  */
 static bool accept_all_c_family_options = false;
@@ -852,9 +860,9 @@ c_common_post_options (const char **pfilename)
   else if (!flag_gnu89_inline && !flag_isoc99)
     error ("%<-fno-gnu89-inline%> is only supported in GNU99 or C99 mode");
 
-  /* Default to ObjC sjlj exception handling if NeXT runtime.  */
+  /* Default to ObjC sjlj exception handling if NeXT runtime < v2.  */
   if (flag_objc_sjlj_exceptions < 0)
-    flag_objc_sjlj_exceptions = flag_next_runtime;
+    flag_objc_sjlj_exceptions = (flag_next_runtime && flag_objc_abi < 2);
   if (flag_objc_exceptions && !flag_objc_sjlj_exceptions)
     flag_exceptions = 1;
 
@@ -1015,6 +1023,10 @@ c_common_post_options (const char **pfilename)
   SET_OPTION_IF_UNSET (&global_options, &global_options_set, flag_finite_loops,
 		       optimize >= 2 && cxx_dialect >= cxx11);
 
+  /* It's OK to discard calls to pure/const functions that might throw.  */
+  SET_OPTION_IF_UNSET (&global_options, &global_options_set,
+		       flag_delete_dead_exceptions, true);
+
   if (cxx_dialect >= cxx11)
     {
       /* If we're allowing C++0x constructs, don't warn about C++98
@@ -1112,9 +1124,10 @@ c_common_post_options (const char **pfilename)
 	  /* Only -g0 and -gdwarf* are supported with PCH, for other
 	     debug formats we warn here and refuse to load any PCH files.  */
 	  if (write_symbols != NO_DEBUG && write_symbols != DWARF2_DEBUG)
-	    warning (OPT_Wdeprecated,
-		     "the %qs debug format cannot be used with "
-		     "pre-compiled headers", debug_type_names[write_symbols]);
+	      warning (OPT_Wdeprecated,
+		       "the %qs debug info cannot be used with "
+		       "pre-compiled headers",
+		       debug_set_names (write_symbols & ~DWARF2_DEBUG));
 	}
       else if (write_symbols != NO_DEBUG && write_symbols != DWARF2_DEBUG)
 	c_common_no_more_pch ();
@@ -1131,6 +1144,11 @@ c_common_post_options (const char **pfilename)
   cpp_post_options (parse_in);
   init_global_opts_from_cpp (&global_options, cpp_get_options (parse_in));
 
+  /* Let diagnostics infrastructure know how to convert input files the same
+     way libcpp will do it, namely using the configured input charset and
+     skipping a UTF-8 BOM if present.  */
+  diagnostic_initialize_input_context (global_dc,
+				       c_common_input_charset_cb, true);
   input_location = UNKNOWN_LOCATION;
 
   *pfilename = this_input_filename

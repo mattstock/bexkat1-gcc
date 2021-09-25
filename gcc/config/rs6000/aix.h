@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /* Definitions of target machine for GNU compiler,
    for IBM RS/6000 POWER running AIX.
    Copyright (C) 2000-2021 Free Software Foundation, Inc.
@@ -22,9 +23,6 @@
 #define DEFAULT_ABI ABI_AIX
 #undef  TARGET_AIX
 #define TARGET_AIX 1
-
-/* System headers are not C++-aware.  */
-#define SYSTEM_IMPLICIT_EXTERN_C 1
 
 /* Linux64.h wants to redefine TARGET_AIX based on -m64, but it can't be used
    in the #if conditional in options-default.h, so provide another macro.  */
@@ -279,3 +277,10 @@
 /* Use standard DWARF numbering for DWARF debugging information.  */
 #define RS6000_USE_DWARF_NUMBERING
 
+#define TARGET_PRECOMPUTE_TLS_P rs6000_aix_precompute_tls_p
+
+/* Replace -m64 with -maix64 and -m32 with -maix32.  */
+#undef SUBTARGET_DRIVER_SELF_SPECS
+#define SUBTARGET_DRIVER_SELF_SPECS	\
+"%{m64:-maix64} %<m64",			\
+"%{m32:-maix32} %<m32"

@@ -160,24 +160,6 @@ begin_lambda_type (tree lambda)
   return type;
 }
 
-/* Returns the type to use for the return type of the operator() of a
-   closure class.  */
-
-tree
-lambda_return_type (tree expr)
-{
-  if (expr == NULL_TREE)
-    return void_type_node;
-  if (type_unknown_p (expr)
-      || BRACE_ENCLOSED_INITIALIZER_P (expr))
-    {
-      cxx_incomplete_type_error (expr, TREE_TYPE (expr));
-      return error_mark_node;
-    }
-  gcc_checking_assert (!type_dependent_expression_p (expr));
-  return cv_unqualified (type_decays_to (unlowered_expr_type (expr)));
-}
-
 /* Given a LAMBDA_EXPR or closure type LAMBDA, return the op() of the
    closure type.  */
 
@@ -1356,9 +1338,9 @@ is_lambda_ignored_entity (tree val)
 
   /* None of the lookups that use qualify_lookup want the op() from the
      lambda; they want the one from the enclosing class.  */
-  val = OVL_FIRST (val);
-  if (LAMBDA_FUNCTION_P (val))
-    return true;
+  if (tree fns = maybe_get_fns (val))
+    if (LAMBDA_FUNCTION_P (OVL_FIRST (fns)))
+      return true;
 
   return false;
 }

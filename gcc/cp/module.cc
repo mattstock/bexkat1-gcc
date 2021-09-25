@@ -194,8 +194,6 @@ Classes used:
 #define MODULE_MINOR(V) ((V) % 10000)
 #define EXPERIMENT(A,B) (IS_EXPERIMENTAL (MODULE_VERSION) ? (A) : (B))
 #ifndef MODULE_VERSION
-// Be sure you're ready!  Remove #error this before release!
-#error "Shtopp! What are you doing? This is not ready yet."
 #include "bversion.h"
 #define MODULE_VERSION (BUILDING_GCC_MAJOR * 10000U + BUILDING_GCC_MINOR)
 #elif !IS_EXPERIMENTAL (MODULE_VERSION)
@@ -276,7 +274,14 @@ static inline cpp_hashnode *cpp_node (tree id)
 
 static inline tree identifier (const cpp_hashnode *node)
 {
+  /* HT_NODE() expands to node->ident that HT_IDENT_TO_GCC_IDENT()
+     then subtracts a nonzero constant, deriving a pointer to
+     a different member than ident.  That's strictly undefined
+     and detected by -Warray-bounds.  Suppress it.  See PR 101372.  */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
   return HT_IDENT_TO_GCC_IDENT (HT_NODE (const_cast<cpp_hashnode *> (node)));
+#pragma GCC diagnostic pop
 }
 
 /* Id for dumping module information.  */
@@ -2822,12 +2827,16 @@ struct merge_key {
 
 struct duplicate_hash : nodel_ptr_hash<tree_node>
 {
+#if 0
+  /* This breaks variadic bases in the xtreme_header tests.  Since ::equal is
+     the default pointer_hash::equal, let's use the default hash as well.  */
   inline static hashval_t hash (value_type decl)
   {
     if (TREE_CODE (decl) == TREE_BINFO)
       decl = TYPE_NAME (BINFO_TYPE (decl));
     return hashval_t (DECL_UID (decl));
   }
+#endif
 };
 
 /* Hashmap of merged duplicates.  Usually decls, but can contain
@@ -6096,9 +6105,8 @@ trees_out::core_vals (tree t)
       break;
 
     case STATEMENT_LIST:
-      for (tree_stmt_iterator iter = tsi_start (t);
-	   !tsi_end_p (iter); tsi_next (&iter))
-	if (tree stmt = tsi_stmt (iter))
+      for (tree stmt : tsi_range (t))
+	if (stmt)
 	  WT (stmt);
       WT (NULL_TREE);
       break;
@@ -8911,7 +8919,7 @@ trees_in::tree_value ()
 	  dump (dumper::MERGE)
 	    && dump ("Deduping binfo %N[%u]", type, ix);
 	  existing = TYPE_BINFO (type);
-	  while (existing && ix)
+	  while (existing && ix--)
 	    existing = TREE_CHAIN (existing);
 	  if (existing)
 	    register_duplicate (t, existing);
@@ -11851,8 +11859,9 @@ trees_in::read_class_def (tree defn, tree maybe_template)
 		{
 		  CLASSTYPE_BEFRIENDING_CLASSES (type_dup)
 		    = CLASSTYPE_BEFRIENDING_CLASSES (type);
-		  CLASSTYPE_TYPEINFO_VAR (type_dup)
-		    = CLASSTYPE_TYPEINFO_VAR (type);
+		  if (!ANON_AGGR_TYPE_P (type))
+		    CLASSTYPE_TYPEINFO_VAR (type_dup)
+		      = CLASSTYPE_TYPEINFO_VAR (type);
 		}
 	      for (tree v = type; v; v = TYPE_NEXT_VARIANT (v))
 		TYPE_LANG_SPECIFIC (v) = ls;
@@ -11882,6 +11891,11 @@ trees_in::read_class_def (tree defn, tree maybe_template)
 	      gcc_checking_assert (!*chain == !DECL_CLONED_FUNCTION_P (decl));
 	      *chain = decl;
 	      chain = &DECL_CHAIN (decl);
+
+	      if (TREE_CODE (decl) == FIELD_DECL
+		  && ANON_AGGR_TYPE_P (TREE_TYPE (decl)))
+		ANON_AGGR_TYPE_FIELD
+		  (TYPE_MAIN_VARIANT (TREE_TYPE (decl))) = decl;
 
 	      if (TREE_CODE (decl) == USING_DECL
 		  && TREE_CODE (USING_DECL_SCOPE (decl)) == RECORD_TYPE)
@@ -17969,7 +17983,7 @@ module_state::read_language (bool outermost)
 
   function_depth++; /* Prevent unexpected GCs.  */
 
-  if (counts[MSC_entities] != entity_num)
+  if (ok && counts[MSC_entities] != entity_num)
     ok = false;
   if (ok && counts[MSC_entities]
       && !read_entities (counts[MSC_entities],
