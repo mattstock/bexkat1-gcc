@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -149,8 +149,7 @@ package body CStand is
    function New_Operator (Op : Name_Id; Typ : Entity_Id) return Entity_Id;
    --  Build entity for standard operator with given name and type
 
-   function New_Standard_Entity
-     (New_Node_Kind : Node_Kind := N_Defining_Identifier) return Entity_Id;
+   function New_Standard_Entity return Entity_Id;
    --  Builds a new entity for Standard
 
    function New_Standard_Entity (Nam : String) return Entity_Id;
@@ -1192,15 +1191,6 @@ package body CStand is
       pragma Assert (not Known_Esize (Any_Id));
       pragma Assert (not Known_Alignment (Any_Id));
 
-      Any_Access := New_Standard_Entity ("an access type");
-      Mutate_Ekind          (Any_Access, E_Access_Type);
-      Set_Scope             (Any_Access, Standard_Standard);
-      Set_Etype             (Any_Access, Any_Access);
-      Init_Size             (Any_Access, System_Address_Size);
-      Set_Elem_Alignment    (Any_Access);
-      Set_Directly_Designated_Type
-                            (Any_Access, Any_Type);
-
       Any_Character := New_Standard_Entity ("a character type");
       Mutate_Ekind          (Any_Character, E_Enumeration_Type);
       Set_Scope             (Any_Character, Standard_Standard);
@@ -1234,9 +1224,10 @@ package body CStand is
       Mutate_Ekind          (Any_Composite, E_Array_Type);
       Set_Scope             (Any_Composite, Standard_Standard);
       Set_Etype             (Any_Composite, Any_Composite);
-      Set_Component_Size    (Any_Composite, Uint_0);
       Set_Component_Type    (Any_Composite, Standard_Integer);
       Reinit_Size_Align     (Any_Composite);
+
+      pragma Assert (not Known_Component_Size (Any_Composite));
 
       Any_Discrete := New_Standard_Entity ("a discrete type");
       Mutate_Ekind          (Any_Discrete, E_Signed_Integer_Type);
@@ -1416,6 +1407,16 @@ package body CStand is
       Set_Size_Known_At_Compile_Time
                            (Universal_Fixed);
 
+      Universal_Access := New_Standard_Entity ("universal_access");
+      Decl := New_Node (N_Full_Type_Declaration, Stloc);
+      Set_Defining_Identifier (Decl, Universal_Access);
+      Mutate_Ekind                 (Universal_Access, E_Access_Type);
+      Set_Etype                    (Universal_Access, Universal_Access);
+      Set_Scope                    (Universal_Access, Standard_Standard);
+      Init_Size                    (Universal_Access, System_Address_Size);
+      Set_Elem_Alignment           (Universal_Access);
+      Set_Directly_Designated_Type (Universal_Access, Any_Type);
+
       --  Create type declaration for Duration, using a 64-bit size. The
       --  delta and size values depend on the mode set in system.ads.
 
@@ -1509,9 +1510,10 @@ package body CStand is
          Set_Scope       (Standard_Exception_Type, Standard_Standard);
          Set_Stored_Constraint
                          (Standard_Exception_Type, No_Elist);
-         Set_RM_Size (Standard_Exception_Type, Uint_0);
          Set_Size_Known_At_Compile_Time
                          (Standard_Exception_Type, True);
+
+         pragma Assert (not Known_RM_Size (Standard_Exception_Type));
 
          Make_Aliased_Component (Standard_Exception_Type, Standard_Boolean,
                          "Not_Handled_By_Others");
@@ -1793,10 +1795,9 @@ package body CStand is
    -- New_Standard_Entity --
    -------------------------
 
-   function New_Standard_Entity
-     (New_Node_Kind : Node_Kind := N_Defining_Identifier) return Entity_Id
+   function New_Standard_Entity return Entity_Id
    is
-      E : constant Entity_Id := New_Entity (New_Node_Kind, Stloc);
+      E : constant Entity_Id := New_Entity (N_Defining_Identifier, Stloc);
 
    begin
       --  All standard entities are Pure and Public

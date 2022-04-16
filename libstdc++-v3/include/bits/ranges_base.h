@@ -1,6 +1,6 @@
 // Core concepts and definitions for <ranges> -*- C++ -*-
 
-// Copyright (C) 2019-2021 Free Software Foundation, Inc.
+// Copyright (C) 2019-2022 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -383,6 +383,8 @@ namespace ranges
     template<typename _Tp>
       concept __sentinel_size = requires(_Tp& __t)
 	{
+	  requires (!is_unbounded_array_v<remove_reference_t<_Tp>>);
+
 	  { _Begin{}(__t) } -> forward_iterator;
 
 	  { _End{}(__t) } -> sized_sentinel_for<decltype(_Begin{}(__t))>;
@@ -466,6 +468,8 @@ namespace ranges
     template<typename _Tp>
       concept __eq_iter_empty = requires(_Tp& __t)
 	{
+	  requires (!is_unbounded_array_v<remove_reference_t<_Tp>>);
+
 	  { _Begin{}(__t) } -> forward_iterator;
 
 	  bool(_Begin{}(__t) == _End{}(__t));
@@ -614,12 +618,31 @@ namespace ranges
   template<sized_range _Range>
     using range_size_t = decltype(ranges::size(std::declval<_Range&>()));
 
+  template<typename _Derived>
+    requires is_class_v<_Derived> && same_as<_Derived, remove_cv_t<_Derived>>
+    class view_interface; // defined in <bits/ranges_util.h>
+
+  namespace __detail
+  {
+    template<typename _Tp, typename _Up>
+      requires (!same_as<_Tp, view_interface<_Up>>)
+      void __is_derived_from_view_interface_fn(const _Tp&,
+					       const view_interface<_Up>&); // not defined
+
+    // Returns true iff _Tp has exactly one public base class that's a
+    // specialization of view_interface.
+    template<typename _Tp>
+      concept __is_derived_from_view_interface
+	= requires (_Tp __t) { __is_derived_from_view_interface_fn(__t, __t); };
+  } // namespace __detail
+
   /// [range.view] The ranges::view_base type.
   struct view_base { };
 
   /// [range.view] The ranges::enable_view boolean.
   template<typename _Tp>
-    inline constexpr bool enable_view = derived_from<_Tp, view_base>;
+    inline constexpr bool enable_view = derived_from<_Tp, view_base>
+      || __detail::__is_derived_from_view_interface<_Tp>;
 
   /// [range.view] The ranges::view concept.
   template<typename _Tp>
@@ -666,10 +689,23 @@ namespace ranges
     concept common_range
       = range<_Tp> && same_as<iterator_t<_Tp>, sentinel_t<_Tp>>;
 
+  namespace __detail
+  {
+    template<typename _Tp>
+      inline constexpr bool __is_initializer_list = false;
+
+    template<typename _Tp>
+      inline constexpr bool __is_initializer_list<initializer_list<_Tp>> = true;
+  } // namespace __detail
+
   /// A range which can be safely converted to a view.
   template<typename _Tp>
     concept viewable_range = range<_Tp>
-      && (borrowed_range<_Tp> || view<remove_cvref_t<_Tp>>);
+      && ((view<remove_cvref_t<_Tp>> && constructible_from<remove_cvref_t<_Tp>, _Tp>)
+	  || (!view<remove_cvref_t<_Tp>>
+	      && (is_lvalue_reference_v<_Tp>
+		  || (movable<remove_reference_t<_Tp>>
+		      && !__detail::__is_initializer_list<remove_cvref_t<_Tp>>))));
 
   // [range.iter.ops] range iterator operations
 
@@ -732,20 +768,23 @@ namespace ranges
 	  {
 	    const auto __diff = __bound - __it;
 
-	    // n and bound must not lead in opposite directions:
-	    __glibcxx_assert(__n == 0 || __diff == 0 || (__n < 0 == __diff < 0));
-	    const auto __absdiff = __diff < 0 ? -__diff : __diff;
-	    const auto __absn = __n < 0 ? -__n : __n;;
-	    if (__absn >= __absdiff)
+	    if (__diff == 0)
+	      return __n;
+	    else if (__diff > 0 ? __n >= __diff : __n <= __diff)
 	      {
 		(*this)(__it, __bound);
 		return __n - __diff;
 	      }
-	    else
+	    else if (__n != 0) [[likely]]
 	      {
+		// n and bound must not lead in opposite directions:
+		__glibcxx_assert(__n < 0 == __diff < 0);
+
 		(*this)(__it, __n);
 		return 0;
 	      }
+	    else
+	      return 0;
 	  }
 	else if (__it == __bound || __n == 0)
 	  return __n;
@@ -787,22 +826,25 @@ namespace ranges
   struct __distance_fn final
   {
     template<input_or_output_iterator _It, sentinel_for<_It> _Sent>
+      requires (!sized_sentinel_for<_Sent, _It>)
+      constexpr iter_difference_t<_It>
+      operator()[[nodiscard]](_It __first, _Sent __last) const
+      {
+	iter_difference_t<_It> __n = 0;
+	while (__first != __last)
+	  {
+	    ++__first;
+	    ++__n;
+	  }
+	return __n;
+      }
+
+    template<input_or_output_iterator _It, sized_sentinel_for<_It> _Sent>
       [[nodiscard]]
       constexpr iter_difference_t<_It>
-      operator()(_It __first, _Sent __last) const
+      operator()(const _It& __first, const _Sent& __last) const
       {
-	if constexpr (sized_sentinel_for<_Sent, _It>)
-	  return __last - __first;
-	else
-	  {
-	    iter_difference_t<_It> __n = 0;
-	    while (__first != __last)
-	      {
-		++__first;
-		++__n;
-	      }
-	    return __n;
-	  }
+	return __last - __first;
       }
 
     template<range _Range>
@@ -907,9 +949,9 @@ namespace ranges
   };
 
   template<range _Range>
-    using borrowed_iterator_t = conditional_t<borrowed_range<_Range>,
-					     iterator_t<_Range>,
-					     dangling>;
+    using borrowed_iterator_t = __conditional_t<borrowed_range<_Range>,
+						iterator_t<_Range>,
+						dangling>;
 
 } // namespace ranges
 _GLIBCXX_END_NAMESPACE_VERSION

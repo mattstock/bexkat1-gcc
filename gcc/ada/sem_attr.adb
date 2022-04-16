@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -74,6 +74,7 @@ with Sinfo.Utils;    use Sinfo.Utils;
 with Sinput;         use Sinput;
 with System;
 with Stringt;        use Stringt;
+with Strub;          use Strub;
 with Style;
 with Stylesw;        use Stylesw;
 with Targparm;       use Targparm;
@@ -988,7 +989,15 @@ package body Sem_Attr is
                   Set_Etype  (P, Typ);
                end if;
 
-               if Typ = Scop then
+               --  A current instance typically appears immediately within
+               --  the type declaration, but may be nested within an internally
+               --  generated temporary scope - as for an aggregate of a
+               --  discriminated component.
+
+               if Typ = Scop
+                 or else (In_Open_Scopes (Typ)
+                           and then not Comes_From_Source (Scop))
+               then
                   declare
                      Q : Node_Id := Parent (N);
 
@@ -1175,7 +1184,7 @@ package body Sem_Attr is
          function Is_Within
            (Nod      : Node_Id;
             Encl_Nod : Node_Id) return Boolean;
-         --  Subsidiary to Check_Placemenet_In_XXX. Determine whether arbitrary
+         --  Subsidiary to Check_Placement_In_XXX. Determine whether arbitrary
          --  node Nod is within enclosing node Encl_Nod.
 
          procedure Placement_Error;
@@ -1339,6 +1348,16 @@ package body Sem_Attr is
          Legal   := False;
          Spec_Id := Empty;
 
+         --  Skip processing during preanalysis of class-wide preconditions and
+         --  postconditions since at this stage the expression is not installed
+         --  yet on its definite context.
+
+         if Inside_Class_Condition_Preanalysis then
+            Legal   := True;
+            Spec_Id := Current_Scope;
+            return;
+         end if;
+
          --  Traverse the parent chain to find the aspect or pragma where the
          --  attribute resides.
 
@@ -1403,6 +1422,15 @@ package body Sem_Attr is
                return;
             end if;
 
+         --  'Old attribute reference ok in a _Postconditions procedure
+
+         elsif Nkind (Prag) = N_Subprogram_Body
+           and then not Comes_From_Source (Prag)
+           and then Nkind (Corresponding_Spec (Prag)) = N_Defining_Identifier
+           and then Chars (Corresponding_Spec (Prag)) = Name_uPostconditions
+         then
+            null;
+
          --  Otherwise the placement of the attribute is illegal
 
          else
@@ -1414,6 +1442,15 @@ package body Sem_Attr is
 
          if Nkind (Prag) = N_Aspect_Specification then
             Subp_Decl := Parent (Prag);
+         elsif Nkind (Prag) = N_Subprogram_Body then
+            declare
+               Enclosing_Scope : constant Node_Id :=
+                 Scope (Corresponding_Spec (Prag));
+            begin
+               pragma Assert (Postconditions_Proc (Enclosing_Scope)
+                               = Corresponding_Spec (Prag));
+               Subp_Decl := Parent (Parent (Enclosing_Scope));
+            end;
          else
             Subp_Decl := Find_Related_Declaration_Or_Body (Prag);
          end if;
@@ -2593,6 +2630,15 @@ package body Sem_Attr is
             Check_Restriction (No_Exception_Registration, P);
          end if;
 
+         --  If the No_Tagged_Type_Registration restriction is active, then
+         --  class-wide streaming attributes are not allowed.
+
+         if Restriction_Check_Required (No_Tagged_Type_Registration)
+           and then Is_Class_Wide_Type (P_Type)
+         then
+            Check_Restriction (No_Tagged_Type_Registration, P);
+         end if;
+
          --  Here we must check that the first argument is an access type
          --  that is compatible with Ada.Streams.Root_Stream_Type'Class.
 
@@ -2826,7 +2872,7 @@ package body Sem_Attr is
          if Bad_Unordered_Enumeration_Reference (N, P_Base_Type) then
             Error_Msg_Sloc := Sloc (P_Base_Type);
             Error_Msg_NE
-              ("comparison on unordered enumeration type& declared#?U?",
+              ("comparison on unordered enumeration type& declared#?.u?",
                N, P_Base_Type);
          end if;
       end Min_Max;
@@ -5105,11 +5151,14 @@ package body Sem_Attr is
                --  Entities mentioned within the prefix of attribute 'Old must
                --  be global to the related postcondition. If this is not the
                --  case, then the scope of the local entity is nested within
-               --  that of the subprogram.
+               --  that of the subprogram. Moreover, we need to know whether
+               --  Entity (Nod) occurs in the tree rooted at the prefix to
+               --  ensure the entity is not declared within then prefix itself.
 
                elsif Is_Entity_Name (Nod)
                  and then Present (Entity (Nod))
                  and then Scope_Within (Scope (Entity (Nod)), Subp_Id)
+                 and then not In_Subtree (Entity (Nod), P)
                then
                   Error_Attr
                     ("prefix of attribute % cannot reference local entities",
@@ -6633,7 +6682,10 @@ package body Sem_Attr is
          Initialize (CRC);
          Compute_Type_Key (Entity (P));
 
-         if not Is_Frozen (Entity (P)) then
+         if not Is_Frozen (Entity (P))
+           and then not Is_Generic_Type (Entity (P))
+           and then not Is_Generic_Actual_Type (Entity (P))
+         then
             Error_Msg_N ("premature usage of Type_Key?", N);
          end if;
 
@@ -9123,12 +9175,26 @@ package body Sem_Attr is
       -- Leading_Part --
       ------------------
 
-      when Attribute_Leading_Part =>
+      when Attribute_Leading_Part => Leading_Part : declare
+         Radix_Digits : constant Uint := Expr_Value (E2);
+
+      begin
+         if UI_Le (Radix_Digits, Uint_0) then
+            Apply_Compile_Time_Constraint_Error
+              (N, "Radix_Digits in Leading_Part is zero or negative",
+               CE_Explicit_Raise,
+               Warn => not Static);
+
+            Check_Expressions;
+            return;
+         end if;
+
          Fold_Ureal
            (N,
             Eval_Fat.Leading_Part
-              (P_Base_Type, Expr_Value_R (E1), Expr_Value (E2)),
+              (P_Base_Type, Expr_Value_R (E1), Radix_Digits),
             Static);
+      end Leading_Part;
 
       ------------
       -- Length --
@@ -9207,14 +9273,12 @@ package body Sem_Attr is
       -- Machine --
       -------------
 
-      --  We use the same rounding mode as the one used for RM 4.9(38)
+      --  We use the same rounding as the one used for RM 4.9(38/2)
 
       when Attribute_Machine =>
          Fold_Ureal
-           (N,
-            Eval_Fat.Machine
-              (P_Base_Type, Expr_Value_R (E1), Eval_Fat.Round_Even, N),
-            Static);
+           (N, Machine_Number (P_Base_Type, Expr_Value_R (E1), N), Static);
+         Set_Is_Machine_Number (N);
 
       ------------------
       -- Machine_Emax --
@@ -11252,6 +11316,27 @@ package body Sem_Attr is
                Resolve (P);
             end if;
 
+            --  Refuse to compute access to variables and constants when that
+            --  would drop the strub mode associated with them, unless they're
+            --  unchecked conversions. We don't have to do this when the types
+            --  of the data objects are annotated: then the access type
+            --  designates the annotated type, and there's no loss. Only when
+            --  the variable is annotated directly that the pragma gets
+            --  attached to the variable, rather than to its type, and then,
+            --  expressing an access-to-annotated-type type to hold the 'Access
+            --  result is not possible without resorting to that very annotated
+            --  type.
+
+            if Attr_Id /= Attribute_Unchecked_Access
+              and then Comes_From_Source (N)
+              and then Is_Entity_Name (P)
+              and then Explicit_Strub_Mode (Entity (P)) = Enabled
+              and then
+                Explicit_Strub_Mode (Designated_Type (Btyp)) = Unspecified
+            then
+               Error_Msg_F ("target access type drops `strub` mode from &", P);
+            end if;
+
             --  X'Access is illegal if X denotes a constant and the access type
             --  is access-to-variable. Same for 'Unchecked_Access. The rule
             --  does not apply to 'Unrestricted_Access. If the reference is a
@@ -11480,28 +11565,45 @@ package body Sem_Attr is
                --  in such a context - unless the restriction
                --  No_Dynamic_Accessibility_Checks is active.
 
-               if Attr_Id /= Attribute_Unchecked_Access
-                 and then
-                   (Ekind (Btyp) = E_General_Access_Type
-                      or else No_Dynamic_Accessibility_Checks_Enabled (Btyp))
+               declare
+                  No_Dynamic_Acc_Checks : constant Boolean :=
+                    No_Dynamic_Accessibility_Checks_Enabled (Btyp);
 
-                 --  Call Accessibility_Level directly to avoid returning zero
-                 --  on cases where the prefix is an explicitly aliased
-                 --  parameter in a return statement, instead of using the
-                 --  normal Static_Accessibility_Level function.
+                  Compatible_Alt_Checks : constant Boolean :=
+                    No_Dynamic_Acc_Checks and then not Debug_Flag_Underscore_B;
+               begin
+                  if Attr_Id /= Attribute_Unchecked_Access
+                    and then (Ekind (Btyp) = E_General_Access_Type
+                               or else No_Dynamic_Acc_Checks)
 
-                 --  Shouldn't this be handled somehow in
-                 --  Static_Accessibility_Level ???
+                    --  In the case of the alternate "compatibility"
+                    --  accessibility model we do not perform a static
+                    --  accessibility check on actuals for anonymous access
+                    --  types - so exclude them here.
 
-                 and then Nkind (Accessibility_Level (P, Dynamic_Level))
-                            = N_Integer_Literal
-                 and then
-                   Intval (Accessibility_Level (P, Dynamic_Level))
-                     > Deepest_Type_Access_Level (Btyp)
-               then
-                  Accessibility_Message;
-                  return;
-               end if;
+                    and then not (Compatible_Alt_Checks
+                                   and then Is_Actual_Parameter (N)
+                                   and then Ekind (Btyp)
+                                              = E_Anonymous_Access_Type)
+
+                    --  Call Accessibility_Level directly to avoid returning
+                    --  zero on cases where the prefix is an explicitly aliased
+                    --  parameter in a return statement, instead of using the
+                    --  normal Static_Accessibility_Level function.
+
+                    --  Shouldn't this be handled somehow in
+                    --  Static_Accessibility_Level ???
+
+                    and then Nkind (Accessibility_Level (P, Dynamic_Level))
+                               = N_Integer_Literal
+                    and then
+                      Intval (Accessibility_Level (P, Dynamic_Level))
+                        > Deepest_Type_Access_Level (Btyp)
+                  then
+                     Accessibility_Message;
+                     return;
+                  end if;
+               end;
             end if;
 
             if Ekind (Btyp) in E_Access_Protected_Subprogram_Type
@@ -12473,19 +12575,28 @@ package body Sem_Attr is
    is
       Etyp : Entity_Id := Typ;
 
+      Real_Rep : Node_Id;
+
    --  Start of processing for Stream_Attribute_Available
 
    begin
-      --  We need some comments in this body ???
+      --  Test if the attribute is specified directly on the type
 
-      if Has_Stream_Attribute_Definition (Typ, Nam) then
+      if Has_Stream_Attribute_Definition (Typ, Nam, Real_Rep) then
          return True;
       end if;
+
+      --  We assume class-wide types have stream attributes
+      --  when they are not limited. Otherwise we recurse on the
+      --  parent type.
 
       if Is_Class_Wide_Type (Typ) then
          return not Is_Limited_Type (Typ)
            or else Stream_Attribute_Available (Etype (Typ), Nam);
       end if;
+
+      --  Non-class-wide abstract types cannot have Input streams
+      --  specified.
 
       if Nam = TSS_Stream_Input
         and then Is_Abstract_Type (Typ)
@@ -12493,6 +12604,8 @@ package body Sem_Attr is
       then
          return False;
       end if;
+
+      --  Otherwise, nonlimited types have stream attributes
 
       if not (Is_Limited_Type (Typ)
         or else (Present (Partial_View)
@@ -12505,13 +12618,13 @@ package body Sem_Attr is
 
       if Nam = TSS_Stream_Input
         and then Ada_Version >= Ada_2005
-        and then Stream_Attribute_Available (Etyp, TSS_Stream_Read)
+        and then Stream_Attribute_Available (Etyp, TSS_Stream_Read, Real_Rep)
       then
          return True;
 
       elsif Nam = TSS_Stream_Output
         and then Ada_Version >= Ada_2005
-        and then Stream_Attribute_Available (Etyp, TSS_Stream_Write)
+        and then Stream_Attribute_Available (Etyp, TSS_Stream_Write, Real_Rep)
       then
          return True;
       end if;
@@ -12525,7 +12638,7 @@ package body Sem_Attr is
          begin
             Etyp := Etype (Etyp);
 
-            if Has_Stream_Attribute_Definition (Etyp, Nam) then
+            if Has_Stream_Attribute_Definition (Etyp, Nam, Real_Rep) then
                if not Derivation_Too_Early_To_Inherit (Derived_Type, Nam) then
                   return True;
                end if;

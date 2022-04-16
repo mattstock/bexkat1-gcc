@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -47,8 +47,9 @@
 with Alloc;
 with Sinfo.Nodes;    use Sinfo.Nodes;
 with Einfo.Entities; use Einfo.Entities;
+with Einfo.Utils;    use Einfo.Utils;
 with Types;          use Types;
-with Seinfo;
+with Seinfo;         use Seinfo;
 with System;         use System;
 with Table;
 with Unchecked_Conversion;
@@ -230,11 +231,18 @@ package Atree is
    function New_Node
      (New_Node_Kind : Node_Kind;
       New_Sloc      : Source_Ptr) return Node_Id;
-   --  Allocates a completely new node with the given node type and source
-   --  location values. All other fields are set to their standard defaults:
+   --  Allocates a new node with the given node type and source location
+   --  values. Fields have defaults depending on their type:
+
+   --    Flag: False
+   --    Node_Id: Empty
+   --    List_Id: Empty
+   --    Elist_Id: No_Elist
+   --    Uint: No_Uint
    --
-   --    Empty for all FieldN fields
-   --    False for all FlagN fields
+   --    Name_Id, String_Id, Valid_Uint, Unat, Upos, Nonzero_Uint, Ureal:
+   --      No default. This means it is an error to call the getter before
+   --      calling the setter.
    --
    --  The usual approach is to build a new node using this function and
    --  then, using the value returned, use the Set_xxx functions to set
@@ -288,16 +296,16 @@ package Atree is
    --  with copying aspect specifications where this is required.
 
    function New_Copy (Source : Node_Id) return Node_Id;
-   --  This function allocates a completely new node, and then initializes
-   --  it by copying the contents of the source node into it. The contents of
-   --  the source node is not affected. The target node is always marked as
-   --  not being in a list (even if the source is a list member), and not
-   --  overloaded. The new node will have an extension if the source has
-   --  an extension. New_Copy (Empty) returns Empty, and New_Copy (Error)
-   --  returns Error. Note that, unlike Copy_Separate_Tree, New_Copy does not
-   --  recursively copy any descendants, so in general parent pointers are not
-   --  set correctly for the descendants of the copied node. Both normal and
-   --  extended nodes (entities) may be copied using New_Copy.
+   --  This function allocates a new node, and then initializes it by copying
+   --  the contents of the source node into it. The contents of the source node
+   --  is not affected. The target node is always marked as not being in a list
+   --  (even if the source is a list member), and not overloaded. The new node
+   --  will have an extension if the source has an extension. New_Copy (Empty)
+   --  returns Empty, and New_Copy (Error) returns Error. Note that, unlike
+   --  Copy_Separate_Tree, New_Copy does not recursively copy any descendants,
+   --  so in general parent pointers are not set correctly for the descendants
+   --  of the copied node. Both normal and extended nodes (entities) may be
+   --  copied using New_Copy.
 
    function Relocate_Node (Source : Node_Id) return Node_Id;
    --  Source is a non-entity node that is to be relocated. A new node is
@@ -340,11 +348,11 @@ package Atree is
    --  Exchange the contents of two entities. The parent pointers are switched
    --  as well as the Defining_Identifier fields in the parents, so that the
    --  entities point correctly to their original parents. The effect is thus
-   --  to leave the tree completely unchanged in structure, except that the
-   --  entity ID values of the two entities are interchanged. Neither of the
-   --  two entities may be list members. Note that entities appear on two
-   --  semantic chains: Homonym and Next_Entity: the corresponding links must
-   --  be adjusted by the caller, according to context.
+   --  to leave the tree unchanged in structure, except that the entity ID
+   --  values of the two entities are interchanged. Neither of the two entities
+   --  may be list members. Note that entities appear on two semantic chains:
+   --  Homonym and Next_Entity: the corresponding links must be adjusted by the
+   --  caller, according to context.
 
    procedure Extend_Node (Source : Node_Id);
    --  This turns a node into an entity; it function is used only by Sinfo.CN.
@@ -402,11 +410,30 @@ package Atree is
    --  all calls to process returned either OK, OK_Orig, or Skip).
 
    generic
+      with function Process
+        (Parent_Node : Node_Id;
+         Node        : Node_Id) return Traverse_Result is <>;
+   function Traverse_Func_With_Parent
+     (Node : Node_Id) return Traverse_Final_Result;
+   pragma Inline (Traverse_Func_With_Parent);
+   --  Same as Traverse_Func except that the called function Process receives
+   --  also the Parent_Node of Node.
+
+   generic
       with function Process (N : Node_Id) return Traverse_Result is <>;
    procedure Traverse_Proc (Node : Node_Id);
    pragma Inline (Traverse_Proc);
    --  This is the same as Traverse_Func except that no result is returned,
    --  i.e. Traverse_Func is called and the result is simply discarded.
+
+   generic
+      with function Process
+        (Parent_Node : Node_Id;
+         Node        : Node_Id) return Traverse_Result is <>;
+   procedure Traverse_Proc_With_Parent (Node : Node_Id);
+   pragma Inline (Traverse_Proc_With_Parent);
+   --  Same as Traverse_Proc except that the called function Process receives
+   --  also the Parent_Node of Node.
 
    ---------------------------
    -- Node Access Functions --
@@ -609,6 +636,20 @@ package Atree is
    --  always the same; for example we change from E_Void, to E_Variable, to
    --  E_Void, to E_Constant.
 
+   function Node_To_Fetch_From
+     (N : Node_Or_Entity_Id; Field : Node_Or_Entity_Field)
+     return Node_Or_Entity_Id is
+      (case Field_Descriptors (Field).Type_Only is
+         when No_Type_Only => N,
+         when Base_Type_Only => Base_Type (N),
+         when Impl_Base_Type_Only => Implementation_Base_Type (N),
+         when Root_Type_Only => Root_Type (N));
+   --  This is analogous to the same-named function in Gen_IL.Gen. Normally,
+   --  Type_Only is No_Type_Only, and we fetch the field from the node N. But
+   --  if Type_Only = Base_Type_Only, we need to go to the Base_Type, and
+   --  similarly for the other two cases. This can return something other
+   --  than N only if N is an Entity.
+
    -----------------------------
    -- Private Part Subpackage --
    -----------------------------
@@ -653,11 +694,30 @@ package Atree is
       --  table. We use zero-origin addressing, so the Offset into the Slots
       --  table will point 3 slots before slot 3.
 
-      pragma Assert (Seinfo.N_Head <= Min_Node_Size);
-      pragma Assert (Seinfo.N_Head <= Min_Entity_Size);
+      pragma Assert (N_Head <= Min_Node_Size);
+      pragma Assert (N_Head <= Min_Entity_Size);
+
+      Slot_Size : constant := 32;
+      type Slot is mod 2**Slot_Size;
+      for Slot'Size use Slot_Size;
+
+      --  The type Slot is defined in Types as a 32-bit modular integer. It
+      --  is logically split into the appropriate numbers of components of
+      --  appropriate size, but this splitting is not explicit because packed
+      --  arrays cannot be properly interfaced in C/C++ and packed records are
+      --  way too slow.
+
+      type Node_Header_Slots is
+        array (Field_Offset range 0 .. N_Head - 1) of Slot;
+      type Node_Header is record
+         Slots : Node_Header_Slots;
+         Offset : Node_Offset'Base;
+      end record;
+      pragma Assert (Node_Header'Size = (N_Head + 1) * Slot_Size);
+      pragma Assert (Node_Header'Size = 16 * 8);
 
       package Node_Offsets is new Table.Table
-        (Table_Component_Type => Seinfo.Node_Header,
+        (Table_Component_Type => Node_Header,
          Table_Index_Type     => Node_Id'Base,
          Table_Low_Bound      => First_Node_Id,
          Table_Initial        => Alloc.Node_Offsets_Initial,
@@ -670,12 +730,6 @@ package Atree is
         Unreferenced;
       --  Short names for use in gdb, not used in real code. Note that gdb
       --  can't find Node_Offsets.Table without a full expanded name.
-
-      --  The type Slot is defined in Types as a 32-bit modular integer. It
-      --  is logically split into the appropriate numbers of components of
-      --  appropriate size, but this splitting is not explicit because packed
-      --  arrays cannot be properly interfaced in C/C++ and packed records are
-      --  way too slow.
 
       function Shift_Left (S : Slot; V : Natural) return Slot;
       pragma Import (Intrinsic, Shift_Left);
@@ -861,5 +915,17 @@ package Atree is
       --  to Atree.
 
    end Atree_Private_Part;
+
+   --  Statistics:
+
+   subtype Call_Count is Nat_64;
+   Get_Count, Set_Count : array (Node_Or_Entity_Field) of Call_Count :=
+     (others => 0);
+   --  Number of calls to each getter and setter. See documentaton for
+   --  -gnatd.A.
+
+   Get_Original_Node_Count, Set_Original_Node_Count : Call_Count := 0;
+
+   procedure Print_Statistics;
 
 end Atree;

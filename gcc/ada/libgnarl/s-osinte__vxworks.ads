@@ -7,7 +7,7 @@
 --                                   S p e c                                --
 --                                                                          --
 --            Copyright (C) 1991-2017, Florida State University             --
---          Copyright (C) 1995-2021, Free Software Foundation, Inc.         --
+--          Copyright (C) 1995-2022, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNARL is free software; you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -340,7 +340,7 @@ package System.OS_Interface is
    --  Can only be called from the VxWorks 6 run-time libary that supports
    --  tlsLib, and not by the VxWorks 6.6 SMP library
 
-   function tlsKeyCreate return STATUS;
+   function tlsKeyCreate return int;
    pragma Import (C, tlsKeyCreate, "tlsKeyCreate");
 
    function tlsValueGet (key : int) return System.Address;

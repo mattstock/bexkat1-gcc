@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -282,7 +282,10 @@ package body Uintp is
       --  value is returned from a correctness point of view.
 
       procedure Image_Char (C : Character);
-      --  Internal procedure to output one character
+      --  Output one character
+
+      procedure Image_String (S : String);
+      --  Output characters
 
       procedure Image_Exponent (N : Natural);
       --  Output non-zero exponent. Note that we only use the exponent form in
@@ -371,6 +374,17 @@ package body Uintp is
            Character'Val (Character'Pos ('0') + N mod 10);
       end Image_Exponent;
 
+      ------------------
+      -- Image_String --
+      ------------------
+
+      procedure Image_String (S : String) is
+      begin
+         for X of S loop
+            Image_Char (X);
+         end loop;
+      end Image_String;
+
       ----------------
       -- Image_Uint --
       ----------------
@@ -401,7 +415,7 @@ package body Uintp is
 
    begin
       if No (Input) then
-         Image_Char ('?');
+         Image_String ("No_Uint");
          return;
       end if;
 

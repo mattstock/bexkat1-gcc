@@ -1,5 +1,5 @@
 ;; GCC machine description for AVX512F instructions
-;; Copyright (C) 2013-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2022 Free Software Foundation, Inc.
 ;;
 ;; This file is part of GCC.
 ;;
@@ -71,6 +71,11 @@
 (define_subst_attr "mask_prefix4" "mask" "orig,orig,vex" "evex,evex,evex")
 (define_subst_attr "bcst_mask_prefix4" "mask" "orig,orig,maybe_evex" "evex,evex,evex")
 (define_subst_attr "mask_expand_op3" "mask" "3" "5")
+(define_subst_attr "mask3_dest_false_dep_for_glc_cond" "mask" "1" "operands[3] == CONST0_RTX(<MODE>mode)")
+(define_subst_attr "mask4_dest_false_dep_for_glc_cond" "mask" "1" "operands[4] == CONST0_RTX(<MODE>mode)")
+(define_subst_attr "mask6_dest_false_dep_for_glc_cond" "mask" "1" "operands[6] == CONST0_RTX(<MODE>mode)")
+(define_subst_attr "mask10_dest_false_dep_for_glc_cond" "mask" "1" "operands[10] == CONST0_RTX(<MODE>mode)")
+(define_subst_attr "maskc_dest_false_dep_for_glc_cond" "maskc" "1" "operands[3] == CONST0_RTX(<MODE>mode)")
 
 (define_subst "mask"
   [(set (match_operand:SUBST_V 0)
@@ -276,6 +281,9 @@
 (define_subst_attr "round_expand_name" "round_expand" "" "_round")
 (define_subst_attr "round_expand_nimm_predicate" "round_expand" "nonimmediate_operand" "register_operand")
 (define_subst_attr "round_expand_operand" "round_expand" "" ", operands[5]")
+(define_subst_attr "round_embedded_complex" "round_expand" "0" "!(CONST_INT_P (operands[5])
+								  && (INTVAL (operands[5])
+								      == NO_ROUND))")
 
 (define_subst "round_expand"
  [(match_operand:SUBST_V 0)
@@ -334,6 +342,8 @@
 (define_subst_attr "mask_scalar_operand3" "mask_scalar" "" "%{%4%}%N3")
 (define_subst_attr "mask_scalar_operand4" "mask_scalar" "" "%{%5%}%N4")
 (define_subst_attr "mask_scalarcz_operand4" "mask_scalarcz" "" "%{%5%}%N4")
+(define_subst_attr "mask_scalar4_dest_false_dep_for_glc_cond" "mask_scalar" "1" "operands[4] == CONST0_RTX(<MODE>mode)")
+(define_subst_attr "mask_scalarc_dest_false_dep_for_glc_cond" "mask_scalarc" "1" "operands[3] == CONST0_RTX(V8HFmode)")
 
 (define_subst "mask_scalar"
   [(set (match_operand:SUBST_V 0)

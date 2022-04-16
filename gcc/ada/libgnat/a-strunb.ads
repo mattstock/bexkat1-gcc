@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2021, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
 --                                                                          --
 -- This specification is derived from the Ada Reference Manual for use with --
 -- GNAT. The copyright notice above, and the license provisions that follow --
@@ -58,7 +58,8 @@ package Ada.Strings.Unbounded with
 is
    pragma Preelaborate;
 
-   type Unbounded_String is private;
+   type Unbounded_String is private with
+     Default_Initial_Condition => Length (Unbounded_String) = 0;
    pragma Preelaborable_Initialization (Unbounded_String);
 
    Null_Unbounded_String : constant Unbounded_String;
@@ -745,8 +746,8 @@ private
      renames To_Unbounded_String;
 
    type Unbounded_String is new AF.Controlled with record
-      Reference : String_Access := Null_String'Access;
-      Last      : Natural       := 0;
+      Reference : not null String_Access := Null_String'Access;
+      Last      : Natural                := 0;
    end record with Put_Image => Put_Image;
 
    procedure Put_Image

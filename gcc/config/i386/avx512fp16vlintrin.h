@@ -1,4 +1,4 @@
-/* Copyright (C) 2019 Free Software Foundation, Inc.
+/* Copyright (C) 2019-2022 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -2898,21 +2898,20 @@ extern __inline __m128h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm_mask_fmadd_pch (__m128h __A, __mmask8 __B, __m128h __C, __m128h __D)
 {
-  return (__m128h) __builtin_ia32_movaps128_mask
-    ((__v4sf)
-     __builtin_ia32_vfmaddcph128_mask ((__v8hf) __A,
-				       (__v8hf) __C,
-				       (__v8hf) __D, __B),
-     (__v4sf) __A, __B);
+  return (__m128h)
+    __builtin_ia32_vfmaddcph128_mask ((__v8hf) __A,
+				      (__v8hf) __C,
+				      (__v8hf) __D, __B);
 }
 
 extern __inline __m128h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm_mask3_fmadd_pch (__m128h __A, __m128h __B, __m128h __C,  __mmask8 __D)
 {
-  return (__m128h) __builtin_ia32_vfmaddcph128_mask ((__v8hf) __A,
-						     (__v8hf) __B,
-						     (__v8hf) __C, __D);
+  return (__m128h)
+    __builtin_ia32_vfmaddcph128_mask3 ((__v8hf) __A,
+				       (__v8hf) __B,
+				       (__v8hf) __C, __D);
 }
 
 extern __inline __m128h
@@ -2937,21 +2936,20 @@ extern __inline __m256h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm256_mask_fmadd_pch (__m256h __A, __mmask8 __B, __m256h __C, __m256h __D)
 {
-  return (__m256h) __builtin_ia32_movaps256_mask
-    ((__v8sf)
+  return (__m256h)
      __builtin_ia32_vfmaddcph256_mask ((__v16hf) __A,
 				       (__v16hf) __C,
-				       (__v16hf) __D, __B),
-     (__v8sf) __A, __B);
+				       (__v16hf) __D, __B);
 }
 
 extern __inline __m256h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm256_mask3_fmadd_pch (__m256h __A, __m256h __B, __m256h __C,  __mmask8 __D)
 {
-  return (__m256h) __builtin_ia32_vfmaddcph256_mask ((__v16hf) __A,
-						     (__v16hf) __B,
-						     (__v16hf) __C, __D);
+  return (__m256h)
+    __builtin_ia32_vfmaddcph256_mask3 ((__v16hf) __A,
+				       (__v16hf) __B,
+				       (__v16hf) __C, __D);
 }
 
 extern __inline __m256h
@@ -2976,21 +2974,20 @@ extern __inline __m128h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm_mask_fcmadd_pch (__m128h __A, __mmask8 __B, __m128h __C, __m128h __D)
 {
-  return (__m128h) __builtin_ia32_movaps128_mask
-    ((__v4sf)
+  return (__m128h)
      __builtin_ia32_vfcmaddcph128_mask ((__v8hf) __A,
 					(__v8hf) __C,
-					(__v8hf) __D, __B),
-     (__v4sf) __A, __B);
+					(__v8hf) __D, __B);
 }
 
 extern __inline __m128h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm_mask3_fcmadd_pch (__m128h __A, __m128h __B, __m128h __C,  __mmask8 __D)
 {
-  return (__m128h) __builtin_ia32_vfcmaddcph128_mask ((__v8hf) __A,
-						      (__v8hf) __B,
-						      (__v8hf) __C, __D);
+  return (__m128h)
+    __builtin_ia32_vfcmaddcph128_mask3 ((__v8hf) __A,
+					(__v8hf) __B,
+					(__v8hf) __C, __D);
 }
 
 extern __inline __m128h
@@ -3015,21 +3012,20 @@ extern __inline __m256h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm256_mask_fcmadd_pch (__m256h __A, __mmask8 __B, __m256h __C, __m256h __D)
 {
-  return (__m256h) __builtin_ia32_movaps256_mask
-    ((__v8sf)
+  return (__m256h)
      __builtin_ia32_vfcmaddcph256_mask ((__v16hf) __A,
 					(__v16hf) __C,
-					(__v16hf) __D, __B),
-     (__v8sf) __A, __B);
+					(__v16hf) __D, __B);
 }
 
 extern __inline __m256h
 __attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
 _mm256_mask3_fcmadd_pch (__m256h __A, __m256h __B, __m256h __C,  __mmask8 __D)
 {
-  return (__m256h) __builtin_ia32_vfcmaddcph256_mask ((__v16hf) __A,
-						      (__v16hf) __B,
-						      (__v16hf) __C, __D);
+  return (__m256h)
+    __builtin_ia32_vfcmaddcph256_mask3 ((__v16hf) __A,
+					(__v16hf) __B,
+					(__v16hf) __C, __D);
 }
 
 extern __inline __m256h
@@ -3314,6 +3310,49 @@ _mm_permutexvar_ph (__m128i __A, __m128h __B)
 						     (_mm_setzero_ph ()),
 						     (__mmask8)-1);
 }
+
+extern __inline __m256h
+__attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
+_mm256_set1_pch (_Float16 _Complex __A)
+{
+  union
+  {
+    _Float16 _Complex a;
+    float b;
+  } u = { .a = __A };
+
+  return (__m256h) _mm256_set1_ps (u.b);
+}
+
+extern __inline __m128h
+__attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
+_mm_set1_pch (_Float16 _Complex __A)
+{
+  union
+  {
+    _Float16 _Complex a;
+    float b;
+  } u = { .a = __A };
+
+  return (__m128h) _mm_set1_ps (u.b);
+}
+
+// intrinsics below are alias for f*mul_*ch
+#define _mm_mul_pch(A, B) _mm_fmul_pch ((A), (B))
+#define _mm_mask_mul_pch(W, U, A, B) _mm_mask_fmul_pch ((W), (U), (A), (B))
+#define _mm_maskz_mul_pch(U, A, B) _mm_maskz_fmul_pch ((U), (A), (B))
+#define _mm256_mul_pch(A, B) _mm256_fmul_pch ((A), (B))
+#define _mm256_mask_mul_pch(W, U, A, B)				      \
+  _mm256_mask_fmul_pch ((W), (U), (A), (B))
+#define _mm256_maskz_mul_pch(U, A, B) _mm256_maskz_fmul_pch ((U), (A), (B))
+
+#define _mm_cmul_pch(A, B) _mm_fcmul_pch ((A), (B))
+#define _mm_mask_cmul_pch(W, U, A, B) _mm_mask_fcmul_pch ((W), (U), (A), (B))
+#define _mm_maskz_cmul_pch(U, A, B) _mm_maskz_fcmul_pch ((U), (A), (B))
+#define _mm256_cmul_pch(A, B) _mm256_fcmul_pch ((A), (B))
+#define _mm256_mask_cmul_pch(W, U, A, B)			      \
+   _mm256_mask_fcmul_pch ((W), (U), (A), (B))
+#define _mm256_maskz_cmul_pch(U, A, B) _mm256_maskz_fcmul_pch((U), (A), (B))
 
 #ifdef __DISABLE_AVX512FP16VL__
 #undef __DISABLE_AVX512FP16VL__
