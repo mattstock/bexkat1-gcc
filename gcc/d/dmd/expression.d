@@ -3,7 +3,7 @@
  *
  * Specification: ($LINK2 https://dlang.org/spec/expression.html, Expressions)
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/expression.d, _expression.d)
@@ -50,6 +50,7 @@ import dmd.id;
 import dmd.identifier;
 import dmd.init;
 import dmd.inline;
+import dmd.location;
 import dmd.mtype;
 import dmd.nspace;
 import dmd.objc;
@@ -260,7 +261,7 @@ extern (C++) void expandTuples(Expressions* exps)
     if (exps is null)
         return;
 
-    for (size_t i = 0; i < exps.dim; i++)
+    for (size_t i = 0; i < exps.length; i++)
     {
         Expression arg = (*exps)[i];
         if (!arg)
@@ -271,10 +272,10 @@ extern (C++) void expandTuples(Expressions* exps)
         {
             if (auto tt = e.type.toBasetype().isTypeTuple())
             {
-                if (!tt.arguments || tt.arguments.dim == 0)
+                if (!tt.arguments || tt.arguments.length == 0)
                 {
                     exps.remove(i);
-                    if (i == exps.dim)
+                    if (i == exps.length)
                         return;
                 }
                 else // Expand a TypeTuple
@@ -296,7 +297,7 @@ extern (C++) void expandTuples(Expressions* exps)
             TupleExp te = cast(TupleExp)arg;
             exps.remove(i); // remove arg
             exps.insert(i, te.exps); // replace with tuple contents
-            if (i == exps.dim)
+            if (i == exps.length)
                 return; // empty tuple, no more arguments
             (*exps)[i] = Expression.combine(te.e0, (*exps)[i]);
             arg = (*exps)[i];
@@ -339,23 +340,25 @@ TupleDeclaration isAliasThisTuple(Expression e)
 
 int expandAliasThisTuples(Expressions* exps, size_t starti = 0)
 {
-    if (!exps || exps.dim == 0)
+    if (!exps || exps.length == 0)
         return -1;
 
-    for (size_t u = starti; u < exps.dim; u++)
+    for (size_t u = starti; u < exps.length; u++)
     {
         Expression exp = (*exps)[u];
         if (TupleDeclaration td = exp.isAliasThisTuple)
         {
             exps.remove(u);
-            foreach (i, o; *td.objects)
+            size_t i;
+            td.foreachVar((s)
             {
-                auto d = o.isExpression().isDsymbolExp().s.isDeclaration();
+                auto d = s.isDeclaration();
                 auto e = new DotVarExp(exp.loc, exp, d);
                 assert(d.type);
                 e.type = d.type;
                 exps.insert(u + i, e);
-            }
+                ++i;
+            });
             version (none)
             {
                 printf("expansion ->\n");
@@ -922,7 +925,7 @@ extern (C++) abstract class Expression : ASTNode
         Expressions* a = null;
         if (exps)
         {
-            a = new Expressions(exps.dim);
+            a = new Expressions(exps.length);
             foreach (i, e; *exps)
             {
                 (*a)[i] = e ? e.syntaxCopy() : null;
@@ -963,11 +966,6 @@ extern (C++) abstract class Expression : ASTNode
     }
 
     StringExp toStringExp()
-    {
-        return null;
-    }
-
-    TupleExp toTupleExp()
     {
         return null;
     }
@@ -1217,7 +1215,7 @@ extern (C++) abstract class Expression : ASTNode
         auto ad = cast(AggregateDeclaration) f.toParent2();
         assert(ad);
 
-        if (ad.userDtors.dim)
+        if (ad.userDtors.length)
         {
             if (!check(ad.userDtors[0])) // doesn't match check (e.g. is impure as well)
                 return;
@@ -1294,12 +1292,16 @@ extern (C++) abstract class Expression : ASTNode
             return false; // ...or manifest constants
 
         // accessing empty structs is pure
+        // https://issues.dlang.org/show_bug.cgi?id=18694
+        // https://issues.dlang.org/show_bug.cgi?id=21464
+        // https://issues.dlang.org/show_bug.cgi?id=23589
         if (v.type.ty == Tstruct)
         {
             StructDeclaration sd = (cast(TypeStruct)v.type).sym;
             if (sd.members) // not opaque
             {
-                sd.determineSize(v.loc);
+                if (sd.semanticRun >= PASS.semanticdone)
+                    sd.determineSize(v.loc);
                 if (sd.hasNoFields)
                     return false;
             }
@@ -1375,10 +1377,9 @@ extern (C++) abstract class Expression : ASTNode
          */
         if (v.storage_class & STC.gshared)
         {
-            if (sc.func.setUnsafe())
+            if (sc.setUnsafe(false, this.loc,
+                "`@safe` function `%s` cannot access `__gshared` data `%s`", sc.func, v))
             {
-                error("`@safe` %s `%s` cannot access `__gshared` data `%s`",
-                    sc.func.kind(), sc.func.toChars(), v.toChars());
                 err = true;
             }
         }
@@ -1405,18 +1406,36 @@ extern (C++) abstract class Expression : ASTNode
      */
     extern (D) final bool checkSafety(Scope* sc, FuncDeclaration f)
     {
-        if (!sc.func)
-            return false;
         if (sc.func == f)
             return false;
         if (sc.intypeof == 1)
             return false;
-        if (sc.flags & (SCOPE.ctfe | SCOPE.debug_))
+        if (sc.flags & SCOPE.debug_)
             return false;
+        if ((sc.flags & SCOPE.ctfe) && sc.func)
+            return false;
+
+        if (!sc.func)
+        {
+            if (sc.varDecl && !f.safetyInprocess && !f.isSafe() && !f.isTrusted())
+            {
+                if (sc.varDecl.storage_class & STC.safe)
+                {
+                    error("`@safe` variable `%s` cannot be initialized by calling `@system` function `%s`",
+                        sc.varDecl.toChars(), f.toChars());
+                    return true;
+                }
+                else
+                {
+                    sc.varDecl.storage_class |= STC.system;
+                }
+            }
+            return false;
+        }
 
         if (!f.isSafe() && !f.isTrusted())
         {
-            if (sc.flags & SCOPE.compile ? sc.func.isSafeBypassingInference() : sc.func.setUnsafe())
+            if (sc.flags & SCOPE.compile ? sc.func.isSafeBypassingInference() : sc.func.setUnsafeCall(f))
             {
                 if (!loc.isValid()) // e.g. implicitly generated dtor
                     loc = sc.func.loc;
@@ -1425,11 +1444,26 @@ extern (C++) abstract class Expression : ASTNode
                 error("`@safe` %s `%s` cannot call `@system` %s `%s`",
                     sc.func.kind(), sc.func.toPrettyChars(), f.kind(),
                     prettyChars);
+                f.errorSupplementalInferredSafety(/*max depth*/ 10, /*deprecation*/ false);
                 .errorSupplemental(f.loc, "`%s` is declared here", prettyChars);
 
                 checkOverridenDtor(sc, f, dd => dd.type.toTypeFunction().trust > TRUST.system, "@system");
 
                 return true;
+            }
+        }
+        else if (f.isSafe() && f.safetyViolation)
+        {
+            // for dip1000 by default transition, print deprecations for calling functions that will become `@system`
+            if (sc.func.isSafeBypassingInference())
+            {
+                .deprecation(this.loc, "`@safe` function `%s` calling `%s`", sc.func.toChars(), f.toChars());
+                errorSupplementalInferredSafety(f, 10, true);
+            }
+            else if (!sc.func.safetyViolation)
+            {
+                import dmd.func : AttributeViolation;
+                sc.func.safetyViolation = new AttributeViolation(this.loc, null, f, null, null);
             }
         }
         return false;
@@ -1461,7 +1495,8 @@ extern (C++) abstract class Expression : ASTNode
 
                 // Lowered non-@nogc'd hooks will print their own error message inside of nogc.d (NOGCVisitor.visit(CallExp e)),
                 // so don't print anything to avoid double error messages.
-                if (!(f.ident == Id._d_HookTraceImpl || f.ident == Id._d_arraysetlengthT))
+                if (!(f.ident == Id._d_HookTraceImpl || f.ident == Id._d_arraysetlengthT
+                    || f.ident == Id._d_arrayappendT || f.ident == Id._d_arrayappendcTX))
                     error("`@nogc` %s `%s` cannot call non-@nogc %s `%s`",
                         sc.func.kind(), sc.func.toPrettyChars(), f.kind(), f.toPrettyChars());
 
@@ -1746,6 +1781,7 @@ extern (C++) abstract class Expression : ASTNode
         inout(ModuleInitExp)     isModuleInitExp() { return op == EXP.moduleString ? cast(typeof(return))this : null; }
         inout(FuncInitExp)       isFuncInitExp() { return op == EXP.functionString ? cast(typeof(return))this : null; }
         inout(PrettyFuncInitExp) isPrettyFuncInitExp() { return op == EXP.prettyFunction ? cast(typeof(return))this : null; }
+        inout(ObjcClassReferenceExp) isObjcClassReferenceExp() { return op == EXP.objcClassReference ? cast(typeof(return))this : null; }
         inout(ClassReferenceExp) isClassReferenceExp() { return op == EXP.classReference ? cast(typeof(return))this : null; }
         inout(ThrownExceptionExp) isThrownExceptionExp() { return op == EXP.thrownException ? cast(typeof(return))this : null; }
 
@@ -2854,7 +2890,7 @@ extern (C++) final class TupleExp : Expression
         super(loc, EXP.tuple, __traits(classInstanceSize, TupleExp));
         this.exps = new Expressions();
 
-        this.exps.reserve(tup.objects.dim);
+        this.exps.reserve(tup.objects.length);
         foreach (o; *tup.objects)
         {
             if (Dsymbol s = getDsymbol(o))
@@ -2888,11 +2924,6 @@ extern (C++) final class TupleExp : Expression
         return new TupleExp(loc, exps);
     }
 
-    override TupleExp toTupleExp()
-    {
-        return this;
-    }
-
     override TupleExp syntaxCopy()
     {
         return new TupleExp(loc, e0 ? e0.syntaxCopy() : null, arraySyntaxCopy(exps));
@@ -2905,7 +2936,7 @@ extern (C++) final class TupleExp : Expression
         if (auto e = o.isExpression())
             if (auto te = e.isTupleExp())
             {
-                if (exps.dim != te.exps.dim)
+                if (exps.length != te.exps.length)
                     return false;
                 if (e0 && !e0.equals(te.e0) || !e0 && te.e0)
                     return false;
@@ -2941,7 +2972,7 @@ extern (C++) final class ArrayLiteralExp : Expression
 
     Expressions* elements;
     OwnedBy ownedByCtfe = OwnedBy.code;
-
+    bool onstack = false;
 
     extern (D) this(const ref Loc loc, Type type, Expressions* elements)
     {
@@ -2994,9 +3025,9 @@ extern (C++) final class ArrayLiteralExp : Expression
             return false;
         if (auto ae = e.isArrayLiteralExp())
         {
-            if (elements.dim != ae.elements.dim)
+            if (elements.length != ae.elements.length)
                 return false;
-            if (elements.dim == 0 && !type.equals(ae.type))
+            if (elements.length == 0 && !type.equals(ae.type))
             {
                 return false;
             }
@@ -3028,14 +3059,14 @@ extern (C++) final class ArrayLiteralExp : Expression
 
     override Optional!bool toBool()
     {
-        size_t dim = elements ? elements.dim : 0;
+        size_t dim = elements ? elements.length : 0;
         return typeof(return)(dim != 0);
     }
 
     override StringExp toStringExp()
     {
         TY telem = type.nextOf().toBasetype().ty;
-        if (telem.isSomeChar || (telem == Tvoid && (!elements || elements.dim == 0)))
+        if (telem.isSomeChar || (telem == Tvoid && (!elements || elements.length == 0)))
         {
             ubyte sz = 1;
             if (telem == Twchar)
@@ -3046,7 +3077,7 @@ extern (C++) final class ArrayLiteralExp : Expression
             OutBuffer buf;
             if (elements)
             {
-                foreach (i; 0 .. elements.dim)
+                foreach (i; 0 .. elements.length)
                 {
                     auto ch = this[i];
                     if (ch.op != EXP.int64)
@@ -3106,7 +3137,7 @@ extern (C++) final class AssocArrayLiteralExp : Expression
     extern (D) this(const ref Loc loc, Expressions* keys, Expressions* values)
     {
         super(loc, EXP.assocArrayLiteral, __traits(classInstanceSize, AssocArrayLiteralExp));
-        assert(keys.dim == values.dim);
+        assert(keys.length == values.length);
         this.keys = keys;
         this.values = values;
     }
@@ -3120,7 +3151,7 @@ extern (C++) final class AssocArrayLiteralExp : Expression
             return false;
         if (auto ae = e.isAssocArrayLiteralExp())
         {
-            if (keys.dim != ae.keys.dim)
+            if (keys.length != ae.keys.length)
                 return false;
             size_t count = 0;
             foreach (i, key; *keys)
@@ -3135,7 +3166,7 @@ extern (C++) final class AssocArrayLiteralExp : Expression
                     }
                 }
             }
-            return count == keys.dim;
+            return count == keys.length;
         }
         return false;
     }
@@ -3147,7 +3178,7 @@ extern (C++) final class AssocArrayLiteralExp : Expression
 
     override Optional!bool toBool()
     {
-        size_t dim = keys.dim;
+        size_t dim = keys.length;
         return typeof(return)(dim != 0);
     }
 
@@ -3224,7 +3255,7 @@ extern (C++) final class StructLiteralExp : Expression
         {
             if (!type.equals(se.type))
                 return false;
-            if (elements.dim != se.elements.dim)
+            if (elements.length != se.elements.length)
                 return false;
             foreach (i, e1; *elements)
             {
@@ -3261,7 +3292,7 @@ extern (C++) final class StructLiteralExp : Expression
             if (i >= sd.nonHiddenFields())
                 return null;
 
-            assert(i < elements.dim);
+            assert(i < elements.length);
             e = (*elements)[i];
             if (e)
             {
@@ -3302,7 +3333,7 @@ extern (C++) final class StructLiteralExp : Expression
     {
         /* Find which field offset is by looking at the field offsets
          */
-        if (elements.dim)
+        if (elements.length)
         {
             const sz = type.size();
             if (sz == SIZE_INVALID)
@@ -3789,7 +3820,7 @@ extern (C++) final class FuncExp : Expression
         if (td)
         {
             assert(td.literal);
-            assert(td.members && td.members.dim == 1);
+            assert(td.members && td.members.length == 1);
             fd = (*td.members)[0].isFuncLiteralDeclaration();
         }
         tok = fd.tok; // save original kind of function/delegate/(infer)
@@ -3920,7 +3951,7 @@ extern (C++) final class FuncExp : Expression
                 return cannotInfer(this, to, flag);
 
             auto tiargs = new Objects();
-            tiargs.reserve(td.parameters.dim);
+            tiargs.reserve(td.parameters.length);
 
             foreach (tp; *td.parameters)
             {
@@ -4203,7 +4234,7 @@ extern (C++) final class IsExp : Expression
         TemplateParameters* p = null;
         if (parameters)
         {
-            p = new TemplateParameters(parameters.dim);
+            p = new TemplateParameters(parameters.length);
             foreach (i, el; *parameters)
                 (*p)[i] = el.syntaxCopy();
         }
@@ -4647,7 +4678,7 @@ extern (C++) final class MixinExp : Expression
             return false;
         if (auto ce = e.isMixinExp())
         {
-            if (exps.dim != ce.exps.dim)
+            if (exps.length != ce.exps.length)
                 return false;
             foreach (i, e1; *exps)
             {
@@ -4838,7 +4869,7 @@ extern (C++) final class DotVarExp : UnaExp
             if (VarDeclaration vd = var.isVarDeclaration())
             {
                 auto ad = vd.isMember2();
-                if (ad && ad.fields.dim == sc.ctorflow.fieldinit.length)
+                if (ad && ad.fields.length == sc.ctorflow.fieldinit.length)
                 {
                     foreach (i, f; ad.fields)
                     {
@@ -5145,7 +5176,7 @@ extern (C++) final class CallExp : UnaExp
                 /* Type needs destruction, so declare a tmp
                  * which the back end will recognize and call dtor on
                  */
-                auto tmp = copyToTemp(0, "__tmpfordtor", this);
+                auto tmp = copyToTemp(0, Id.__tmpfordtor.toString(), this);
                 auto de = new DeclarationExp(loc, tmp);
                 auto ve = new VarExp(loc, tmp);
                 Expression e = new CommaExp(loc, de, ve);
@@ -5769,9 +5800,8 @@ extern (C++) final class DelegatePtrExp : UnaExp
 
     override Expression modifiableLvalue(Scope* sc, Expression e)
     {
-        if (sc.func.setUnsafe())
+        if (sc.setUnsafe(false, this.loc, "cannot modify delegate pointer in `@safe` code `%s`", this))
         {
-            error("cannot modify delegate pointer in `@safe` code `%s`", toChars());
             return ErrorExp.get();
         }
         return Expression.modifiableLvalue(sc, e);
@@ -5808,9 +5838,8 @@ extern (C++) final class DelegateFuncptrExp : UnaExp
 
     override Expression modifiableLvalue(Scope* sc, Expression e)
     {
-        if (sc.func.setUnsafe())
+        if (sc.setUnsafe(false, this.loc, "cannot modify delegate function pointer in `@safe` code `%s`", this))
         {
-            error("cannot modify delegate function pointer in `@safe` code `%s`", toChars());
             return ErrorExp.get();
         }
         return Expression.modifiableLvalue(sc, e);
@@ -7189,6 +7218,26 @@ extern(D) Modifiable checkModifiable(Expression exp, Scope* sc, ModifyFlags flag
         default:
             return exp.type ? Modifiable.yes : Modifiable.no; // default modifiable
     }
+}
+
+/**
+ * Verify if the given identifier is any of
+ * _d_array{ctor,setctor,setassign,assign_l, assign_r}.
+ *
+ * Params:
+ *  id = the identifier to verify
+ *
+ * Returns:
+ *  `true` if the identifier corresponds to a construction of assignement
+ *  runtime hook, `false` otherwise.
+ */
+bool isArrayConstructionOrAssign(const Identifier id)
+{
+    import dmd.id : Id;
+
+    return id == Id._d_arrayctor || id == Id._d_arraysetctor ||
+        id == Id._d_arrayassign_l || id == Id._d_arrayassign_r ||
+        id == Id._d_arraysetassign;
 }
 
 /******************************

@@ -1,6 +1,6 @@
 // Definition of gcc4-compatible Copy-on-Write basic_string -*- C++ -*-
 
-// Copyright (C) 1997-2022 Free Software Foundation, Inc.
+// Copyright (C) 1997-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -26,13 +26,15 @@
  *  This is an internal header file, included by other library headers.
  *  Do not attempt to use it directly. @headername{string}
  *
- *  Defines the reference-counted COW string implentation.
+ *  Defines the reference-counted COW string implementation.
  */
 
 #ifndef _COW_STRING_H
 #define _COW_STRING_H 1
 
 #if ! _GLIBCXX_USE_CXX11_ABI
+
+#include <ext/atomicity.h> // _Atomic_word, __is_single_threaded
 
 #ifdef __cpp_lib_is_constant_evaluated
 // Support P1032R1 in C++20 (but not P0980R1 for COW strings).
@@ -2850,7 +2852,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
        *  the shorter one is ordered first.
       */
       int
-      compare(size_type __pos, size_type __n, const basic_string& __str) const;
+      compare(size_type __pos, size_type __n, const basic_string& __str) const
+      {
+	_M_check(__pos, "basic_string::compare");
+	__n = _M_limit(__pos, __n);
+	const size_type __osize = __str.size();
+	const size_type __len = std::min(__n, __osize);
+	int __r = traits_type::compare(_M_data() + __pos, __str.data(), __len);
+	if (!__r)
+	  __r = _S_compare(__n, __osize);
+	return __r;
+      }
 
       /**
        *  @brief  Compare substring to a substring.
@@ -2877,7 +2889,19 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       */
       int
       compare(size_type __pos1, size_type __n1, const basic_string& __str,
-	      size_type __pos2, size_type __n2 = npos) const;
+	      size_type __pos2, size_type __n2 = npos) const
+      {
+	_M_check(__pos1, "basic_string::compare");
+	__str._M_check(__pos2, "basic_string::compare");
+	__n1 = _M_limit(__pos1, __n1);
+	__n2 = __str._M_limit(__pos2, __n2);
+	const size_type __len = std::min(__n1, __n2);
+	int __r = traits_type::compare(_M_data() + __pos1,
+				       __str.data() + __pos2, __len);
+	if (!__r)
+	  __r = _S_compare(__n1, __n2);
+	return __r;
+      }
 
       /**
        *  @brief  Compare to a C string.
@@ -2894,7 +2918,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
        *  ordered first.
       */
       int
-      compare(const _CharT* __s) const _GLIBCXX_NOEXCEPT;
+      compare(const _CharT* __s) const _GLIBCXX_NOEXCEPT
+      {
+	__glibcxx_requires_string(__s);
+	const size_type __size = this->size();
+	const size_type __osize = traits_type::length(__s);
+	const size_type __len = std::min(__size, __osize);
+	int __r = traits_type::compare(_M_data(), __s, __len);
+	if (!__r)
+	  __r = _S_compare(__size, __osize);
+	return __r;
+      }
 
       // _GLIBCXX_RESOLVE_LIB_DEFECTS
       // 5 String::compare specification questionable
@@ -2918,7 +2952,18 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
        *  one is ordered first.
       */
       int
-      compare(size_type __pos, size_type __n1, const _CharT* __s) const;
+      compare(size_type __pos, size_type __n1, const _CharT* __s) const
+      {
+	__glibcxx_requires_string(__s);
+	_M_check(__pos, "basic_string::compare");
+	__n1 = _M_limit(__pos, __n1);
+	const size_type __osize = traits_type::length(__s);
+	const size_type __len = std::min(__n1, __osize);
+	int __r = traits_type::compare(_M_data() + __pos, __s, __len);
+	if (!__r)
+	  __r = _S_compare(__n1, __osize);
+	return __r;
+      }
 
       /**
        *  @brief  Compare substring against a character %array.
@@ -2946,7 +2991,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       */
       int
       compare(size_type __pos, size_type __n1, const _CharT* __s,
-	      size_type __n2) const;
+	      size_type __n2) const
+      {
+	__glibcxx_requires_string_len(__s, __n2);
+	_M_check(__pos, "basic_string::compare");
+	__n1 = _M_limit(__pos, __n1);
+	const size_type __len = std::min(__n1, __n2);
+	int __r = traits_type::compare(_M_data() + __pos, __s, __len);
+	if (!__r)
+	  __r = _S_compare(__n1, __n2);
+	return __r;
+      }
 
 #if __cplusplus > 201703L
       bool
@@ -2957,6 +3012,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       starts_with(_CharT __x) const noexcept
       { return __sv_type(this->data(), this->size()).starts_with(__x); }
 
+      [[__gnu__::__nonnull__]]
       bool
       starts_with(const _CharT* __x) const noexcept
       { return __sv_type(this->data(), this->size()).starts_with(__x); }
@@ -2969,6 +3025,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       ends_with(_CharT __x) const noexcept
       { return __sv_type(this->data(), this->size()).ends_with(__x); }
 
+      [[__gnu__::__nonnull__]]
       bool
       ends_with(const _CharT* __x) const noexcept
       { return __sv_type(this->data(), this->size()).ends_with(__x); }
@@ -2983,6 +3040,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       contains(_CharT __x) const noexcept
       { return __sv_type(this->data(), this->size()).contains(__x); }
 
+      [[__gnu__::__nonnull__]]
       bool
       contains(const _CharT* __x) const noexcept
       { return __sv_type(this->data(), this->size()).contains(__x); }
@@ -3348,7 +3406,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	 }
        else
 	 {
-	   // Todo: overlapping case.
+	   // TODO: overlapping case.
 	   const basic_string __tmp(__s, __n2);
 	   return _M_replace_safe(__pos, __n1, __tmp._M_data(), __n2);
 	 }

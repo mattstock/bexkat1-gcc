@@ -3,7 +3,7 @@
  *
  * Specification: $(LINK2 https://dlang.org/spec/traits.html, Traits)
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/traits.d, _traits.d)
@@ -38,6 +38,7 @@ import dmd.globals;
 import dmd.hdrgen;
 import dmd.id;
 import dmd.identifier;
+import dmd.location;
 import dmd.mtype;
 import dmd.nogc;
 import dmd.parse;
@@ -86,81 +87,6 @@ private Dsymbol getDsymbolWithoutExpCtx(RootObject oarg)
             return dte.td;
     }
     return getDsymbol(oarg);
-}
-
-private const StringTable!bool traitsStringTable;
-
-shared static this()
-{
-    static immutable string[] names =
-    [
-        "isAbstractClass",
-        "isArithmetic",
-        "isAssociativeArray",
-        "isDisabled",
-        "isDeprecated",
-        "isFuture",
-        "isFinalClass",
-        "isPOD",
-        "isNested",
-        "isFloating",
-        "isIntegral",
-        "isScalar",
-        "isStaticArray",
-        "isUnsigned",
-        "isVirtualFunction",
-        "isVirtualMethod",
-        "isAbstractFunction",
-        "isFinalFunction",
-        "isOverrideFunction",
-        "isStaticFunction",
-        "isModule",
-        "isPackage",
-        "isRef",
-        "isOut",
-        "isLazy",
-        "isReturnOnStack",
-        "hasMember",
-        "identifier",
-        "getProtection",
-        "getVisibility",
-        "parent",
-        "child",
-        "getLinkage",
-        "getMember",
-        "getOverloads",
-        "getVirtualFunctions",
-        "getVirtualMethods",
-        "classInstanceSize",
-        "allMembers",
-        "derivedMembers",
-        "isSame",
-        "compiles",
-        "getAliasThis",
-        "getAttributes",
-        "getFunctionAttributes",
-        "getFunctionVariadicStyle",
-        "getParameterStorageClasses",
-        "getUnitTests",
-        "getVirtualIndex",
-        "getPointerBitmap",
-        "isZeroInit",
-        "getTargetInfo",
-        "getLocation",
-        "hasPostblit",
-        "hasCopyConstructor",
-        "isCopyable",
-        "parameters"
-    ];
-
-    StringTable!(bool)* stringTable = cast(StringTable!(bool)*) &traitsStringTable;
-    stringTable._init(names.length);
-
-    foreach (s; names)
-    {
-        auto sv = stringTable.insert(s, true);
-        assert(sv);
-    }
 }
 
 /**
@@ -393,7 +319,7 @@ ulong getTypePointerBitmap(Loc loc, Type t, Array!(ulong)* data)
  */
 private Expression pointerBitmap(TraitsExp e)
 {
-    if (!e.args || e.args.dim != 1)
+    if (!e.args || e.args.length != 1)
     {
         error(e.loc, "a single type expected for trait pointerBitmap");
         return ErrorExp.get();
@@ -411,12 +337,12 @@ private Expression pointerBitmap(TraitsExp e)
     if (sz == ulong.max)
         return ErrorExp.get();
 
-    auto exps = new Expressions(data.dim + 1);
+    auto exps = new Expressions(data.length + 1);
     (*exps)[0] = new IntegerExp(e.loc, sz, Type.tsize_t);
-    foreach (size_t i; 1 .. exps.dim)
+    foreach (size_t i; 1 .. exps.length)
         (*exps)[i] = new IntegerExp(e.loc, data[cast(size_t) (i - 1)], Type.tsize_t);
 
-    auto ale = new ArrayLiteralExp(e.loc, Type.tsize_t.sarrayOf(data.dim + 1), exps);
+    auto ale = new ArrayLiteralExp(e.loc, Type.tsize_t.sarrayOf(data.length + 1), exps);
     return ale;
 }
 
@@ -445,7 +371,7 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
         }
         sc.stc = save;
     }
-    size_t dim = e.args ? e.args.dim : 0;
+    size_t dim = e.args ? e.args.length : 0;
 
     Expression dimError(int expected)
     {
@@ -1211,7 +1137,7 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
         else
             assert(0);
     }
-    if (e.ident == Id.classInstanceSize)
+    if (e.ident == Id.classInstanceSize || e.ident == Id.classInstanceAlignment)
     {
         if (dim != 1)
             return dimError(1);
@@ -1234,7 +1160,7 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
             return ErrorExp.get();
         }
 
-        return new IntegerExp(e.loc, cd.structsize, Type.tsize_t);
+        return new IntegerExp(e.loc, e.ident == Id.classInstanceSize ? cd.structsize : cd.alignsize, Type.tsize_t);
     }
     if (e.ident == Id.getAliasThis)
     {
@@ -1267,6 +1193,7 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
         auto o = (*e.args)[0];
         auto po = isParameter(o);
         auto s = getDsymbolWithoutExpCtx(o);
+        auto typeOfArg = isType(o);
         UserAttributeDeclaration udad = null;
         if (po)
         {
@@ -1274,12 +1201,35 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
         }
         else if (s)
         {
+            // @@@DEPRECATION 2.100.2
+            if (auto fd = s.isFuncDeclaration())
+            {
+                if (fd.overnext)
+                {
+                    deprecation(e.loc, "`__traits(getAttributes)` may only be used for individual functions, not overload sets such as: `%s`", fd.toChars());
+                    deprecationSupplemental(e.loc, "the result of `__traits(getOverloads)` may be used to select the desired function to extract attributes from");
+                }
+            }
+
+            // @@@DEPRECATION 2.100.2
+            if (auto td = s.isTemplateDeclaration())
+            {
+                if (td.overnext || td.funcroot)
+                {
+                    deprecation(e.loc, "`__traits(getAttributes)` may only be used for individual functions, not overload sets such as: `%s`", td.ident.toChars());
+                    deprecationSupplemental(e.loc, "the result of `__traits(getOverloads)` may be used to select the desired function to extract attributes from");
+                }
+            }
             if (s.isImport())
             {
                 s = s.isImport().mod;
             }
             //printf("getAttributes %s, attrs = %p, scope = %p\n", s.toChars(), s.userAttribDecl, s._scope);
             udad = s.userAttribDecl;
+        }
+        else if (typeOfArg)
+        {
+            // If there is a type but no symbol, do nothing rather than erroring.
         }
         else
         {
@@ -1381,7 +1331,7 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
                 e.error("argument to `__traits(getFunctionVariadicStyle, %s)` is not a function", o.toChars());
                 return ErrorExp.get();
             }
-            link = fd.linkage;
+            link = fd._linkage;
             varargs = fd.getParameterList().varargs;
         }
         string style;
@@ -1515,7 +1465,7 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
 
         if (tf)
         {
-            link = fd ? fd.linkage : tf.linkage;
+            link = fd ? fd.toAliasFunc()._linkage : tf.linkage;
         }
         else
         {
@@ -1529,7 +1479,7 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
             }
 
             if (d !is null)
-                link = d.linkage;
+                link = d._linkage;
             else
             {
                 // Resolves forward references
@@ -1574,7 +1524,7 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
         auto s = getDsymbol(o);
         if (!s)
         {
-            e.error("In expression `%s` `%s` can't have members", e.toChars(), o.toChars());
+            e.error("in expression `%s` `%s` can't have members", e.toChars(), o.toChars());
             e.errorSupplemental("`%s` must evaluate to either a module, a struct, an union, a class, an interface or a template instantiation", o.toChars());
 
             return ErrorExp.get();
@@ -1595,7 +1545,7 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
         auto sds = s.isScopeDsymbol();
         if (!sds || sds.isTemplateDeclaration())
         {
-            e.error("In expression `%s` %s `%s` has no members", e.toChars(), s.kind(), s.toChars());
+            e.error("in expression `%s` %s `%s` has no members", e.toChars(), s.kind(), s.toChars());
             e.errorSupplemental("`%s` must evaluate to either a module, a struct, an union, a class, an interface or a template instantiation", s.toChars());
             return ErrorExp.get();
         }
@@ -1683,12 +1633,12 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
 
             void pushBaseMembersDg(ClassDeclaration cd)
             {
-                for (size_t i = 0; i < cd.baseclasses.dim; i++)
+                for (size_t i = 0; i < cd.baseclasses.length; i++)
                 {
                     auto cb = (*cd.baseclasses)[i].sym;
                     assert(cb);
                     ScopeDsymbol._foreach(null, cb.members, &pushIdentsDg);
-                    if (cb.baseclasses.dim)
+                    if (cb.baseclasses.length)
                         pushBaseMembersDg(cb);
                 }
             }
@@ -1795,9 +1745,9 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
             return ErrorExp.get();
         if (!TemplateInstance.semanticTiargs(e.loc, sc, &ob2, 0))
             return ErrorExp.get();
-        if (ob1.dim != ob2.dim)
+        if (ob1.length != ob2.length)
             return False();
-        foreach (immutable i; 0 .. ob1.dim)
+        foreach (immutable i; 0 .. ob1.length)
             if (!ob1[i].isSame(ob2[i], sc))
                 return False();
         return True();
@@ -1918,7 +1868,12 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
             return ErrorExp.get();
         }
 
-        Type tb = t.baseElemOf();
+        // https://issues.dlang.org/show_bug.cgi?id=23534
+        //
+        // For enums, we need to get the enum initializer
+        // (the first enum member), not the initializer of the
+        // type of the enum members.
+        Type tb = t.isTypeEnum ? t : t.baseElemOf();
         return tb.isZeroInit(e.loc) ? True() : False();
     }
     if (e.ident == Id.getTargetInfo)
@@ -2035,7 +1990,7 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
                 if (prependNamespaces(outer, pp.cppnamespace)) return ErrorExp.get();
 
                 size_t i = 0;
-                while(i < outer.dim && ((*inner)[i]) == (*outer)[i])
+                while(i < outer.length && ((*inner)[i]) == (*outer)[i])
                     i++;
 
                 foreach_reverse (ns; (*inner)[][i .. $])
@@ -2092,20 +2047,11 @@ Expression semanticTraits(TraitsExp e, Scope* sc)
         auto tup = new TupleExp(e.loc, exps);
         return tup.expressionSemantic(sc);
     }
-    static const(char)[] trait_search_fp(const(char)[] seed, out int cost)
-    {
-        //printf("trait_search_fp('%s')\n", seed);
-        if (!seed.length)
-            return null;
-        cost = 0;       // all the same cost
-        const sv = traitsStringTable.lookup(seed);
-        return sv ? sv.toString() : null;
-    }
 
-    if (auto sub = speller!trait_search_fp(e.ident.toString()))
-        e.error("unrecognized trait `%s`, did you mean `%.*s`?", e.ident.toChars(), cast(int) sub.length, sub.ptr);
-    else
-        e.error("unrecognized trait `%s`", e.ident.toChars());
+    /* Can't find the identifier. Try a spell check for a better error message
+     */
+    traitNotFound(e);
+
     return ErrorExp.get();
 }
 
@@ -2118,7 +2064,7 @@ private bool isSame(RootObject o1, RootObject o2, Scope* sc)
         {
             if (auto td = t.isTemplateDeclaration())
             {
-                if (td.members && td.members.dim == 1)
+                if (td.members && td.members.length == 1)
                 {
                     if (auto fd = (*td.members)[0].isFuncLiteralDeclaration())
                         return fd;
@@ -2215,7 +2161,7 @@ private bool isSame(RootObject o1, RootObject o2, Scope* sc)
     if (!overSet2)
         return false;
 
-    if (overSet1.a.dim != overSet2.a.dim)
+    if (overSet1.a.length != overSet2.a.length)
         return false;
 
     // OverloadSets contain array of Dsymbols => O(n*n)
@@ -2232,4 +2178,109 @@ Lnext:
         return false;
     }
     return true;
+}
+
+
+/***********************************
+ * A trait was not found. Give a decent error message
+ * by trying a spell check.
+ * Params:
+ *      e = the offending trait
+ */
+private void traitNotFound(TraitsExp e)
+{
+    __gshared const StringTable!bool traitsStringTable;
+    __gshared bool initialized;
+
+    if (!initialized)
+    {
+        initialized = true;     // lazy initialization
+
+        // All possible traits
+        __gshared Identifier*[58] idents =
+        [
+            &Id.isAbstractClass,
+            &Id.isArithmetic,
+            &Id.isAssociativeArray,
+            &Id.isDisabled,
+            &Id.isDeprecated,
+            &Id.isFuture,
+            &Id.isFinalClass,
+            &Id.isPOD,
+            &Id.isNested,
+            &Id.isFloating,
+            &Id.isIntegral,
+            &Id.isScalar,
+            &Id.isStaticArray,
+            &Id.isUnsigned,
+            &Id.isVirtualFunction,
+            &Id.isVirtualMethod,
+            &Id.isAbstractFunction,
+            &Id.isFinalFunction,
+            &Id.isOverrideFunction,
+            &Id.isStaticFunction,
+            &Id.isModule,
+            &Id.isPackage,
+            &Id.isRef,
+            &Id.isOut,
+            &Id.isLazy,
+            &Id.isReturnOnStack,
+            &Id.hasMember,
+            &Id.identifier,
+            &Id.getProtection,
+            &Id.getVisibility,
+            &Id.parent,
+            &Id.child,
+            &Id.getLinkage,
+            &Id.getMember,
+            &Id.getOverloads,
+            &Id.getVirtualFunctions,
+            &Id.getVirtualMethods,
+            &Id.classInstanceSize,
+            &Id.classInstanceAlignment,
+            &Id.allMembers,
+            &Id.derivedMembers,
+            &Id.isSame,
+            &Id.compiles,
+            &Id.getAliasThis,
+            &Id.getAttributes,
+            &Id.getFunctionAttributes,
+            &Id.getFunctionVariadicStyle,
+            &Id.getParameterStorageClasses,
+            &Id.getUnitTests,
+            &Id.getVirtualIndex,
+            &Id.getPointerBitmap,
+            &Id.isZeroInit,
+            &Id.getTargetInfo,
+            &Id.getLocation,
+            &Id.hasPostblit,
+            &Id.hasCopyConstructor,
+            &Id.isCopyable,
+            &Id.parameters,
+        ];
+
+        StringTable!(bool)* stringTable = cast(StringTable!(bool)*) &traitsStringTable;
+        stringTable._init(idents.length);
+
+        foreach (id; idents)
+        {
+            auto sv = stringTable.insert((*id).toString(), true);
+            assert(sv);
+        }
+    }
+
+    static const(char)[] trait_search_fp(const(char)[] seed, out int cost)
+    {
+        //printf("trait_search_fp('%s')\n", seed);
+        if (!seed.length)
+            return null;
+        cost = 0;       // all the same cost
+        const sv = traitsStringTable.lookup(seed);
+        return sv ? sv.toString() : null;
+    }
+
+    if (auto sub = speller!trait_search_fp(e.ident.toString()))
+        e.error("unrecognized trait `%s`, did you mean `%.*s`?", e.ident.toChars(), cast(int) sub.length, sub.ptr);
+    else
+        e.error("unrecognized trait `%s`", e.ident.toChars());
 }

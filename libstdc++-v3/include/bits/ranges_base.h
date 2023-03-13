@@ -1,6 +1,6 @@
 // Core concepts and definitions for <ranges> -*- C++ -*-
 
-// Copyright (C) 2019-2022 Free Software Foundation, Inc.
+// Copyright (C) 2019-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -33,7 +33,8 @@
 #pragma GCC system_header
 
 #if __cplusplus > 201703L
-#include <bits/iterator_concepts.h>
+#include <initializer_list>
+#include <bits/stl_iterator.h>
 #include <ext/numeric_traits.h>
 #include <bits/max_size_type.h>
 
@@ -778,7 +779,7 @@ namespace ranges
 	    else if (__n != 0) [[likely]]
 	      {
 		// n and bound must not lead in opposite directions:
-		__glibcxx_assert(__n < 0 == __diff < 0);
+		__glibcxx_assert((__n < 0) == (__diff < 0));
 
 		(*this)(__it, __n);
 		return 0;

@@ -27,7 +27,6 @@ else version (WatchOS)
 
 version (Posix):
 extern (C) nothrow @nogc:
-@system:
 
 //
 // Required
@@ -608,4 +607,3 @@ pure unittest
         assert(!FD_ISSET(i, &fd));
     }
 }
-

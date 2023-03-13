@@ -1,5 +1,5 @@
 /* Declaration statement matcher
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -423,7 +423,8 @@ match_data_constant (gfc_expr **result)
 	 data-pointer-initialization compatible (7.5.4.6) with the initial
 	 data target; the data statement object is initially associated
 	 with the target.  */
-      if ((*result)->symtree->n.sym->attr.save
+      if ((*result)->symtree
+	  && (*result)->symtree->n.sym->attr.save
 	  && (*result)->symtree->n.sym->attr.target)
 	return m;
       gfc_free_expr (*result);
@@ -2129,10 +2130,21 @@ add_init_expr_to_sym (const char *name, gfc_expr **initp, locus *var_locus)
 	  /* The shape may be NULL for EXPR_ARRAY, set it.  */
 	  if (init->shape == NULL)
 	    {
-	      gcc_assert (init->expr_type == EXPR_ARRAY);
+	      if (init->expr_type != EXPR_ARRAY)
+		{
+		  gfc_error ("Bad shape of initializer at %L", &init->where);
+		  return false;
+		}
+
 	      init->shape = gfc_get_shape (1);
 	      if (!gfc_array_size (init, &init->shape[0]))
-		  gfc_internal_error ("gfc_array_size failed");
+		{
+		  gfc_error ("Cannot determine shape of initializer at %L",
+			     &init->where);
+		  free (init->shape);
+		  init->shape = NULL;
+		  return false;
+		}
 	    }
 
 	  for (dim = 0; dim < sym->as->rank; ++dim)
@@ -2207,6 +2219,14 @@ add_init_expr_to_sym (const char *name, gfc_expr **initp, locus *var_locus)
 	  sym->attr.is_c_interop |= init->ts.is_c_interop;
 	  if (init->ts.is_iso_c)
 	    sym->ts.f90_type = init->ts.f90_type;
+	}
+
+      /* Catch the case:  type(t), parameter :: x = z'1'.  */
+      if (sym->ts.type == BT_DERIVED && init->ts.type == BT_BOZ)
+	{
+	  gfc_error ("Entity %qs at %L is incompatible with a BOZ "
+		     "literal constant", name, &sym->declared_at);
+	  return false;
 	}
 
       /* Add initializer.  Make sure we keep the ranks sane.  */
@@ -2775,6 +2795,18 @@ variable_decl (int elem)
 		  else
 		    gfc_free_expr (n);
 		}
+	      /* For an explicit-shape spec with constant bounds, ensure
+		 that the effective upper bound is not lower than the
+		 respective lower bound minus one.  Otherwise adjust it so
+		 that the extent is trivially derived to be zero.  */
+	      if (as->lower[i]->expr_type == EXPR_CONSTANT
+		  && as->upper[i]->expr_type == EXPR_CONSTANT
+		  && as->lower[i]->ts.type == BT_INTEGER
+		  && as->upper[i]->ts.type == BT_INTEGER
+		  && mpz_cmp (as->upper[i]->value.integer,
+			      as->lower[i]->value.integer) < 0)
+		mpz_sub_ui (as->upper[i]->value.integer,
+			    as->lower[i]->value.integer, 1);
 	    }
 	}
     }
@@ -5966,10 +5998,14 @@ verify_bind_c_sym (gfc_symbol *tmp_sym, gfc_typespec *ts,
 	    }
 	  else
 	    {
-              if (tmp_sym->ts.type == BT_DERIVED || ts->type == BT_DERIVED)
-                gfc_error ("Type declaration %qs at %L is not C "
-                           "interoperable but it is BIND(C)",
-                           tmp_sym->name, &(tmp_sym->declared_at));
+	      if (tmp_sym->ts.type == BT_DERIVED || ts->type == BT_DERIVED
+		  || tmp_sym->ts.type == BT_CLASS || ts->type == BT_CLASS)
+		{
+		  gfc_error ("Type declaration %qs at %L is not C "
+			     "interoperable but it is BIND(C)",
+			     tmp_sym->name, &(tmp_sym->declared_at));
+		  retval = false;
+		}
               else if (warn_c_binding_type)
                 gfc_warning (OPT_Wc_binding_type, "Variable %qs at %L "
                              "may not be a C interoperable "
@@ -6247,6 +6283,14 @@ gfc_match_data_decl (void)
   if (m == MATCH_ERROR)
     {
       m = MATCH_NO;
+      goto cleanup;
+    }
+
+  /* F2018:C708.  */
+  if (current_ts.type == BT_CLASS && current_attr.flavor == FL_PARAMETER)
+    {
+      gfc_error ("CLASS entity at %C cannot have the PARAMETER attribute");
+      m = MATCH_ERROR;
       goto cleanup;
     }
 
@@ -8696,43 +8740,23 @@ attr_decl1 (void)
 	}
     }
 
-  /* Update symbol table.  DIMENSION attribute is set in
-     gfc_set_array_spec().  For CLASS variables, this must be applied
-     to the first component, or '_data' field.  */
-  if (sym->ts.type == BT_CLASS && sym->ts.u.derived->attr.is_class)
-    {
-      /* gfc_set_array_spec sets sym->attr not CLASS_DATA(sym)->attr.  Check
-	 for duplicate attribute here.  */
-      if (CLASS_DATA(sym)->attr.dimension == 1 && as)
-	{
-	  gfc_error ("Duplicate DIMENSION attribute at %C");
-	  m = MATCH_ERROR;
-	  goto cleanup;
-	}
-
-      if (!gfc_copy_attr (&CLASS_DATA(sym)->attr, &current_attr, &var_locus))
-	{
-	  m = MATCH_ERROR;
-	  goto cleanup;
-	}
-    }
-  else
-    {
-      if (current_attr.dimension == 0 && current_attr.codimension == 0
-	  && !gfc_copy_attr (&sym->attr, &current_attr, &var_locus))
-	{
-	  m = MATCH_ERROR;
-	  goto cleanup;
-	}
-    }
-
   if (sym->ts.type == BT_CLASS
-      && !gfc_build_class_symbol (&sym->ts, &sym->attr, &sym->as))
+      && sym->ts.u.derived
+      && sym->ts.u.derived->attr.is_class)
+    {
+      sym->attr.pointer = CLASS_DATA(sym)->attr.class_pointer;
+      sym->attr.allocatable = CLASS_DATA(sym)->attr.allocatable;
+      sym->attr.dimension = CLASS_DATA(sym)->attr.dimension;
+      sym->attr.codimension = CLASS_DATA(sym)->attr.codimension;
+      if (CLASS_DATA (sym)->as)
+	sym->as = gfc_copy_array_spec (CLASS_DATA (sym)->as);
+    }
+  if (current_attr.dimension == 0 && current_attr.codimension == 0
+      && !gfc_copy_attr (&sym->attr, &current_attr, &var_locus))
     {
       m = MATCH_ERROR;
       goto cleanup;
     }
-
   if (!gfc_set_array_spec (sym, as, &var_locus))
     {
       m = MATCH_ERROR;
@@ -8756,6 +8780,24 @@ attr_decl1 (void)
   if ((current_attr.external || current_attr.intrinsic)
       && sym->attr.flavor != FL_PROCEDURE
       && !gfc_add_flavor (&sym->attr, FL_PROCEDURE, sym->name, NULL))
+    {
+      m = MATCH_ERROR;
+      goto cleanup;
+    }
+
+  if (sym->ts.type == BT_CLASS && sym->ts.u.derived->attr.is_class
+      && !as && !current_attr.pointer && !current_attr.allocatable
+      && !current_attr.external)
+    {
+      sym->attr.pointer = 0;
+      sym->attr.allocatable = 0;
+      sym->attr.dimension = 0;
+      sym->attr.codimension = 0;
+      gfc_free_array_spec (sym->as);
+      sym->as = NULL;
+    }
+  else if (sym->ts.type == BT_CLASS
+      && !gfc_build_class_symbol (&sym->ts, &sym->attr, &sym->as))
     {
       m = MATCH_ERROR;
       goto cleanup;
@@ -11686,6 +11728,9 @@ const ext_attr_t ext_attr_list[] = {
   { "fastcall",     EXT_ATTR_FASTCALL,     "fastcall"  },
   { "no_arg_check", EXT_ATTR_NO_ARG_CHECK, NULL        },
   { "deprecated",   EXT_ATTR_DEPRECATED,   NULL	       },
+  { "noinline",     EXT_ATTR_NOINLINE,     NULL	       },
+  { "noreturn",     EXT_ATTR_NORETURN,     NULL	       },
+  { "weak",	    EXT_ATTR_WEAK,	   NULL	       },
   { NULL,           EXT_ATTR_LAST,         NULL        }
 };
 

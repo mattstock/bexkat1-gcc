@@ -1,5 +1,5 @@
 /* Simplify intrinsic functions at compile-time.
-   Copyright (C) 2000-2022 Free Software Foundation, Inc.
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
    Contributed by Andy Vaught & Katherine Holcomb
 
 This file is part of GCC.
@@ -232,6 +232,18 @@ is_constant_array_expr (gfc_expr *e)
 
   if (e->expr_type != EXPR_ARRAY || !gfc_is_constant_expr (e))
     return false;
+
+  /* A non-zero-sized constant array shall have a non-empty constructor.  */
+  if (e->rank > 0 && e->shape != NULL && e->value.constructor == NULL)
+    {
+      mpz_init_set_ui (size, 1);
+      for (int j = 0; j < e->rank; j++)
+	mpz_mul (size, size, e->shape[j]);
+      bool not_size0 = (mpz_cmp_si (size, 0) != 0);
+      mpz_clear (size);
+      if (not_size0)
+	return false;
+    }
 
   for (c = gfc_constructor_first (e->value.constructor);
        c; c = gfc_constructor_next (c))
@@ -708,6 +720,7 @@ simplify_transformation (gfc_expr *array, gfc_expr *dim, gfc_expr *mask,
   size_zero = gfc_is_size_zero_array (array);
 
   if (!(is_constant_array_expr (array) || size_zero)
+      || array->shape == NULL
       || !gfc_is_constant_expr (dim))
     return NULL;
 
@@ -1643,6 +1656,9 @@ gfc_simplify_btest (gfc_expr *e, gfc_expr *bit)
 
   if (e->expr_type != EXPR_CONSTANT || bit->expr_type != EXPR_CONSTANT)
     return NULL;
+
+  if (!gfc_check_bitfcn (e, bit))
+    return &gfc_bad_expr;
 
   if (gfc_extract_int (bit, &b) || b < 0)
     return gfc_get_logical_expr (gfc_default_logical_kind, &e->where, false);
@@ -3093,6 +3109,10 @@ gfc_simplify_extends_type_of (gfc_expr *a, gfc_expr *mold)
   if (UNLIMITED_POLY (a) || UNLIMITED_POLY (mold))
     return NULL;
 
+  if ((a->ts.type == BT_CLASS && !gfc_expr_attr (a).class_ok)
+      || (mold->ts.type == BT_CLASS && !gfc_expr_attr (mold).class_ok))
+    return NULL;
+
   /* Return .false. if the dynamic type can never be an extension.  */
   if ((a->ts.type == BT_CLASS && mold->ts.type == BT_CLASS
        && !gfc_type_is_extension_of
@@ -3353,11 +3373,21 @@ gfc_simplify_ibclr (gfc_expr *x, gfc_expr *y)
   if (x->expr_type != EXPR_CONSTANT || y->expr_type != EXPR_CONSTANT)
     return NULL;
 
+  if (!gfc_check_bitfcn (x, y))
+    return &gfc_bad_expr;
+
   gfc_extract_int (y, &pos);
 
   k = gfc_validate_kind (x->ts.type, x->ts.kind, false);
 
   result = gfc_copy_expr (x);
+  /* Drop any separate memory representation of x to avoid potential
+     inconsistencies in result.  */
+  if (result->representation.string)
+    {
+      free (result->representation.string);
+      result->representation.string = NULL;
+    }
 
   convert_mpz_to_unsigned (result->value.integer,
 			   gfc_integer_kinds[k].bit_size);
@@ -3383,6 +3413,9 @@ gfc_simplify_ibits (gfc_expr *x, gfc_expr *y, gfc_expr *z)
       || y->expr_type != EXPR_CONSTANT
       || z->expr_type != EXPR_CONSTANT)
     return NULL;
+
+  if (!gfc_check_ibits (x, y, z))
+    return &gfc_bad_expr;
 
   gfc_extract_int (y, &pos);
   gfc_extract_int (z, &len);
@@ -3438,11 +3471,21 @@ gfc_simplify_ibset (gfc_expr *x, gfc_expr *y)
   if (x->expr_type != EXPR_CONSTANT || y->expr_type != EXPR_CONSTANT)
     return NULL;
 
+  if (!gfc_check_bitfcn (x, y))
+    return &gfc_bad_expr;
+
   gfc_extract_int (y, &pos);
 
   k = gfc_validate_kind (x->ts.type, x->ts.kind, false);
 
   result = gfc_copy_expr (x);
+  /* Drop any separate memory representation of x to avoid potential
+     inconsistencies in result.  */
+  if (result->representation.string)
+    {
+      free (result->representation.string);
+      result->representation.string = NULL;
+    }
 
   convert_mpz_to_unsigned (result->value.integer,
 			   gfc_integer_kinds[k].bit_size);
@@ -3503,17 +3546,15 @@ gfc_expr *
 gfc_simplify_index (gfc_expr *x, gfc_expr *y, gfc_expr *b, gfc_expr *kind)
 {
   gfc_expr *result;
-  int back, len, lensub;
-  int i, j, k, count, index = 0, start;
+  bool back;
+  HOST_WIDE_INT len, lensub, start, last, i, index = 0;
+  int k, delta;
 
   if (x->expr_type != EXPR_CONSTANT || y->expr_type != EXPR_CONSTANT
       || ( b != NULL && b->expr_type !=  EXPR_CONSTANT))
     return NULL;
 
-  if (b != NULL && b->value.logical != 0)
-    back = 1;
-  else
-    back = 0;
+  back = (b != NULL && b->value.logical != 0);
 
   k = get_kind (BT_INTEGER, kind, "INDEX", gfc_default_integer_kind);
   if (k == -1)
@@ -3530,111 +3571,40 @@ gfc_simplify_index (gfc_expr *x, gfc_expr *y, gfc_expr *b, gfc_expr *kind)
       return result;
     }
 
-  if (back == 0)
+  if (lensub == 0)
     {
-      if (lensub == 0)
-	{
-	  mpz_set_si (result->value.integer, 1);
-	  return result;
-	}
-      else if (lensub == 1)
-	{
-	  for (i = 0; i < len; i++)
-	    {
-	      for (j = 0; j < lensub; j++)
-		{
-		  if (y->value.character.string[j]
-		      == x->value.character.string[i])
-		    {
-		      index = i + 1;
-		      goto done;
-		    }
-		}
-	    }
-	}
+      if (back)
+	index = len + 1;
       else
-	{
-	  for (i = 0; i < len; i++)
-	    {
-	      for (j = 0; j < lensub; j++)
-		{
-		  if (y->value.character.string[j]
-		      == x->value.character.string[i])
-		    {
-		      start = i;
-		      count = 0;
+	index = 1;
+      goto done;
+    }
 
-		      for (k = 0; k < lensub; k++)
-			{
-			  if (y->value.character.string[k]
-			      == x->value.character.string[k + start])
-			    count++;
-			}
-
-		      if (count == lensub)
-			{
-			  index = start + 1;
-			  goto done;
-			}
-		    }
-		}
-	    }
-	}
-
+  if (!back)
+    {
+      last = len + 1 - lensub;
+      start = 0;
+      delta = 1;
     }
   else
     {
-      if (lensub == 0)
-	{
-	  mpz_set_si (result->value.integer, len + 1);
-	  return result;
-	}
-      else if (lensub == 1)
-	{
-	  for (i = 0; i < len; i++)
-	    {
-	      for (j = 0; j < lensub; j++)
-		{
-		  if (y->value.character.string[j]
-		      == x->value.character.string[len - i])
-		    {
-		      index = len - i + 1;
-		      goto done;
-		    }
-		}
-	    }
-	}
-      else
-	{
-	  for (i = 0; i < len; i++)
-	    {
-	      for (j = 0; j < lensub; j++)
-		{
-		  if (y->value.character.string[j]
-		      == x->value.character.string[len - i])
-		    {
-		      start = len - i;
-		      if (start <= len - lensub)
-			{
-			  count = 0;
-			  for (k = 0; k < lensub; k++)
-			    if (y->value.character.string[k]
-			        == x->value.character.string[k + start])
-			      count++;
+      last = -1;
+      start = len - lensub;
+      delta = -1;
+    }
 
-			  if (count == lensub)
-			    {
-			      index = start + 1;
-			      goto done;
-			    }
-			}
-		      else
-			{
-			  continue;
-			}
-		    }
-		}
-	    }
+  for (; start != last; start += delta)
+    {
+      for (i = 0; i < lensub; i++)
+	{
+	  if (x->value.character.string[start + i]
+	      != y->value.character.string[i])
+	    break;
+	}
+      if (i == lensub)
+	{
+	  index = start + 1;
+	  goto done;
 	}
     }
 
@@ -3986,6 +3956,9 @@ gfc_simplify_ishftc (gfc_expr *e, gfc_expr *s, gfc_expr *sz)
 	return NULL;
 
       gfc_extract_int (sz, &ssize);
+
+      if (ssize > isize || ssize <= 0)
+	return &gfc_bad_expr;
     }
   else
     ssize = isize;
@@ -4944,7 +4917,22 @@ gfc_simplify_merge (gfc_expr *tsource, gfc_expr *fsource, gfc_expr *mask)
 
   if (mask->expr_type == EXPR_CONSTANT)
     {
-      result = gfc_copy_expr (mask->value.logical ? tsource : fsource);
+      /* The standard requires evaluation of all function arguments.
+	 Simplify only when the other dropped argument (FSOURCE or TSOURCE)
+	 is a constant expression.  */
+      if (mask->value.logical)
+	{
+	  if (!gfc_is_constant_expr (fsource))
+	    return NULL;
+	  result = gfc_copy_expr (tsource);
+	}
+      else
+	{
+	  if (!gfc_is_constant_expr (tsource))
+	    return NULL;
+	  result = gfc_copy_expr (fsource);
+	}
+
       /* Parenthesis is needed to get lower bounds of 1.  */
       result = gfc_get_parentheses (result);
       gfc_simplify_expr (result, 1);
@@ -5926,6 +5914,7 @@ gfc_simplify_findloc (gfc_expr *array, gfc_expr *value, gfc_expr *dim,
   bool back_val = false;
 
   if (!is_constant_array_expr (array)
+      || array->shape == NULL
       || !gfc_is_constant_expr (dim))
     return NULL;
 
@@ -6462,7 +6451,7 @@ gfc_simplify_pack (gfc_expr *array, gfc_expr *mask, gfc_expr *vector)
       /* Copy only those elements of ARRAY to RESULT whose
 	 MASK equals .TRUE..  */
       mask_ctor = gfc_constructor_first (mask->value.constructor);
-      while (mask_ctor)
+      while (mask_ctor && array_ctor)
 	{
 	  if (mask_ctor->expr->value.logical)
 	    {
@@ -7567,8 +7556,9 @@ simplify_size (gfc_expr *array, gfc_expr *dim, int k)
     }
 
   for (ref = array->ref; ref; ref = ref->next)
-    if (ref->type == REF_ARRAY && ref->u.ar.as)
-      gfc_resolve_array_spec (ref->u.ar.as, 0);
+    if (ref->type == REF_ARRAY && ref->u.ar.as
+	&& !gfc_resolve_array_spec (ref->u.ar.as, 0))
+      return NULL;
 
   if (dim == NULL)
     {
@@ -8295,7 +8285,7 @@ gfc_simplify_image_index (gfc_expr *coarray, gfc_expr *sub)
     if (ref->type == REF_COMPONENT)
       as = ref->u.ar.as;
 
-  if (as->type == AS_DEFERRED)
+  if (!as || as->type == AS_DEFERRED)
     return NULL;
 
   /* "valid sequence of cosubscripts" are required; thus, return 0 unless
@@ -8487,12 +8477,28 @@ gfc_simplify_unpack (gfc_expr *vector, gfc_expr *mask, gfc_expr *field)
     {
       if (mask_ctor->expr->value.logical)
 	{
-	  gcc_assert (vector_ctor);
-	  e = gfc_copy_expr (vector_ctor->expr);
-	  vector_ctor = gfc_constructor_next (vector_ctor);
+	  if (vector_ctor)
+	    {
+	      e = gfc_copy_expr (vector_ctor->expr);
+	      vector_ctor = gfc_constructor_next (vector_ctor);
+	    }
+	  else
+	    {
+	      gfc_free_expr (result);
+	      return NULL;
+	    }
 	}
       else if (field->expr_type == EXPR_ARRAY)
-	e = gfc_copy_expr (field_ctor->expr);
+	{
+	  if (field_ctor)
+	    e = gfc_copy_expr (field_ctor->expr);
+	  else
+	    {
+	      /* Not enough elements in array FIELD.  */
+	      gfc_free_expr (result);
+	      return &gfc_bad_expr;
+	    }
+	}
       else
 	e = gfc_copy_expr (field);
 

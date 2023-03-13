@@ -465,6 +465,7 @@ runtime_files = \
 	runtime/go-nanotime.c \
 	runtime/go-now.c \
 	runtime/go-nosys.c \
+	runtime/go-strerror.c \
 	runtime/go-reflect-call.c \
 	runtime/go-setenv.c \
 	runtime/go-signal.c \
@@ -568,6 +569,7 @@ s-goroot: Makefile
 	rm -f goroot.go.tmp
 	echo "package runtime" > goroot.go.tmp
 	echo 'var defaultGOROOT = `$(prefix)`' >> goroot.go.tmp
+	echo 'var buildVersion = `'`cat $(srcdir)/VERSION | sed 1q`' '`$(GOC) --version | sed 1q`'`' >> goroot.go.tmp
 	$(SHELL) $(srcdir)/mvifdiff.sh goroot.go.tmp goroot.go
 	$(STAMP) $@
 
@@ -1305,7 +1307,7 @@ check-tail: check-recursive check-multi
 	if test "$$untested" -ne "0"; then \
 	  echo "# of untested testcases		$$untested" >> libgo.sum; \
 	fi; \
-	echo `echo $(GOC) | sed -e 's/ .*//'`  `$(GOC) -v 2>&1 | grep " version" | sed -n -e 's/.* \(version.*$$\)/\1/p'` >> libgo.sum; \
+	echo `echo $(GOC) | sed -e 's/ .*//'`  `$(GOC) -v 2>&1 | grep " version" | sed -n -e 's/.* \(version.*\)$$/\1/p'` >> libgo.sum; \
 	echo >> libgo.log; \
 	echo "runtest completed at `date`" >> libgo.log; \
 	if test "$$fail" -ne "0"; then \

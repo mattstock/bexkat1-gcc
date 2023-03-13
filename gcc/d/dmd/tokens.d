@@ -3,7 +3,7 @@
  *
  * Specification: $(LINK2 https://dlang.org/spec/lex.html#tokens, Tokens)
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/tokens.d, _tokens.d)
@@ -16,8 +16,8 @@ module dmd.tokens;
 import core.stdc.ctype;
 import core.stdc.stdio;
 import core.stdc.string;
-import dmd.globals;
 import dmd.identifier;
+import dmd.location;
 import dmd.root.ctfloat;
 import dmd.common.outbuffer;
 import dmd.root.rmem;
@@ -273,6 +273,7 @@ enum TOK : ubyte
     __cdecl,
     __declspec,
     __stdcall,
+    __pragma,
     __attribute__,
 }
 
@@ -582,6 +583,7 @@ private immutable TOK[] keywords =
     TOK.__cdecl,
     TOK.__declspec,
     TOK.__stdcall,
+    TOK.__pragma,
     TOK.__attribute__,
 ];
 
@@ -608,9 +610,9 @@ static immutable TOK[TOK.max + 1] Ckeywords =
         enum Ckwds = [ auto_, break_, case_, char_, const_, continue_, default_, do_, float64, else_,
                        enum_, extern_, float32, for_, goto_, if_, inline, int32, int64, register,
                        restrict, return_, int16, signed, sizeof_, static_, struct_, switch_, typedef_,
-                       union_, unsigned, void_, volatile, while_, asm_,
+                       union_, unsigned, void_, volatile, while_, asm_, typeof_,
                        _Alignas, _Alignof, _Atomic, _Bool, _Complex, _Generic, _Imaginary, _Noreturn,
-                       _Static_assert, _Thread_local, _import, __cdecl, __declspec, __stdcall, __attribute__ ];
+                       _Static_assert, _Thread_local, _import, __cdecl, __declspec, __stdcall, __pragma, __attribute__ ];
 
         foreach (kw; Ckwds)
             tab[kw] = cast(TOK) kw;
@@ -634,8 +636,8 @@ extern (C++) struct Token
     union
     {
         // Integers
-        sinteger_t intvalue;
-        uinteger_t unsvalue;
+        long intvalue;
+        ulong unsvalue;
         // Floats
         real_t floatvalue;
 
@@ -880,6 +882,7 @@ extern (C++) struct Token
         TOK.__cdecl        : "__cdecl",
         TOK.__declspec     : "__declspec",
         TOK.__stdcall      : "__stdcall",
+        TOK.__pragma       : "__pragma",
         TOK.__attribute__  : "__attribute__",
     ];
 

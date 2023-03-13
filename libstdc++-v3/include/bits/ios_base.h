@@ -1,6 +1,6 @@
 // Iostreams base classes -*- C++ -*-
 
-// Copyright (C) 1997-2022 Free Software Foundation, Inc.
+// Copyright (C) 1997-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -205,12 +205,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   template <> struct is_error_code_enum<io_errc> : public true_type { };
 
-  const error_category& iostream_category() noexcept;
+  [[__nodiscard__, __gnu__::__const__]]
+  const error_category&
+  iostream_category() noexcept;
 
+  [[__nodiscard__]]
   inline error_code
   make_error_code(io_errc __e) noexcept
   { return error_code(static_cast<int>(__e), iostream_category()); }
 
+  [[__nodiscard__]]
   inline error_condition
   make_error_condition(io_errc __e) noexcept
   { return error_condition(static_cast<int>(__e), iostream_category()); }
@@ -470,7 +474,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     static const openmode __noreplace =	_S_noreplace;
 
 #if __cplusplus >= 202100L
-#define __cpp_lib_ios_noreplace 202200L
+#define __cpp_lib_ios_noreplace 202207L
     /// Open a file in exclusive mode.
     static const openmode noreplace =	_S_noreplace;
 #endif

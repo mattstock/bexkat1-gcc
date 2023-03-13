@@ -1642,9 +1642,9 @@ private void multiSortImpl(Range, SwapStrategy ss, funs...)(Range r)
 }
 
 // https://issues.dlang.org/show_bug.cgi?id=16413 - @system comparison function
-@safe unittest
+@system unittest
 {
-    bool lt(int a, int b) { return a < b; } static @system
+    static @system bool lt(int a, int b) { return a < b; }
     auto a = [2, 1];
     a.multiSort!(lt, lt);
     assert(a == [1, 2]);
@@ -3946,7 +3946,7 @@ if (isRandomAccessRange!(Range1) && hasLength!Range1 &&
     {
         foreach (T2; ReferenceRanges)
         {
-            import std.array;
+            import std.array : array;
 
             T1 A;
             T2 B;

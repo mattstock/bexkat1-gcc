@@ -1,7 +1,7 @@
 /**
  * Performs the semantic2 stage, which deals with initializer expressions.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/semantic2.d, _semantic2.d)
@@ -110,21 +110,36 @@ private extern(C++) final class Semantic2Visitor : Visitor
         else if (result)
             return;
 
-        if (sa.msg)
+        if (sa.msgs)
         {
-            sc = sc.startCTFE();
-            sa.msg = sa.msg.expressionSemantic(sc);
-            sa.msg = resolveProperties(sc, sa.msg);
-            sc = sc.endCTFE();
-            sa.msg = sa.msg.ctfeInterpret();
-            if (StringExp se = sa.msg.toStringExp())
+            OutBuffer msgbuf;
+            for (size_t i = 0; i < sa.msgs.length; i++)
             {
-                // same with pragma(msg)
-                const slice = se.toUTF8(sc).peekString();
-                error(sa.loc, "static assert:  \"%.*s\"", cast(int)slice.length, slice.ptr);
+                Expression e = (*sa.msgs)[i];
+                sc = sc.startCTFE();
+                e = e.expressionSemantic(sc);
+                e = resolveProperties(sc, e);
+                sc = sc.endCTFE();
+                e = ctfeInterpretForPragmaMsg(e);
+                if (e.op == EXP.error)
+                {
+                    errorSupplemental(sa.loc, "while evaluating `static assert` argument `%s`", (*sa.msgs)[i].toChars());
+                    return;
+                }
+                StringExp se = e.toStringExp();
+                if (se)
+                {
+                    const slice = se.toUTF8(sc).peekString();
+                    // Hack to keep old formatting to avoid changing error messages everywhere
+                    if (sa.msgs.length == 1)
+                        msgbuf.printf("\"%.*s\"", cast(int)slice.length, slice.ptr);
+                    else
+                        msgbuf.printf("%.*s", cast(int)slice.length, slice.ptr);
+                }
+                else
+                    msgbuf.printf("%s", e.toChars());
             }
-            else
-                error(sa.loc, "static assert:  %s", sa.msg.toChars());
+            error(sa.loc, "static assert:  %s", msgbuf.extractChars());
         }
         else
             error(sa.loc, "static assert:  `%s` is false", sa.exp.toChars());
@@ -163,7 +178,7 @@ private extern(C++) final class Semantic2Visitor : Visitor
         if (needGagging)
             oldGaggedErrors = global.startGagging();
 
-        for (size_t i = 0; i < tempinst.members.dim; i++)
+        for (size_t i = 0; i < tempinst.members.length; i++)
         {
             Dsymbol s = (*tempinst.members)[i];
             static if (LOG)
@@ -211,7 +226,7 @@ private extern(C++) final class Semantic2Visitor : Visitor
         sc = sc.push(tmix);
         sc.tinst = tmix;
         sc.minst = tmix.minst;
-        for (size_t i = 0; i < tmix.members.dim; i++)
+        for (size_t i = 0; i < tmix.members.length; i++)
         {
             Dsymbol s = (*tmix.members)[i];
             static if (LOG)
@@ -230,6 +245,8 @@ private extern(C++) final class Semantic2Visitor : Visitor
             return;
 
         //printf("VarDeclaration::semantic2('%s')\n", toChars());
+        sc.varDecl = vd;
+        scope(exit) sc.varDecl = null;
 
         if (vd.aliassym)        // if it's a tuple
         {
@@ -238,7 +255,7 @@ private extern(C++) final class Semantic2Visitor : Visitor
             return;
         }
 
-        UserAttributeDeclaration.checkGNUABITag(vd, vd.linkage);
+        UserAttributeDeclaration.checkGNUABITag(vd, vd._linkage);
 
         if (vd._init && !vd.toParent().isFuncDeclaration())
         {
@@ -333,7 +350,7 @@ private extern(C++) final class Semantic2Visitor : Visitor
         if (mod.members)
         {
             // Pass 2 semantic routines: do initializers and function bodies
-            for (size_t i = 0; i < mod.members.dim; i++)
+            for (size_t i = 0; i < mod.members.length; i++)
             {
                 Dsymbol s = (*mod.members)[i];
                 s.semantic2(sc);
@@ -379,6 +396,7 @@ private extern(C++) final class Semantic2Visitor : Visitor
             alias f1 = fd;
             auto tf1 = cast(TypeFunction) f1.type;
             auto parent1 = f1.toParent2();
+            const linkage1 = f1.resolvedLinkage();
 
             overloadApply(f1, (Dsymbol s)
             {
@@ -391,7 +409,7 @@ private extern(C++) final class Semantic2Visitor : Visitor
                     return 0;
 
                 // Functions with different manglings can never conflict
-                if (f1.linkage != f2.linkage)
+                if (linkage1 != f2.resolvedLinkage())
                     return 0;
 
                 // Functions with different names never conflict
@@ -428,12 +446,12 @@ private extern(C++) final class Semantic2Visitor : Visitor
                 // @@@DEPRECATED_2.104@@@
                 // Deprecated in 2020-08, make this an error in 2.104
                 if (parent1.isModule() &&
-                    f1.linkage != LINK.d && f1.linkage != LINK.cpp &&
+                    linkage1 != LINK.d && linkage1 != LINK.cpp &&
                     (!sameAttr || !sameParams)
                 )
                 {
                     f2.deprecation("cannot overload `extern(%s)` function at %s",
-                            linkageToChars(f1.linkage),
+                            linkageToChars(f1._linkage),
                             f1.loc.toChars());
                     return 0;
                 }
@@ -443,7 +461,7 @@ private extern(C++) final class Semantic2Visitor : Visitor
                     return 0;
 
                 // Different attributes don't conflict in extern(D)
-                if (!sameAttr && f1.linkage == LINK.d)
+                if (!sameAttr && linkage1 == LINK.d)
                     return 0;
 
                 error(f2.loc, "%s `%s%s` conflicts with previous declaration at %s",
@@ -460,7 +478,7 @@ private extern(C++) final class Semantic2Visitor : Visitor
             return;
         TypeFunction f = cast(TypeFunction) fd.type;
 
-        UserAttributeDeclaration.checkGNUABITag(fd, fd.linkage);
+        UserAttributeDeclaration.checkGNUABITag(fd, fd._linkage);
         //semantic for parameters' UDAs
         foreach (i, param; f.parameterList)
         {
@@ -519,7 +537,7 @@ private extern(C++) final class Semantic2Visitor : Visitor
             return;
 
         Scope* sc2 = ad.newScope(sc);
-        for (size_t i = 0; i < d.dim; i++)
+        for (size_t i = 0; i < d.length; i++)
         {
             Dsymbol s = (*d)[i];
             s.semantic2(sc2);
@@ -558,7 +576,7 @@ private extern(C++) final class Semantic2Visitor : Visitor
 
     override void visit(UserAttributeDeclaration uad)
     {
-        if (!uad.decl || !uad.atts || !uad.atts.dim || !uad._scope)
+        if (!uad.decl || !uad.atts || !uad.atts.length || !uad._scope)
             return visit(cast(AttribDeclaration)uad);
 
         Expression* lastTag;
@@ -608,7 +626,7 @@ private extern(C++) final class Semantic2Visitor : Visitor
 
         ad.determineSize(ad.loc);
 
-        for (size_t i = 0; i < ad.members.dim; i++)
+        for (size_t i = 0; i < ad.members.length; i++)
         {
             Dsymbol s = (*ad.members)[i];
             //printf("\t[%d] %s\n", i, s.toChars());
@@ -643,7 +661,7 @@ private extern(C++) final class Semantic2Visitor : Visitor
                     {
                         //printf("            found\n");
                         // Check that calling conventions match
-                        if (fd.linkage != ifd.linkage)
+                        if (fd._linkage != ifd._linkage)
                             fd.error("linkage doesn't match interface function");
 
                         // Check that it is current
@@ -675,6 +693,11 @@ private extern(C++) final class Semantic2Visitor : Visitor
     override void visit(InterfaceDeclaration cd)
     {
         visit(cast(AggregateDeclaration) cd);
+    }
+
+    override void visit(TupleDeclaration td)
+    {
+        td.foreachVar((s) { s.accept(this); });
     }
 }
 

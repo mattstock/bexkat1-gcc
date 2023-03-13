@@ -1,7 +1,7 @@
 /**
  * Functions for raising errors.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/errors.d, _errors.d)
@@ -13,6 +13,7 @@ module dmd.errors;
 
 import core.stdc.stdarg;
 import dmd.globals;
+import dmd.location;
 
 nothrow:
 
@@ -434,8 +435,20 @@ else
     pragma(printf) extern (C++) void vdeprecationSupplemental(const ref Loc loc, const(char)* format, va_list ap);
 
 /**
- * Call this after printing out fatal error messages to clean up and exit
- * the compiler.
+ * The type of the fatal error handler
+ * Returns: true if error handling is done, false to do exit(EXIT_FAILURE)
+ */
+alias FatalErrorHandler = bool delegate();
+
+/**
+ * The fatal error handler.
+ * If non-null it will be called for every fatal() call issued by the compiler.
+ */
+__gshared FatalErrorHandler fatalErrorHandler;
+
+/**
+ * Call this after printing out fatal error messages to clean up and exit the
+ * compiler. You can also set a fatalErrorHandler to override this behaviour.
  */
 extern (C++) void fatal();
 

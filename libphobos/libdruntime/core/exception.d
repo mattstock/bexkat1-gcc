@@ -14,33 +14,10 @@ void __switch_errorT()(string file = __FILE__, size_t line = __LINE__) @trusted
 {
     // Consider making this a compile time check.
     version (D_Exceptions)
-        throw staticError!SwitchError(file, line, null);
+        throw staticError!SwitchError("No appropriate switch clause found", file, line, null);
     else
         assert(0, "No appropriate switch clause found");
 }
-
-version (D_BetterC)
-{
-    // When compiling with -betterC we use template functions so if they are
-    // used the bodies are copied into the user's program so there is no need
-    // for the D runtime during linking.
-
-    // In the future we might want to convert all functions in this module to
-    // templates even for ordinary builds instead of providing them as an
-    // extern(C) library.
-
-    void onOutOfMemoryError()(void* pretend_sideffect = null) @nogc nothrow pure @trusted
-    {
-        assert(0, "Memory allocation failed");
-    }
-    alias onOutOfMemoryErrorNoGC = onOutOfMemoryError;
-
-    void onInvalidMemoryOperationError()(void* pretend_sideffect = null) @nogc nothrow pure @trusted
-    {
-        assert(0, "Invalid memory operation");
-    }
-}
-else:
 
 /**
  * Thrown on a range error.
@@ -218,17 +195,17 @@ private void rangeMsgPut(ref char[] r, scope const(char)[] e) @nogc nothrow pure
  */
 class AssertError : Error
 {
-    @safe pure nothrow this( string file, size_t line )
+    @safe pure nothrow @nogc this( string file, size_t line )
     {
         this(cast(Throwable)null, file, line);
     }
 
-    @safe pure nothrow this( Throwable next, string file = __FILE__, size_t line = __LINE__ )
+    @safe pure nothrow @nogc this( Throwable next, string file = __FILE__, size_t line = __LINE__ )
     {
         this( "Assertion failure", file, line, next);
     }
 
-    @safe pure nothrow this( string msg, string file = __FILE__, size_t line = __LINE__, Throwable next = null )
+    @safe pure nothrow @nogc this( string msg, string file = __FILE__, size_t line = __LINE__, Throwable next = null )
     {
         super( msg, file, line, next );
     }
@@ -301,7 +278,6 @@ class FinalizeError : Error
     this( TypeInfo ci, string file = __FILE__, size_t line = __LINE__, Throwable next = null ) @safe pure nothrow @nogc
     {
         super( "Finalization error", file, line, next );
-        super.info = SuppressTraceInfo.instance;
         info = ci;
     }
 
@@ -416,7 +392,6 @@ class InvalidMemoryOperationError : Error
     this(string file = __FILE__, size_t line = __LINE__, Throwable next = null ) @safe pure nothrow @nogc
     {
         super( "Invalid memory operation", file, line, next );
-        this.info = SuppressTraceInfo.instance;
     }
 
     override string toString() const @trusted
@@ -469,16 +444,16 @@ class ForkError : Error
  */
 class SwitchError : Error
 {
-    @safe pure nothrow @nogc this( string file = __FILE__, size_t line = __LINE__, Throwable next = null )
+    @safe pure nothrow @nogc this( string msg, string file = __FILE__, size_t line = __LINE__, Throwable next = null )
     {
-        super( "No appropriate switch clause found", file, line, next );
+        super( msg, file, line, next );
     }
 }
 
 unittest
 {
     {
-        auto se = new SwitchError();
+        auto se = new SwitchError("No appropriate switch clause found");
         assert(se.file == __FILE__);
         assert(se.line == __LINE__ - 2);
         assert(se.next is null);
@@ -486,7 +461,7 @@ unittest
     }
 
     {
-        auto se = new SwitchError("hello", 42, new Exception("It's an Exception!"));
+        auto se = new SwitchError("No appropriate switch clause found", "hello", 42, new Exception("It's an Exception!"));
         assert(se.file == "hello");
         assert(se.line == 42);
         assert(se.next !is null);
@@ -631,7 +606,7 @@ extern (C) void onUnittestErrorMsg( string file, size_t line, string msg ) nothr
  * Throws:
  *  $(LREF RangeError).
  */
-extern (C) void onRangeError( string file = __FILE__, size_t line = __LINE__ ) @trusted pure nothrow @nogc
+extern (C) noreturn onRangeError( string file = __FILE__, size_t line = __LINE__ ) @trusted pure nothrow @nogc
 {
     throw staticError!RangeError(file, line, null);
 }
@@ -649,7 +624,7 @@ extern (C) void onRangeError( string file = __FILE__, size_t line = __LINE__ ) @
  * Throws:
  *  $(LREF ArraySliceError).
  */
-extern (C) void onArraySliceError( size_t lower = 0, size_t upper = 0, size_t length = 0,
+extern (C) noreturn onArraySliceError( size_t lower = 0, size_t upper = 0, size_t length = 0,
                               string file = __FILE__, size_t line = __LINE__ ) @trusted pure nothrow @nogc
 {
     throw staticError!ArraySliceError(lower, upper, length, file, line, null);
@@ -667,7 +642,7 @@ extern (C) void onArraySliceError( size_t lower = 0, size_t upper = 0, size_t le
  * Throws:
  *  $(LREF ArrayIndexError).
  */
-extern (C) void onArrayIndexError( size_t index = 0, size_t length = 0,
+extern (C) noreturn onArrayIndexError( size_t index = 0, size_t length = 0,
                               string file = __FILE__, size_t line = __LINE__ ) @trusted pure nothrow @nogc
 {
     throw staticError!ArrayIndexError(index, length, file, line, null);
@@ -685,33 +660,56 @@ extern (C) void onArrayIndexError( size_t index = 0, size_t length = 0,
  * Throws:
  *  $(LREF FinalizeError).
  */
-extern (C) void onFinalizeError( TypeInfo info, Throwable e, string file = __FILE__, size_t line = __LINE__ ) @trusted nothrow
+extern (C) noreturn onFinalizeError( TypeInfo info, Throwable e, string file = __FILE__, size_t line = __LINE__ ) @trusted nothrow
 {
     // This error is thrown during a garbage collection, so no allocation must occur while
     //  generating this object. So we use a preallocated instance
     throw staticError!FinalizeError(info, e, file, line);
 }
 
-/**
- * A callback for out of memory errors in D.  An $(LREF OutOfMemoryError) will be
- * thrown.
- *
- * Throws:
- *  $(LREF OutOfMemoryError).
- */
-extern (C) void onOutOfMemoryError(void* pretend_sideffect = null) @trusted pure nothrow @nogc /* dmd @@@BUG11461@@@ */
+version (D_BetterC)
 {
-    // NOTE: Since an out of memory condition exists, no allocation must occur
-    //       while generating this object.
-    throw staticError!OutOfMemoryError();
-}
+    // When compiling with -betterC we use template functions so if they are
+    // used the bodies are copied into the user's program so there is no need
+    // for the D runtime during linking.
 
-extern (C) void onOutOfMemoryErrorNoGC() @trusted nothrow @nogc
+    // In the future we might want to convert all functions in this module to
+    // templates even for ordinary builds instead of providing them as an
+    // extern(C) library.
+
+    noreturn onOutOfMemoryError()(void* pretend_sideffect = null) @nogc nothrow pure @trusted
+    {
+        assert(0, "Memory allocation failed");
+    }
+    alias onOutOfMemoryErrorNoGC = onOutOfMemoryError;
+
+    noreturn onInvalidMemoryOperationError()(void* pretend_sideffect = null) @nogc nothrow pure @trusted
+    {
+        assert(0, "Invalid memory operation");
+    }
+}
+else
 {
-    // suppress stacktrace until they are @nogc
-    throw staticError!OutOfMemoryError(false);
-}
+    /**
+     * A callback for out of memory errors in D.  An $(LREF OutOfMemoryError) will be
+     * thrown.
+     *
+     * Throws:
+     *  $(LREF OutOfMemoryError).
+     */
+    extern (C) noreturn onOutOfMemoryError(void* pretend_sideffect = null) @trusted pure nothrow @nogc /* dmd @@@BUG11461@@@ */
+    {
+        // NOTE: Since an out of memory condition exists, no allocation must occur
+        //       while generating this object.
+        throw staticError!OutOfMemoryError();
+    }
 
+    extern (C) noreturn onOutOfMemoryErrorNoGC() @trusted nothrow @nogc
+    {
+        // suppress stacktrace until they are @nogc
+        throw staticError!OutOfMemoryError(false);
+    }
+}
 
 /**
  * A callback for invalid memory operations in D.  An
@@ -720,7 +718,7 @@ extern (C) void onOutOfMemoryErrorNoGC() @trusted nothrow @nogc
  * Throws:
  *  $(LREF InvalidMemoryOperationError).
  */
-extern (C) void onInvalidMemoryOperationError(void* pretend_sideffect = null) @trusted pure nothrow @nogc /* dmd @@@BUG11461@@@ */
+extern (C) noreturn onInvalidMemoryOperationError(void* pretend_sideffect = null) @trusted pure nothrow @nogc /* dmd @@@BUG11461@@@ */
 {
     // The same restriction applies as for onOutOfMemoryError. The GC is in an
     // undefined state, thus no allocation must occur while generating this object.
@@ -738,7 +736,7 @@ extern (C) void onInvalidMemoryOperationError(void* pretend_sideffect = null) @t
  * Throws:
  *  $(LREF ConfigurationError).
  */
-extern (C) void onForkError( string file = __FILE__, size_t line = __LINE__ ) @trusted pure nothrow @nogc
+extern (C) noreturn onForkError( string file = __FILE__, size_t line = __LINE__ ) @trusted pure nothrow @nogc
 {
     throw staticError!ForkError( file, line, null );
 }
@@ -755,7 +753,7 @@ extern (C) void onForkError( string file = __FILE__, size_t line = __LINE__ ) @t
  * Throws:
  *  $(LREF UnicodeException).
  */
-extern (C) void onUnicodeError( string msg, size_t idx, string file = __FILE__, size_t line = __LINE__ ) @safe pure
+extern (C) noreturn onUnicodeError( string msg, size_t idx, string file = __FILE__, size_t line = __LINE__ ) @safe pure
 {
     throw new UnicodeException( msg, idx, file, line );
 }
@@ -859,7 +857,7 @@ extern (C)
 private align(2 * size_t.sizeof) void[256] _store;
 
 // only Errors for now as those are rarely chained
-private T staticError(T, Args...)(auto ref Args args)
+package T staticError(T, Args...)(auto ref Args args)
     if (is(T : Error))
 {
     // pure hack, what we actually need is @noreturn and allow to call that in pure functions

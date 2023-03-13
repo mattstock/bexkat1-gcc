@@ -3,7 +3,7 @@
  *
  * Not to be confused with the `scope` storage class.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/dscope.d, _dscope.d)
@@ -33,6 +33,7 @@ import dmd.func;
 import dmd.globals;
 import dmd.id;
 import dmd.identifier;
+import dmd.location;
 import dmd.common.outbuffer;
 import dmd.root.rmem;
 import dmd.root.speller;
@@ -63,26 +64,22 @@ enum SCOPE
     free          = 0x8000,   /// is on free list
 
     fullinst      = 0x10000,  /// fully instantiate templates
-    alias_        = 0x20000,  /// inside alias declaration.
-
-    // The following are mutually exclusive
-    printf        = 0x4_0000, /// printf-style function
-    scanf         = 0x8_0000, /// scanf-style function
 }
 
 /// Flags that are carried along with a scope push()
 private enum PersistentFlags =
     SCOPE.contract | SCOPE.debug_ | SCOPE.ctfe | SCOPE.compile | SCOPE.constraint |
     SCOPE.noaccesscheck | SCOPE.ignoresymbolvisibility |
-    SCOPE.printf | SCOPE.scanf | SCOPE.Cfile;
+    SCOPE.Cfile;
 
-struct Scope
+extern (C++) struct Scope
 {
     Scope* enclosing;               /// enclosing Scope
 
     Module _module;                 /// Root module
     ScopeDsymbol scopesym;          /// current symbol
     FuncDeclaration func;           /// function we are in
+    VarDeclaration varDecl;         /// variable we are in during semantic2
     Dsymbol parent;                 /// parent to use
     LabelStatement slabel;          /// enclosing labelled statement
     SwitchStatement sw;             /// enclosing switch statement
@@ -182,7 +179,7 @@ struct Scope
         return sc;
     }
 
-    extern (C++) Scope* copy()
+    extern (D) Scope* copy()
     {
         Scope* sc = Scope.alloc();
         *sc = this;
@@ -193,7 +190,7 @@ struct Scope
         return sc;
     }
 
-    extern (C++) Scope* push()
+    extern (D) Scope* push()
     {
         Scope* s = copy();
         //printf("Scope::push(this = %p) new = %p\n", this, s);
@@ -219,7 +216,7 @@ struct Scope
         return s;
     }
 
-    extern (C++) Scope* push(ScopeDsymbol ss)
+    extern (D) Scope* push(ScopeDsymbol ss)
     {
         //printf("Scope::push(%s)\n", ss.toChars());
         Scope* s = push();
@@ -227,7 +224,7 @@ struct Scope
         return s;
     }
 
-    extern (C++) Scope* pop()
+    extern (D) Scope* pop()
     {
         //printf("Scope::pop() %p nofree = %d\n", this, nofree);
         if (enclosing)
@@ -257,7 +254,7 @@ struct Scope
         pop();
     }
 
-    extern (C++) Scope* startCTFE()
+    extern (D) Scope* startCTFE()
     {
         Scope* sc = this.push();
         sc.flags = this.flags | SCOPE.ctfe;
@@ -284,7 +281,7 @@ struct Scope
         return sc;
     }
 
-    extern (C++) Scope* endCTFE()
+    extern (D) Scope* endCTFE()
     {
         assert(flags & SCOPE.ctfe);
         return pop();
@@ -457,6 +454,8 @@ struct Scope
 
                 if (sc.scopesym.isModule())
                     flags |= SearchUnqualifiedModule;        // tell Module.search() that SearchLocalsOnly is to be obeyed
+                else if (sc.flags & SCOPE.Cfile && sc.scopesym.isStructDeclaration())
+                    continue;                                // C doesn't have struct scope
 
                 if (Dsymbol s = sc.scopesym.search(loc, ident, flags))
                 {
@@ -666,7 +665,7 @@ struct Scope
     /********************************************
      * Search enclosing scopes for ScopeDsymbol.
      */
-    ScopeDsymbol getScopesym()
+    extern (D) ScopeDsymbol getScopesym()
     {
         for (Scope* sc = &this; sc; sc = sc.enclosing)
         {
@@ -679,7 +678,7 @@ struct Scope
     /********************************************
      * Search enclosing scopes for ClassDeclaration.
      */
-    extern (C++) ClassDeclaration getClassScope()
+    extern (D) ClassDeclaration getClassScope()
     {
         for (Scope* sc = &this; sc; sc = sc.enclosing)
         {
@@ -694,7 +693,7 @@ struct Scope
     /********************************************
      * Search enclosing scopes for ClassDeclaration or StructDeclaration.
      */
-    extern (C++) AggregateDeclaration getStructClassScope()
+    extern (D) AggregateDeclaration getStructClassScope()
     {
         for (Scope* sc = &this; sc; sc = sc.enclosing)
         {
@@ -716,7 +715,7 @@ struct Scope
      *
      * Returns: the function or null
      */
-    inout(FuncDeclaration) getEnclosingFunction() inout
+    extern (D) inout(FuncDeclaration) getEnclosingFunction() inout
     {
         if (!this.func)
             return null;
@@ -753,10 +752,9 @@ struct Scope
             //    assert(0);
         }
     }
-
     /******************************
      */
-    structalign_t alignment()
+    extern (D) structalign_t alignment()
     {
         if (aligndecl)
         {
@@ -770,13 +768,13 @@ struct Scope
             return sa;
         }
     }
-
+    @safe @nogc pure nothrow const:
     /**********************************
     * Checks whether the current scope (or any of its parents) is deprecated.
     *
     * Returns: `true` if this or any parent scope is deprecated, `false` otherwise`
     */
-    extern(C++) bool isDeprecated() @safe @nogc pure nothrow const
+    extern (D) bool isDeprecated()
     {
         for (const(Dsymbol)* sp = &(this.parent); *sp; sp = &(sp.parent))
         {
@@ -797,5 +795,17 @@ struct Scope
             return true;
         }
         return false;
+    }
+    /**
+     * dmd relies on mutation of state during semantic analysis, however
+     * sometimes semantic is being performed in a speculative context that should
+     * not have any visible effect on the rest of the compilation: for example when compiling
+     * a typeof() or __traits(compiles).
+     *
+     * Returns: `true` if this `Scope` is known to be from one of these speculative contexts
+     */
+    extern (D) bool isFromSpeculativeSemanticContext() scope
+    {
+        return this.intypeof || this.flags & SCOPE.compile;
     }
 }

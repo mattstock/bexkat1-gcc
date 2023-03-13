@@ -1,7 +1,7 @@
 /* Scalar Replacement of Aggregates (SRA) converts some structure
    references into scalar references, exposing them to the scalar
    optimizers.
-   Copyright (C) 2008-2022 Free Software Foundation, Inc.
+   Copyright (C) 2008-2023 Free Software Foundation, Inc.
    Contributed by Martin Jambor <mjambor@suse.cz>
 
 This file is part of GCC.
@@ -260,6 +260,9 @@ struct access
 
   /* Should TREE_NO_WARNING of a replacement be set?  */
   unsigned grp_no_warning : 1;
+
+  /* Result of propagation accross link from LHS to RHS.  */
+  unsigned grp_result_of_prop_from_lhs : 1;
 };
 
 typedef struct access *access_p;
@@ -1667,7 +1670,18 @@ build_ref_for_offset (location_t loc, tree base, poly_int64 offset,
 static tree
 build_reconstructed_reference (location_t, tree base, struct access *model)
 {
-  tree expr = model->expr, prev_expr = NULL;
+  tree expr = model->expr;
+  /* We have to make sure to start just below the outermost union.  */
+  tree start_expr = expr;
+  while (handled_component_p (expr))
+    {
+      if (TREE_CODE (TREE_TYPE (TREE_OPERAND (expr, 0))) == UNION_TYPE)
+	start_expr = expr;
+      expr = TREE_OPERAND (expr, 0);
+    }
+
+  expr = start_expr;
+  tree prev_expr = NULL_TREE;
   while (!types_compatible_p (TREE_TYPE (expr), TREE_TYPE (base)))
     {
       if (!handled_component_p (expr))
@@ -2521,6 +2535,9 @@ analyze_access_subtree (struct access *root, struct access *parent,
   if (allow_replacements && expr_with_var_bounded_array_refs_p (root->expr))
     allow_replacements = false;
 
+  if (!totally && root->grp_result_of_prop_from_lhs)
+    allow_replacements = false;
+
   for (child = root->first_child; child; child = child->next_sibling)
     {
       hole |= covered_to < child->offset;
@@ -2948,6 +2965,7 @@ propagate_subaccesses_from_lhs (struct access *lacc, struct access *racc)
 	  struct access *new_acc
 	    = create_artificial_child_access (racc, lchild, norm_offset,
 					      true, false);
+	  new_acc->grp_result_of_prop_from_lhs = 1;
 	  propagate_subaccesses_from_lhs (lchild, new_acc);
 	}
       else
@@ -3840,7 +3858,23 @@ sra_modify_expr (tree *expr, gimple_stmt_iterator *gsi, bool write)
 	    }
 	}
       else
-	*expr = repl;
+	{
+	  /* If we are going to replace a scalar field in a structure with
+	     reverse storage order by a stand-alone scalar, we are going to
+	     effectively byte-swap the scalar and we also need to byte-swap
+	     the portion of it represented by the bit-field.  */
+	  if (bfr && REF_REVERSE_STORAGE_ORDER (bfr))
+	    {
+	      REF_REVERSE_STORAGE_ORDER (bfr) = 0;
+	      TREE_OPERAND (bfr, 2)
+		= size_binop (MINUS_EXPR, TYPE_SIZE (TREE_TYPE (repl)),
+			      size_binop (PLUS_EXPR, TREE_OPERAND (bfr, 1),
+						     TREE_OPERAND (bfr, 2)));
+	    }
+
+	  *expr = repl;
+	}
+
       sra_stats.exprs++;
     }
   else if (write && access->grp_to_be_debug_replaced)
@@ -4270,32 +4304,31 @@ sra_modify_assign (gimple *stmt, gimple_stmt_iterator *gsi)
       sra_stats.exprs++;
     }
 
-  if (modify_this_stmt)
+  if (modify_this_stmt
+      && !useless_type_conversion_p (TREE_TYPE (lhs), TREE_TYPE (rhs)))
     {
+      /* If we can avoid creating a VIEW_CONVERT_EXPR, then do so.
+	 ??? This should move to fold_stmt which we simply should
+	 call after building a VIEW_CONVERT_EXPR here.  */
+      if (AGGREGATE_TYPE_P (TREE_TYPE (lhs))
+	  && TYPE_REVERSE_STORAGE_ORDER (TREE_TYPE (lhs)) == racc->reverse
+	  && !contains_bitfld_component_ref_p (lhs))
+	{
+	  lhs = build_ref_for_model (loc, lhs, 0, racc, gsi, false);
+	  gimple_assign_set_lhs (stmt, lhs);
+	}
+      else if (lacc
+	       && AGGREGATE_TYPE_P (TREE_TYPE (rhs))
+	       && TYPE_REVERSE_STORAGE_ORDER (TREE_TYPE (rhs)) == lacc->reverse
+	       && !contains_vce_or_bfcref_p (rhs))
+	rhs = build_ref_for_model (loc, rhs, 0, lacc, gsi, false);
+
       if (!useless_type_conversion_p (TREE_TYPE (lhs), TREE_TYPE (rhs)))
 	{
-	  /* If we can avoid creating a VIEW_CONVERT_EXPR do so.
-	     ???  This should move to fold_stmt which we simply should
-	     call after building a VIEW_CONVERT_EXPR here.  */
-	  if (AGGREGATE_TYPE_P (TREE_TYPE (lhs))
-	      && !contains_bitfld_component_ref_p (lhs))
-	    {
-	      lhs = build_ref_for_model (loc, lhs, 0, racc, gsi, false);
-	      gimple_assign_set_lhs (stmt, lhs);
-	    }
-	  else if (lacc
-		   && AGGREGATE_TYPE_P (TREE_TYPE (rhs))
-		   && !contains_vce_or_bfcref_p (rhs))
-	    rhs = build_ref_for_model (loc, rhs, 0, lacc, gsi, false);
-
-	  if (!useless_type_conversion_p (TREE_TYPE (lhs), TREE_TYPE (rhs)))
-	    {
-	      rhs = fold_build1_loc (loc, VIEW_CONVERT_EXPR, TREE_TYPE (lhs),
-				     rhs);
-	      if (is_gimple_reg_type (TREE_TYPE (lhs))
-		  && TREE_CODE (lhs) != SSA_NAME)
-		force_gimple_rhs = true;
-	    }
+	  rhs = fold_build1_loc (loc, VIEW_CONVERT_EXPR, TREE_TYPE (lhs), rhs);
+	  if (is_gimple_reg_type (TREE_TYPE (lhs))
+	      && TREE_CODE (lhs) != SSA_NAME)
+	    force_gimple_rhs = true;
 	}
     }
 
@@ -4744,8 +4777,11 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return gate_intra_sra (); }
-  virtual unsigned int execute (function *) { return early_intra_sra (); }
+  bool gate (function *) final override { return gate_intra_sra (); }
+  unsigned int execute (function *) final override
+  {
+    return early_intra_sra ();
+  }
 
 }; // class pass_sra_early
 
@@ -4780,8 +4816,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return gate_intra_sra (); }
-  virtual unsigned int execute (function *) { return late_intra_sra (); }
+  bool gate (function *) final override { return gate_intra_sra (); }
+  unsigned int execute (function *) final override { return late_intra_sra (); }
 
 }; // class pass_sra
 

@@ -122,3 +122,42 @@ noreturn testdg(noreturn delegate() dg)
 {
     dg();
 }
+
+noreturn func()
+{
+    while(1)
+    {
+    }
+}
+alias AliasSeq(T...) = T;
+alias Types = AliasSeq!(bool, byte, ubyte, short, ushort, int, uint,
+                        long, ulong, char, wchar, dchar, float, double,
+                        real);
+void noreturnImplicit()
+{
+    /*
+        Testing both ways because, although the underlying table
+        is symmetrical the code that calls into it may be buggy.
+    */
+    {
+        int x = 2 + func();
+        int y = func() + 2;
+    }
+    foreach(T; Types)
+    {
+        T value;
+        auto x = value + throw new Exception("Hello");
+        auto y = (throw new Exception("wow")) + value;
+    }
+}
+
+// https://issues.dlang.org/show_bug.cgi?id=23549
+int foo(int g = assert(0)) {
+    return g;
+}
+
+// https://issues.dlang.org/show_bug.cgi?id=22587
+int front(int param)
+{
+    return param ? 1 : assert(0);
+}

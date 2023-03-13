@@ -89,6 +89,8 @@ if (isRandomAccessRange!(Store) || isRandomAccessRange!(typeof(Store.init[])))
         Store _store;
         size_t _length;
     }
+    // TODO: migrate to use the SafeRefCounted. The problem is that some member
+    // functions here become @system with a naive switch.
     private RefCounted!(Data, RefCountedAutoInitialize.no) _payload;
     // Comparison predicate
     private alias comp = binaryFun!(less);
@@ -247,7 +249,7 @@ according to `less`.
      */
     @property ElementType!Store front()
     {
-        enforce(!empty, "Cannot call front on an empty heap.");
+        assert(!empty, "Cannot call front on an empty heap.");
         return _store.front;
     }
 
@@ -315,7 +317,7 @@ Removes the largest element from the heap.
      */
     void removeFront()
     {
-        enforce(!empty, "Cannot call removeFront on an empty heap.");
+        assert(!empty, "Cannot call removeFront on an empty heap.");
         if (_length > 1)
         {
             auto t1 = _store[].moveFront();

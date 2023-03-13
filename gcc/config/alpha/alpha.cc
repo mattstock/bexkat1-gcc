@@ -1,5 +1,5 @@
 /* Subroutines used for code generation on the DEC Alpha.
-   Copyright (C) 1992-2022 Free Software Foundation, Inc.
+   Copyright (C) 1992-2023 Free Software Foundation, Inc.
    Contributed by Richard Kenner (kenner@vlsi1.ultra.nyu.edu)
 
 This file is part of GCC.
@@ -6084,8 +6084,9 @@ alpha_setup_incoming_varargs (cumulative_args_t pcum,
 {
   CUMULATIVE_ARGS cum = *get_cumulative_args (pcum);
 
-  /* Skip the current argument.  */
-  targetm.calls.function_arg_advance (pack_cumulative_args (&cum), arg);
+  if (!TYPE_NO_NAMED_ARGS_STDARG_P (TREE_TYPE (current_function_decl)))
+    /* Skip the current argument.  */
+    targetm.calls.function_arg_advance (pack_cumulative_args (&cum), arg);
 
 #if TARGET_ABI_OPEN_VMS
   /* For VMS, we allocate space for all 6 arg registers plus a count.
@@ -7564,6 +7565,75 @@ alpha_does_function_need_gp (void)
   return 0;
 }
 
+/* Helper function for alpha_store_data_bypass_p, handle just a single SET
+   IN_SET.  */
+
+static bool
+alpha_store_data_bypass_p_1 (rtx_insn *out_insn, rtx in_set)
+{
+  if (!MEM_P (SET_DEST (in_set)))
+    return false;
+
+  rtx out_set = single_set (out_insn);
+  if (out_set)
+    return !reg_mentioned_p (SET_DEST (out_set), SET_DEST (in_set));
+
+  rtx out_pat = PATTERN (out_insn);
+  if (GET_CODE (out_pat) != PARALLEL)
+    return false;
+
+  for (int i = 0; i < XVECLEN (out_pat, 0); i++)
+    {
+      rtx out_exp = XVECEXP (out_pat, 0, i);
+
+      if (GET_CODE (out_exp) == CLOBBER || GET_CODE (out_exp) == USE
+	  || GET_CODE (out_exp) == TRAP_IF)
+	continue;
+
+      gcc_assert (GET_CODE (out_exp) == SET);
+
+      if (reg_mentioned_p (SET_DEST (out_exp), SET_DEST (in_set)))
+	return false;
+    }
+
+  return true;
+}
+
+/* True if the dependency between OUT_INSN and IN_INSN is on the store
+   data not the address operand(s) of the store.  IN_INSN and OUT_INSN
+   must be either a single_set or a PARALLEL with SETs inside.
+
+   This alpha-specific version of store_data_bypass_p ignores TRAP_IF
+   that would result in assertion failure (and internal compiler error)
+   in the generic store_data_bypass_p function.  */
+
+int
+alpha_store_data_bypass_p (rtx_insn *out_insn, rtx_insn *in_insn)
+{
+  rtx in_set = single_set (in_insn);
+  if (in_set)
+    return alpha_store_data_bypass_p_1 (out_insn, in_set);
+
+  rtx in_pat = PATTERN (in_insn);
+  if (GET_CODE (in_pat) != PARALLEL)
+    return false;
+
+  for (int i = 0; i < XVECLEN (in_pat, 0); i++)
+    {
+      rtx in_exp = XVECEXP (in_pat, 0, i);
+
+      if (GET_CODE (in_exp) == CLOBBER || GET_CODE (in_exp) == USE
+	  || GET_CODE (in_exp) == TRAP_IF)
+	continue;
+
+      gcc_assert (GET_CODE (in_exp) == SET);
+
+      if (!alpha_store_data_bypass_p_1 (out_insn, in_exp))
+	return false;
+    }
+
+  return true;
+}
 
 /* Helper function to set RTX_FRAME_RELATED_P on instructions, including
    sequences.  */
@@ -8389,10 +8459,6 @@ alpha_output_mi_thunk_osf (FILE *file, tree thunk_fndecl ATTRIBUTE_UNUSED,
 }
 #endif /* TARGET_ABI_OSF */
 
-/* Debugging support.  */
-
-#include "gstab.h"
-
 /* Name of the file containing the current function.  */
 
 static const char *current_function_file = "";

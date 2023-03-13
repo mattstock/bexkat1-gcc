@@ -1,7 +1,7 @@
 /**
  * Find out in what ways control flow can exit a statement block.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/blockexit.d, _blockexit.d)
@@ -23,6 +23,7 @@ import dmd.func;
 import dmd.globals;
 import dmd.id;
 import dmd.identifier;
+import dmd.location;
 import dmd.mtype;
 import dmd.statement;
 import dmd.tokens;
@@ -122,7 +123,7 @@ int blockExit(Statement s, FuncDeclaration func, bool mustNotThrow)
 
         override void visit(CompoundStatement cs)
         {
-            //printf("CompoundStatement.blockExit(%p) %d result = x%X\n", cs, cs.statements.dim, result);
+            //printf("CompoundStatement.blockExit(%p) %d result = x%X\n", cs, cs.statements.length, result);
             result = BE.fallthru;
             Statement slast = null;
             foreach (s; *cs.statements)
@@ -139,16 +140,21 @@ int blockExit(Statement s, FuncDeclaration func, bool mustNotThrow)
                             // Allow if last case/default was empty
                             CaseStatement sc = slast.isCaseStatement();
                             DefaultStatement sd = slast.isDefaultStatement();
-                            if (sc && (!sc.statement.hasCode() || sc.statement.isCaseStatement() || sc.statement.isErrorStatement()))
-                            {
-                            }
-                            else if (sd && (!sd.statement.hasCode() || sd.statement.isCaseStatement() || sd.statement.isErrorStatement()))
+                            auto sl = (sc ? sc.statement : (sd ? sd.statement : null));
+
+                            if (sl && (!sl.hasCode() || sl.isErrorStatement()))
                             {
                             }
                             else if (func.getModule().filetype != FileType.c)
                             {
                                 const(char)* gototype = s.isCaseStatement() ? "case" : "default";
-                                s.error("switch case fallthrough - use 'goto %s;' if intended", gototype);
+                                // @@@DEPRECATED_2.110@@@ https://issues.dlang.org/show_bug.cgi?id=22999
+                                // Deprecated in 2.100
+                                // Make an error in 2.110
+                                if (sl && sl.isCaseStatement())
+                                    s.deprecation("switch case fallthrough - use 'goto %s;' if intended", gototype);
+                                else
+                                    s.error("switch case fallthrough - use 'goto %s;' if intended", gototype);
                             }
                         }
                     }
@@ -542,7 +548,7 @@ BE checkThrow(ref const Loc loc, Expression exp, const bool mustNotThrow)
     ClassDeclaration cd = t.isClassHandle();
     assert(cd);
 
-    if (cd == ClassDeclaration.errorException || ClassDeclaration.errorException.isBaseOf(cd, null))
+    if (cd.isErrorException())
     {
         return BE.errthrow;
     }

@@ -3,7 +3,7 @@
  *
  * Specification: $(LINK2 https://dlang.org/spec/statement.html, Statements)
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/statement.d, _statement.d)
@@ -36,6 +36,7 @@ import dmd.globals;
 import dmd.hdrgen;
 import dmd.id;
 import dmd.identifier;
+import dmd.location;
 import dmd.dinterpret;
 import dmd.mtype;
 import dmd.common.outbuffer;
@@ -313,6 +314,18 @@ extern (C++) abstract class Statement : ASTNode
             }
 
             override void visit(ImportStatement s)
+            {
+            }
+
+            override void visit(CaseStatement s)
+            {
+            }
+
+            override void visit(DefaultStatement s)
+            {
+            }
+
+            override void visit(LabelStatement s)
             {
             }
         }
@@ -602,7 +615,7 @@ extern (C++) class CompoundStatement : Statement
     override final inout(Statement) last() inout nothrow pure
     {
         Statement s = null;
-        for (size_t i = statements.dim; i; --i)
+        for (size_t i = statements.length; i; --i)
         {
             s = cast(Statement)(*statements)[i - 1];
             if (s)
@@ -632,7 +645,7 @@ extern (C++) final class CompoundDeclarationStatement : CompoundStatement
 
     override CompoundDeclarationStatement syntaxCopy()
     {
-        auto a = new Statements(statements.dim);
+        auto a = new Statements(statements.length);
         foreach (i, s; *statements)
         {
             (*a)[i] = s ? s.syntaxCopy() : null;
@@ -662,7 +675,7 @@ extern (C++) final class UnrolledLoopStatement : Statement
 
     override UnrolledLoopStatement syntaxCopy()
     {
-        auto a = new Statements(statements.dim);
+        auto a = new Statements(statements.length);
         foreach (i, s; *statements)
         {
             (*a)[i] = s ? s.syntaxCopy() : null;
@@ -688,7 +701,7 @@ extern (C++) final class UnrolledLoopStatement : Statement
 
 /***********************************************************
  */
-extern (C++) class ScopeStatement : Statement
+extern (C++) final class ScopeStatement : Statement
 {
     Statement statement;
     Loc endloc;                 // location of closing curly bracket
@@ -753,7 +766,7 @@ extern (C++) final class ForwardingStatement : Statement
 
     extern (D) this(const ref Loc loc, Statement statement)
     {
-        auto sym = new ForwardingScopeDsymbol(null);
+        auto sym = new ForwardingScopeDsymbol();
         sym.symtab = new DsymbolTable();
         this(loc, sym, statement);
     }
@@ -1563,7 +1576,7 @@ extern (C++) final class TryCatchStatement : Statement
 
     override TryCatchStatement syntaxCopy()
     {
-        auto a = new Catches(catches.dim);
+        auto a = new Catches(catches.length);
         foreach (i, c; *catches)
         {
             (*a)[i] = c.syntaxCopy();
@@ -2011,7 +2024,7 @@ extern (C++) final class CompoundAsmStatement : CompoundStatement
 
     override CompoundAsmStatement syntaxCopy()
     {
-        auto a = new Statements(statements.dim);
+        auto a = new Statements(statements.length);
         foreach (i, s; *statements)
         {
             (*a)[i] = s ? s.syntaxCopy() : null;
@@ -2040,7 +2053,7 @@ extern (C++) final class ImportStatement : Statement
 
     override ImportStatement syntaxCopy()
     {
-        auto m = new Dsymbols(imports.dim);
+        auto m = new Dsymbols(imports.length);
         foreach (i, s; *imports)
         {
             (*m)[i] = s.syntaxCopy(null);

@@ -3,7 +3,7 @@
  *
  * Specification: $(LINK2 https://dlang.org/spec/abi.html#name_mangling, Name Mangling)
  *
- * Copyright: Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright: Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors: Walter Bright, https://www.digitalmars.com
  * License:   $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:    $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/dmangle.d, _dmangle.d)
@@ -371,10 +371,20 @@ public:
         if (ta.isnogc)
             buf.writestring("Ni");
 
-        if (ta.isreturn && !ta.isreturninferred)
-            buf.writestring("Nj");
-        else if (ta.isScopeQual && !ta.isscopeinferred)
-            buf.writestring("Nl");
+        // `return scope` must be in that order
+        if (ta.isreturnscope && !ta.isreturninferred)
+        {
+            buf.writestring("NjNl");
+        }
+        else
+        {
+            // when return ref, the order is `scope return`
+            if (ta.isScopeQual && !ta.isscopeinferred)
+                buf.writestring("Nl");
+
+            if (ta.isreturn && !ta.isreturninferred)
+                buf.writestring("Nj");
+        }
 
         if (ta.islive)
             buf.writestring("Nm");
@@ -711,8 +721,8 @@ public:
         mangleIdentifier(tempdecl.ident, tempdecl);
 
         auto args = ti.tiargs;
-        size_t nparams = tempdecl.parameters.dim - (tempdecl.isVariadic() ? 1 : 0);
-        for (size_t i = 0; i < args.dim; i++)
+        size_t nparams = tempdecl.parameters.length - (tempdecl.isVariadic() ? 1 : 0);
+        for (size_t i = 0; i < args.length; i++)
         {
             auto o = (*args)[i];
             Type ta = isType(o);
@@ -804,7 +814,7 @@ public:
             }
             else if (va)
             {
-                assert(i + 1 == args.dim); // must be last one
+                assert(i + 1 == args.length); // must be last one
                 args = &va.objects;
                 i = -cast(size_t)1;
             }
@@ -822,6 +832,23 @@ public:
             if (s.parent)
                 printf("  parent = %s %s", s.parent.kind(), s.parent.toChars());
             printf("\n");
+        }
+        if (s.parent && s.ident)
+        {
+            if (auto m = s.parent.isModule())
+            {
+                if (m.filetype == FileType.c)
+                {
+                    /* C types at global level get mangled into the __C global namespace
+                     * to get the same mangling regardless of which module it
+                     * is declared in. This works because types are the same if the mangling
+                     * is the same.
+                     */
+                    mangleIdentifier(Id.ImportC, s); // parent
+                    mangleIdentifier(s.ident, s);
+                    return;
+                }
+            }
         }
         mangleParent(s);
         if (s.ident)
@@ -933,7 +960,7 @@ public:
 
     override void visit(ArrayLiteralExp e)
     {
-        const dim = e.elements ? e.elements.dim : 0;
+        const dim = e.elements ? e.elements.length : 0;
         buf.writeByte('A');
         buf.print(dim);
         foreach (i; 0 .. dim)
@@ -944,7 +971,7 @@ public:
 
     override void visit(AssocArrayLiteralExp e)
     {
-        const dim = e.keys.dim;
+        const dim = e.keys.length;
         buf.writeByte('A');
         buf.print(dim);
         foreach (i; 0 .. dim)
@@ -956,7 +983,7 @@ public:
 
     override void visit(StructLiteralExp e)
     {
-        const dim = e.elements ? e.elements.dim : 0;
+        const dim = e.elements ? e.elements.length : 0;
         buf.writeByte('S');
         buf.print(dim);
         foreach (i; 0 .. dim)
@@ -1335,15 +1362,19 @@ void realToMangleBuffer(OutBuffer* buf, real_t value)
 private
 extern (D) const(char)[] externallyMangledIdentifier(Declaration d)
 {
+    assert(!d.mangleOverride, "mangle overrides should have been handled earlier");
+
+    const linkage = d.resolvedLinkage();
     const par = d.toParent(); //toParent() skips over mixin templates
-    if (!par || par.isModule() || d.linkage == LINK.cpp ||
-        (d.linkage == LINK.c && d.isCsymbol() && d.isFuncDeclaration()))
+    if (!par || par.isModule() || linkage == LINK.cpp ||
+        (linkage == LINK.c && d.isCsymbol() &&
+         (d.isFuncDeclaration() ||
+          (d.isVarDeclaration() && d.isDataseg() && d.storage_class & STC.extern_))))
     {
-        if (d.linkage != LINK.d && d.localNum)
+        if (linkage != LINK.d && d.localNum)
             d.error("the same declaration cannot be in multiple scopes with non-D linkage");
 
-        const l = d.linkage == LINK.system ? target.systemLinkage() : d.linkage;
-        final switch (l)
+        final switch (linkage)
         {
             case LINK.d:
                 break;

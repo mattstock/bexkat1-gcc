@@ -1,5 +1,5 @@
 /* JSON trees
-   Copyright (C) 2017-2022 Free Software Foundation, Inc.
+   Copyright (C) 2017-2023 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -90,8 +90,8 @@ class object : public value
  public:
   ~object ();
 
-  enum kind get_kind () const FINAL OVERRIDE { return JSON_OBJECT; }
-  void print (pretty_printer *pp) const FINAL OVERRIDE;
+  enum kind get_kind () const final override { return JSON_OBJECT; }
+  void print (pretty_printer *pp) const final override;
 
   void set (const char *key, value *v);
   value *get (const char *key) const;
@@ -109,8 +109,8 @@ class array : public value
  public:
   ~array ();
 
-  enum kind get_kind () const FINAL OVERRIDE { return JSON_ARRAY; }
-  void print (pretty_printer *pp) const FINAL OVERRIDE;
+  enum kind get_kind () const final override { return JSON_ARRAY; }
+  void print (pretty_printer *pp) const final override;
 
   void append (value *v);
 
@@ -125,8 +125,8 @@ class float_number : public value
  public:
   float_number (double value) : m_value (value) {}
 
-  enum kind get_kind () const FINAL OVERRIDE { return JSON_FLOAT; }
-  void print (pretty_printer *pp) const FINAL OVERRIDE;
+  enum kind get_kind () const final override { return JSON_FLOAT; }
+  void print (pretty_printer *pp) const final override;
 
   double get () const { return m_value; }
 
@@ -141,8 +141,8 @@ class integer_number : public value
  public:
   integer_number (long value) : m_value (value) {}
 
-  enum kind get_kind () const FINAL OVERRIDE { return JSON_INTEGER; }
-  void print (pretty_printer *pp) const FINAL OVERRIDE;
+  enum kind get_kind () const final override { return JSON_INTEGER; }
+  void print (pretty_printer *pp) const final override;
 
   long get () const { return m_value; }
 
@@ -156,16 +156,19 @@ class integer_number : public value
 class string : public value
 {
  public:
-  string (const char *utf8);
+  explicit string (const char *utf8);
+  string (const char *utf8, size_t len);
   ~string () { free (m_utf8); }
 
-  enum kind get_kind () const FINAL OVERRIDE { return JSON_STRING; }
-  void print (pretty_printer *pp) const FINAL OVERRIDE;
+  enum kind get_kind () const final override { return JSON_STRING; }
+  void print (pretty_printer *pp) const final override;
 
   const char *get_string () const { return m_utf8; }
+  size_t get_length () const { return m_len; }
 
  private:
   char *m_utf8;
+  size_t m_len;
 };
 
 /* Subclass of value for the three JSON literals "true", "false",
@@ -179,8 +182,8 @@ class literal : public value
   /* Construct literal for a boolean value.  */
   literal (bool value): m_kind (value ? JSON_TRUE : JSON_FALSE) {}
 
-  enum kind get_kind () const FINAL OVERRIDE { return m_kind; }
-  void print (pretty_printer *pp) const FINAL OVERRIDE;
+  enum kind get_kind () const final override { return m_kind; }
+  void print (pretty_printer *pp) const final override;
 
  private:
   enum kind m_kind;

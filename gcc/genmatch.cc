@@ -1,7 +1,7 @@
 /* Generate pattern matching and transform code shared between
    GENERIC and GIMPLE folding code from match-and-simplify description.
 
-   Copyright (C) 2014-2022 Free Software Foundation, Inc.
+   Copyright (C) 2014-2023 Free Software Foundation, Inc.
    Contributed by Richard Biener <rguenther@suse.de>
    and Prathamesh Kulkarni  <bilbotheelffriend@gmail.com>
 
@@ -489,6 +489,21 @@ commutative_op (id_base *id)
       case CFN_FNMS:
 	return 0;
 
+      case CFN_COND_ADD:
+      case CFN_COND_MUL:
+      case CFN_COND_MIN:
+      case CFN_COND_MAX:
+      case CFN_COND_FMIN:
+      case CFN_COND_FMAX:
+      case CFN_COND_AND:
+      case CFN_COND_IOR:
+      case CFN_COND_XOR:
+      case CFN_COND_FMA:
+      case CFN_COND_FMS:
+      case CFN_COND_FNMA:
+      case CFN_COND_FNMS:
+	return 1;
+
       default:
 	return -1;
       }
@@ -496,7 +511,7 @@ commutative_op (id_base *id)
     {
       int res = commutative_op (uid->substitutes[0]);
       if (res < 0)
-	return 0;
+	return -1;
       for (unsigned i = 1; i < uid->substitutes.length (); ++i)
 	if (res != commutative_op (uid->substitutes[i]))
 	  return -1;
@@ -723,9 +738,9 @@ public:
   bool force_leaf;
   /* If non-zero, the group for optional handling.  */
   unsigned char opt_grp;
-  virtual void gen_transform (FILE *f, int, const char *, bool, int,
-			      const char *, capture_info *,
-			      dt_operand ** = 0, int = 0);
+  void gen_transform (FILE *f, int, const char *, bool, int,
+		      const char *, capture_info *,
+		      dt_operand ** = 0, int = 0) override;
 };
 
 /* An operator that is represented by native C code.  This is always
@@ -757,9 +772,9 @@ public:
   unsigned nr_stmts;
   /* The identifier replacement vector.  */
   vec<id_tab> ids;
-  virtual void gen_transform (FILE *f, int, const char *, bool, int,
-			      const char *, capture_info *,
-			      dt_operand ** = 0, int = 0);
+  void gen_transform (FILE *f, int, const char *, bool, int,
+		      const char *, capture_info *,
+		      dt_operand ** = 0, int = 0) final override;
 };
 
 /* A wrapper around another operand that captures its value.  */
@@ -778,9 +793,9 @@ public:
   bool value_match;
   /* The captured value.  */
   operand *what;
-  virtual void gen_transform (FILE *f, int, const char *, bool, int,
-			      const char *, capture_info *,
-			      dt_operand ** = 0, int = 0);
+  void gen_transform (FILE *f, int, const char *, bool, int,
+		      const char *, capture_info *,
+		      dt_operand ** = 0, int = 0) final override;
 };
 
 /* if expression.  */
@@ -1655,7 +1670,7 @@ public:
       : dt_node (type, parent_), op (op_), match_dop (match_dop_),
       pos (pos_), value_match (false), for_id (current_id) {}
 
-  void gen (FILE *, int, bool, int);
+  void gen (FILE *, int, bool, int) final override;
   unsigned gen_predicate (FILE *, int, const char *, bool);
   unsigned gen_match_op (FILE *, int, const char *, bool);
 
@@ -1681,7 +1696,7 @@ public:
 	  indexes (indexes_), info (NULL)  {}
 
   void gen_1 (FILE *, int, bool, operand *);
-  void gen (FILE *f, int, bool, int);
+  void gen (FILE *f, int, bool, int) final override;
 };
 
 template<>
@@ -2526,7 +2541,8 @@ expr::gen_transform (FILE *f, int indent, const char *dest, bool gimple,
       for (unsigned i = 0; i < ops.length (); ++i)
 	fprintf (f, ", _o%d[%u]", depth, i);
       fprintf (f, ");\n");
-      fprintf_indent (f, indent, "tem_op.resimplify (lseq, valueize);\n");
+      fprintf_indent (f, indent, "tem_op.resimplify (%s, valueize);\n",
+		      !force_leaf ? "lseq" : "NULL");
       fprintf_indent (f, indent,
 		      "_r%d = maybe_push_res_to_seq (&tem_op, %s);\n", depth,
 		      !force_leaf ? "lseq" : "NULL");
@@ -2927,8 +2943,16 @@ dt_node::gen_kids (FILE *f, int indent, bool gimple, int depth)
 	  if (expr *e = dyn_cast <expr *> (op->op))
 	    {
 	      if (e->ops.length () == 0
+		  /* In GIMPLE a CONSTRUCTOR always appears in a
+		     separate definition.  */
 		  && (!gimple || !(*e->operation == CONSTRUCTOR)))
-		generic_exprs.safe_push (op);
+		{
+		  generic_exprs.safe_push (op);
+		  /* But ADDR_EXPRs can appear directly when invariant
+		     and in a separate definition when not.  */
+		  if (gimple && *e->operation == ADDR_EXPR)
+		    gimple_exprs.safe_push (op);
+		}
 	      else if (e->operation->kind == id_base::FN)
 		{
 		  if (gimple)
@@ -3358,9 +3382,9 @@ dt_simplify::gen_1 (FILE *f, int indent, bool gimple, operand *result)
     }
 
   if (s->kind == simplify::SIMPLIFY)
-    fprintf_indent (f, indent, "if (__builtin_expect (!dbg_cnt (match), 0)) goto %s;\n", fail_label);
+    fprintf_indent (f, indent, "if (UNLIKELY (!dbg_cnt (match))) goto %s;\n", fail_label);
 
-  fprintf_indent (f, indent, "if (__builtin_expect (dump_file && (dump_flags & TDF_FOLDING), 0)) "
+  fprintf_indent (f, indent, "if (UNLIKELY (dump_file && (dump_flags & TDF_FOLDING))) "
 	   "fprintf (dump_file, \"%s ",
 	   s->kind == simplify::SIMPLIFY
 	   ? "Applying pattern" : "Matching expression");
@@ -3428,7 +3452,8 @@ dt_simplify::gen_1 (FILE *f, int indent, bool gimple, operand *result)
 	  if (!is_predicate)
 	    {
 	      fprintf_indent (f, indent,
-			      "res_op->resimplify (lseq, valueize);\n");
+			      "res_op->resimplify (%s, valueize);\n",
+			      !e->force_leaf ? "lseq" : "NULL");
 	      if (e->force_leaf)
 		fprintf_indent (f, indent,
 				"if (!maybe_push_res_to_seq (res_op, NULL)) "
@@ -4447,8 +4472,11 @@ parser::parse_c_expr (cpp_ttype start)
       /* If this is possibly a user-defined identifier mark it used.  */
       if (token->type == CPP_NAME)
 	{
-	  id_base *idb = get_operator ((const char *)CPP_HASHNODE
-				      (token->val.node.node)->ident.str);
+	  const char *str
+	    = (const char *)CPP_HASHNODE (token->val.node.node)->ident.str;
+	  if (strcmp (str, "return") == 0)
+	    fatal_at (token, "return statement not allowed in C expression");
+	  id_base *idb = get_operator (str);
 	  user_id *p;
 	  if (idb && (p = dyn_cast<user_id *> (idb)) && p->is_oper_list)
 	    record_operlist (token->src_loc, p);

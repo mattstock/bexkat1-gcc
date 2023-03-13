@@ -1,7 +1,7 @@
 \input texinfo  @c -*-texinfo-*-
 @c %**start of header
 @setfilename gfortran.info
-@set copyrights-gfortran 1999-2022
+@set copyrights-gfortran 1999-2023
 
 @include gcc-common.texi
 
@@ -246,7 +246,7 @@ including OpenMP and OpenACC support for parallel programming.
 The GNU Fortran compiler passes the
 @uref{http://www.fortran-2000.com/ArnaudRecipes/fcvs21_f95.html,
 NIST Fortran 77 Test Suite}, and produces acceptable results on the
-@uref{https://www.netlib.org/lapack/faq.html#1.21, LAPACK Test Suite}.
+@uref{https://www.netlib.org/lapack/faq.html, LAPACK Test Suite}.
 It also provides respectable performance on
 the @uref{https://polyhedron.com/?page_id=175,
 Polyhedron Fortran compiler benchmarks} and the
@@ -441,7 +441,7 @@ found in the following sections of the documentation.
 
 Additionally, the GNU Fortran compilers supports the OpenMP specification
 (version 4.5 and partial support of the features of the 5.0 version,
-@url{https://openmp.org/@/openmp-specifications/}).
+@url{https://openmp.org/@/specifications/}).
 There also is support for the OpenACC specification (targeting
 version 2.6, @uref{https://www.openacc.org/}).  See
 @uref{https://gcc.gnu.org/wiki/OpenACC} for more information.
@@ -455,9 +455,8 @@ version 2.6, @uref{https://www.openacc.org/}).  See
 The Fortran 95 standard specifies in Part 2 (ISO/IEC 1539-2:2000)
 varying length character strings.  While GNU Fortran currently does not
 support such strings directly, there exist two Fortran implementations
-for them, which work with GNU Fortran.  They can be found at
-@uref{https://www.fortran.com/@/iso_varying_string.f95} and at
-@uref{ftp://ftp.nag.co.uk/@/sc22wg5/@/ISO_VARYING_STRING/}.
+for them, which work with GNU Fortran. One can be found at
+@uref{http://user.astro.wisc.edu/~townsend/static.php?ref=iso-varying-string}.
 
 Deferred-length character strings of Fortran 2003 supports part of
 the features of @code{ISO_VARYING_STRING} and should be considered as
@@ -589,7 +588,7 @@ Malformed environment variables are silently ignored.
 * GFORTRAN_SHOW_LOCUS::  Show location for runtime errors
 * GFORTRAN_OPTIONAL_PLUS:: Print leading + where permitted
 * GFORTRAN_LIST_SEPARATOR::  Separator for list output
-* GFORTRAN_CONVERT_UNIT::  Set endianness for unformatted I/O
+* GFORTRAN_CONVERT_UNIT::  Set conversion for unformatted I/O
 * GFORTRAN_ERROR_BACKTRACE:: Show backtrace on run-time errors
 * GFORTRAN_FORMATTED_BUFFER_SIZE:: Buffer size for formatted files
 * GFORTRAN_UNFORMATTED_BUFFER_SIZE:: Buffer size for unformatted files
@@ -686,11 +685,12 @@ when @command{a.out} is the compiled Fortran program that you want to run.
 Default is a single space.
 
 @node GFORTRAN_CONVERT_UNIT
-@section @env{GFORTRAN_CONVERT_UNIT}---Set endianness for unformatted I/O
+@section @env{GFORTRAN_CONVERT_UNIT}---Set conversion for unformatted I/O
 
 By setting the @env{GFORTRAN_CONVERT_UNIT} variable, it is possible
 to change the representation of data for unformatted files.
-The syntax for the @env{GFORTRAN_CONVERT_UNIT} variable is:
+The syntax for the @env{GFORTRAN_CONVERT_UNIT} variable for
+most systems is:
 @smallexample
 GFORTRAN_CONVERT_UNIT: mode | mode ';' exception | exception ;
 mode: 'native' | 'swap' | 'big_endian' | 'little_endian' ;
@@ -711,6 +711,14 @@ the modes are the same as for the @code{CONVERT} specifier:
 for unformatted files.
 @item @code{BIG_ENDIAN} Use the big-endian format for unformatted files.
 @end itemize
+For POWER systems which support @option{-mabi=ieeelongdouble},
+there are additional options, which can be combined with the
+others with commas. Those are
+@itemize @w{}
+@item @code{R16_IEEE} Use IEEE 128-bit format for @code{REAL(KIND=16)}.
+@item @code{R16_IBM} Use IBM @code{long double} format for
+@code{REAL(KIND=16)}.
+@end itemize
 A missing mode for an exception is taken to mean @code{BIG_ENDIAN}.
 Examples of values for @env{GFORTRAN_CONVERT_UNIT} are:
 @itemize @w{}
@@ -719,6 +727,8 @@ Examples of values for @env{GFORTRAN_CONVERT_UNIT} are:
 in little_endian mode, except for units 10 to 20 and 25, which are in
 native format.
 @item @code{'10-20'}  Units 10 to 20 are big-endian, the rest is native.
+@item @code{'big_endian,r16_ibm'} Do all unformatted I/O in big-endian
+mode and use IBM long double for output of @code{REAL(KIND=16)} values.
 @end itemize
 
 Setting the environment variables should be done on the command
@@ -1736,7 +1746,7 @@ the @code{CONVERT} specifier on the @code{OPEN} statement.
 @xref{GFORTRAN_CONVERT_UNIT}, for an alternative way of specifying
 the data format via an environment variable.
 
-Valid values for @code{CONVERT} are:
+Valid values for @code{CONVERT} on most systems are:
 @itemize @w{}
 @item @code{CONVERT='NATIVE'} Use the native format.  This is the default.
 @item @code{CONVERT='SWAP'} Swap between little- and big-endian.
@@ -1744,6 +1754,15 @@ Valid values for @code{CONVERT} are:
 for unformatted files.
 @item @code{CONVERT='BIG_ENDIAN'} Use the big-endian representation for
 unformatted files.
+@end itemize
+On POWER systems which support @option{-mabi=ieeelongdouble},
+there are additional options, which can be combined with the others
+with commas. Those are
+@itemize @w{}
+@item @code{CONVERT='R16_IEEE'} Use IEEE 128-bit format for
+@code{REAL(KIND=16)}.
+@item @code{CONVERT='R16_IBM'} Use IBM @code{long double} format for
+real@code{REAL(KIND=16)}.
 @end itemize
 
 Using the option could look like this:
@@ -1786,7 +1805,7 @@ It consists of a set of compiler directives, library routines,
 and environment variables that influence run-time behavior.
 
 GNU Fortran strives to be compatible to the
-@uref{https://openmp.org/wp/openmp-specifications/,
+@uref{https://openmp.org/specifications/,
 OpenMP Application Program Interface v4.5}.
 
 To enable the processing of the OpenMP directive @code{!$omp} in
@@ -3227,6 +3246,13 @@ requires an explicit interface.
 @item @code{DEPRECATED} -- print a warning when using a such-tagged
 deprecated procedure, variable or parameter; the warning can be suppressed
 with @option{-Wno-deprecated-declarations}.
+@item @code{NOINLINE} -- prevent inlining given function.
+@item @code{NORETURN} -- add a hint that a given function cannot return.
+@item @code{WEAK} -- emit the declaration of an external symbol as a weak
+symbol rather than a global.  This is primarily useful in defining library
+functions that can be overridden in user code, though it can also be used with
+non-function declarations.  The overriding symbol must have the same type as
+the weak symbol.
 @end itemize
 
 
@@ -3744,8 +3770,7 @@ is used for dummy arguments; with @code{VALUE}, those variables are
 passed by value.
 
 For @code{OPTIONAL} dummy arguments, an absent argument is denoted
-by a NULL pointer, except for scalar dummy arguments of type
-@code{INTEGER}, @code{LOGICAL}, @code{REAL} and @code{COMPLEX}
+by a NULL pointer, except for scalar dummy arguments of intrinsic type
 which have the @code{VALUE} attribute.  For those, a hidden Boolean
 argument (@code{logical(kind=C_bool),value}) is used to indicate
 whether the argument is present.
@@ -3768,7 +3793,7 @@ The arguments are passed in the following order
 @code{CHARACTER} and no C binding is used
 @item The arguments in the order in which they appear in the Fortran
 declaration
-@item The the present status for optional arguments with value attribute,
+@item The present status for optional arguments with value attribute,
 which are internally passed by value
 @item The character length and/or coarray token and offset for the first
 argument which is a @code{CHARACTER} or a nonallocatable coarray dummy

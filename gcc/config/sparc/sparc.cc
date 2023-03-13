@@ -1,5 +1,5 @@
 /* Subroutines for insn-output.cc for SPARC.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com)
    64-bit SPARC-V9 support by Michael Tiemann, Jim Wilson, and Doug Evans,
    at Cygnus Support.
@@ -712,7 +712,8 @@ static bool sparc_modes_tieable_p (machine_mode, machine_mode);
 static bool sparc_can_change_mode_class (machine_mode, machine_mode,
 					 reg_class_t);
 static HOST_WIDE_INT sparc_constant_alignment (const_tree, HOST_WIDE_INT);
-static bool sparc_vectorize_vec_perm_const (machine_mode, rtx, rtx, rtx,
+static bool sparc_vectorize_vec_perm_const (machine_mode, machine_mode,
+					    rtx, rtx, rtx,
 					    const vec_perm_indices &);
 static bool sparc_can_follow_jump (const rtx_insn *, const rtx_insn *);
 static HARD_REG_SET sparc_zero_call_used_regs (HARD_REG_SET);
@@ -6050,6 +6051,9 @@ sparc_expand_prologue (void)
 	}
 
       RTX_FRAME_RELATED_P (insn) = 1;
+
+      /* Ensure no memory access is done before the frame is established.  */
+      emit_insn (gen_frame_blockage ());
     }
   else
     {
@@ -6064,13 +6068,7 @@ sparc_expand_prologue (void)
 	  /* %sp is not the CFA register anymore.  */
 	  emit_insn (gen_stack_pointer_inc (GEN_INT (4096 - size)));
 
-	  /* Make sure no %fp-based store is issued until after the frame is
-	     established.  The offset between the frame pointer and the stack
-	     pointer is calculated relative to the value of the stack pointer
-	     at the end of the function prologue, and moving instructions that
-	     access the stack via the frame pointer between the instructions
-	     that decrement the stack pointer could result in accessing the
-	     register window save area, which is volatile.  */
+	  /* Likewise.  */
 	  emit_insn (gen_frame_blockage ());
 	}
       else
@@ -6166,8 +6164,8 @@ sparc_flat_expand_prologue (void)
 	}
       RTX_FRAME_RELATED_P (insn) = 1;
 
-      /* Ensure nothing is scheduled until after the frame is established.  */
-      emit_insn (gen_blockage ());
+      /* Ensure no memory access is done before the frame is established.  */
+      emit_insn (gen_frame_blockage ());
 
       if (frame_pointer_needed)
 	{
@@ -6254,6 +6252,9 @@ sparc_expand_epilogue (bool for_eh)
     ; /* do nothing.  */
   else if (sparc_leaf_function_p)
     {
+      /* Ensure no memory access is done after the frame is destroyed.  */
+      emit_insn (gen_frame_blockage ());
+
       if (size <= 4096)
 	emit_insn (gen_stack_pointer_inc (GEN_INT (size)));
       else if (size <= 8192)
@@ -6304,15 +6305,15 @@ sparc_flat_expand_epilogue (bool for_eh)
     ; /* do nothing.  */
   else if (frame_pointer_needed)
     {
-      /* Make sure the frame is destroyed after everything else is done.  */
-      emit_insn (gen_blockage ());
+      /* Ensure no memory access is done after the frame is destroyed.  */
+      emit_insn (gen_frame_blockage ());
 
       emit_move_insn (stack_pointer_rtx, gen_rtx_REG (Pmode, 1));
     }
   else
     {
       /* Likewise.  */
-      emit_insn (gen_blockage ());
+      emit_insn (gen_frame_blockage ());
 
       if (size <= 4096)
 	emit_insn (gen_stack_pointer_inc (GEN_INT (size)));
@@ -8884,8 +8885,20 @@ epilogue_renumber (rtx *where, int test)
       if (REGNO (*where) >= 8 && REGNO (*where) < 24)      /* oX or lX */
 	return 1;
       if (! test && REGNO (*where) >= 24 && REGNO (*where) < 32)
-	*where = gen_rtx_REG (GET_MODE (*where), OUTGOING_REGNO (REGNO(*where)));
-      /* fallthrough */
+	{
+	  if (ORIGINAL_REGNO (*where))
+	    {
+	      rtx n = gen_raw_REG (GET_MODE (*where),
+				   OUTGOING_REGNO (REGNO (*where)));
+	      ORIGINAL_REGNO (n) = ORIGINAL_REGNO (*where);
+	      *where = n;
+	    }
+	  else
+	    *where = gen_rtx_REG (GET_MODE (*where),
+				  OUTGOING_REGNO (REGNO (*where)));
+	}
+      return 0;
+
     case SCRATCH:
     case PC:
     case CONST_INT:
@@ -13023,15 +13036,19 @@ sparc_expand_vec_perm_bmask (machine_mode vmode, rtx sel)
 /* Implement TARGET_VEC_PERM_CONST.  */
 
 static bool
-sparc_vectorize_vec_perm_const (machine_mode vmode, rtx target, rtx op0,
-				rtx op1, const vec_perm_indices &sel)
+sparc_vectorize_vec_perm_const (machine_mode vmode, machine_mode op_mode,
+				rtx target, rtx op0, rtx op1,
+				const vec_perm_indices &sel)
 {
+  if (vmode != op_mode)
+    return false;
+
   if (!TARGET_VIS2)
     return false;
 
-  /* All permutes are supported.  */
+  /* All 8-byte permutes are supported.  */
   if (!target)
-    return true;
+    return GET_MODE_SIZE (vmode) == 8;
 
   /* Force target-independent code to convert constant permutations on other
      modes down to V8QI.  Rely on this to avoid the complexity of the byte

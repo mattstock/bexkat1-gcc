@@ -1,6 +1,6 @@
 // std::from_chars implementation for floating-point types -*- C++ -*-
 
-// Copyright (C) 2020-2022 Free Software Foundation, Inc.
+// Copyright (C) 2020-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -30,6 +30,7 @@
 // Prefer to use std::pmr::string if possible, which requires the cxx11 ABI.
 #define _GLIBCXX_USE_CXX11_ABI 1
 
+#include <array>
 #include <charconv>
 #include <bit>
 #include <string>
@@ -39,7 +40,6 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
-#include <cctype>
 #include <locale.h>
 #include <bits/functexcept.h>
 #if _GLIBCXX_HAVE_XLOCALE_H
@@ -59,6 +59,15 @@
 #endif
 // strtold for __ieee128
 extern "C" __ieee128 __strtoieee128(const char*, char**);
+#elif __FLT128_MANT_DIG__ == 113 && __LDBL_MANT_DIG__ != 113 \
+      && defined(__GLIBC_PREREQ)
+#define USE_STRTOF128_FOR_FROM_CHARS 1
+extern "C" _Float128 __strtof128(const char*, char**)
+  __asm ("strtof128")
+#ifndef _GLIBCXX_HAVE_FLOAT128_MATH
+  __attribute__((__weak__))
+#endif
+  ;
 #endif
 
 #if _GLIBCXX_FLOAT_IS_IEEE_BINARY32 && _GLIBCXX_DOUBLE_IS_IEEE_BINARY64 \
@@ -75,6 +84,272 @@ extern "C" __ieee128 __strtoieee128(const char*, char**);
 namespace
 {
 # include "fast_float/fast_float.h"
+
+namespace fast_float
+{
+
+  // Wrappers around float for std::{,b}float16_t promoted to float.
+  struct floating_type_float16_t
+  {
+    float* x;
+    uint16_t bits;
+  };
+  struct floating_type_bfloat16_t
+  {
+    float* x;
+    uint16_t bits;
+  };
+
+  template<>
+  constexpr int
+  binary_format<floating_type_float16_t>::mantissa_explicit_bits()
+  { return 10; }
+
+  template<>
+  constexpr int
+  binary_format<floating_type_bfloat16_t>::mantissa_explicit_bits()
+  { return 7; }
+
+  // 10 bits of stored mantissa, pow(5,q) <= 0x4p+10 implies q <= 5
+  template<>
+  constexpr int
+  binary_format<floating_type_float16_t>::max_exponent_round_to_even()
+  { return 5; }
+
+  // 7 bits of stored mantissa, pow(5,q) <= 0x4p+7 implies q <= 3
+  template<>
+  constexpr int
+  binary_format<floating_type_bfloat16_t>::max_exponent_round_to_even()
+  { return 3; }
+
+  // 10 bits of stored mantissa, pow(5,-q) < 0x1p+64 / 0x1p+11 implies q >= -22
+  template<>
+  constexpr int
+  binary_format<floating_type_float16_t>::min_exponent_round_to_even()
+  { return -22; }
+
+  // 7 bits of stored mantissa, pow(5,-q) < 0x1p+64 / 0x1p+8 implies q >= -24
+  template<>
+  constexpr int
+  binary_format<floating_type_bfloat16_t>::min_exponent_round_to_even()
+  { return -24; }
+
+  template<>
+  constexpr int
+  binary_format<floating_type_float16_t>::minimum_exponent()
+  { return -15; }
+
+  template<>
+  constexpr int
+  binary_format<floating_type_bfloat16_t>::minimum_exponent()
+  { return -127; }
+
+  template<>
+  constexpr int
+  binary_format<floating_type_float16_t>::infinite_power()
+  { return 0x1F; }
+
+  template<>
+  constexpr int
+  binary_format<floating_type_bfloat16_t>::infinite_power()
+  { return 0xFF; }
+
+  template<>
+  constexpr int
+  binary_format<floating_type_float16_t>::sign_index()
+  { return 15; }
+
+  template<>
+  constexpr int
+  binary_format<floating_type_bfloat16_t>::sign_index()
+  { return 15; }
+
+  template<>
+  constexpr int
+  binary_format<floating_type_float16_t>::largest_power_of_ten()
+  { return 4; }
+
+  template<>
+  constexpr int
+  binary_format<floating_type_bfloat16_t>::largest_power_of_ten()
+  { return 38; }
+
+  template<>
+  constexpr int
+  binary_format<floating_type_float16_t>::smallest_power_of_ten()
+  { return -27; }
+
+  template<>
+  constexpr int
+  binary_format<floating_type_bfloat16_t>::smallest_power_of_ten()
+  { return -60; }
+
+  template<>
+  constexpr size_t
+  binary_format<floating_type_float16_t>::max_digits()
+  { return 22; }
+
+  template<>
+  constexpr size_t
+  binary_format<floating_type_bfloat16_t>::max_digits()
+  { return 98; }
+
+  // negative_digit_comp converts adjusted_mantissa to the (originally only)
+  // floating type and immediately back with slight tweaks (e.g. explicit
+  // leading bit instead of implicit for normals).
+  // Avoid going through the floating point type.
+  template<>
+  fastfloat_really_inline void
+  to_float<floating_type_float16_t>(bool negative, adjusted_mantissa am,
+				    floating_type_float16_t &value)
+  {
+    constexpr int mantissa_bits
+      = binary_format<floating_type_float16_t>::mantissa_explicit_bits();
+    value.bits = (am.mantissa
+		  | (uint16_t(am.power2) << mantissa_bits)
+		  | (negative ? 0x8000 : 0));
+  }
+
+  template<>
+  fastfloat_really_inline void
+  to_float<floating_type_bfloat16_t>(bool negative, adjusted_mantissa am,
+				     floating_type_bfloat16_t &value)
+  {
+    constexpr int mantissa_bits
+      = binary_format<floating_type_bfloat16_t>::mantissa_explicit_bits();
+    value.bits = (am.mantissa
+		  | (uint16_t(am.power2) << mantissa_bits)
+		  | (negative ? 0x8000 : 0));
+  }
+
+  template <>
+  fastfloat_really_inline adjusted_mantissa
+  to_extended<floating_type_float16_t>(floating_type_float16_t value) noexcept
+  {
+    adjusted_mantissa am;
+    constexpr int mantissa_bits
+      = binary_format<floating_type_float16_t>::mantissa_explicit_bits();
+    int32_t bias
+      = (mantissa_bits
+	 - binary_format<floating_type_float16_t>::minimum_exponent());
+    constexpr uint16_t exponent_mask = 0x7C00;
+    constexpr uint16_t mantissa_mask = 0x03FF;
+    constexpr uint16_t hidden_bit_mask = 0x0400;
+    if ((value.bits & exponent_mask) == 0) {
+      // denormal
+      am.power2 = 1 - bias;
+      am.mantissa = value.bits & mantissa_mask;
+    } else {
+      // normal
+      am.power2 = int32_t((value.bits & exponent_mask) >> mantissa_bits);
+      am.power2 -= bias;
+      am.mantissa = (value.bits & mantissa_mask) | hidden_bit_mask;
+    }
+    return am;
+  }
+
+  template <>
+  fastfloat_really_inline adjusted_mantissa
+  to_extended<floating_type_bfloat16_t>(floating_type_bfloat16_t value) noexcept
+  {
+    adjusted_mantissa am;
+    constexpr int mantissa_bits
+      = binary_format<floating_type_bfloat16_t>::mantissa_explicit_bits();
+    int32_t bias
+      = (mantissa_bits
+	 - binary_format<floating_type_bfloat16_t>::minimum_exponent());
+    constexpr uint16_t exponent_mask = 0x7F80;
+    constexpr uint16_t mantissa_mask = 0x007F;
+    constexpr uint16_t hidden_bit_mask = 0x0080;
+    if ((value.bits & exponent_mask) == 0) {
+      // denormal
+      am.power2 = 1 - bias;
+      am.mantissa = value.bits & mantissa_mask;
+    } else {
+      // normal
+      am.power2 = int32_t((value.bits & exponent_mask) >> mantissa_bits);
+      am.power2 -= bias;
+      am.mantissa = (value.bits & mantissa_mask) | hidden_bit_mask;
+    }
+    return am;
+  }
+
+  // Like fast_float.h from_chars_advanced, but for 16-bit float.
+  template<typename T>
+  from_chars_result
+  from_chars_16(const char* first, const char* last, T &value,
+		chars_format fmt) noexcept
+  {
+    parse_options options{fmt};
+
+    from_chars_result answer;
+    if (first == last)
+      {
+	answer.ec = std::errc::invalid_argument;
+	answer.ptr = first;
+	return answer;
+      }
+
+    parsed_number_string pns = parse_number_string(first, last, options);
+    if (!pns.valid)
+      return detail::parse_infnan(first, last, *value.x);
+
+    answer.ec = std::errc();
+    answer.ptr = pns.lastmatch;
+
+    adjusted_mantissa am
+      = compute_float<binary_format<T>>(pns.exponent, pns.mantissa);
+    if (pns.too_many_digits && am.power2 >= 0)
+      {
+	if (am != compute_float<binary_format<T>>(pns.exponent,
+						  pns.mantissa + 1))
+	  am = compute_error<binary_format<T>>(pns.exponent, pns.mantissa);
+      }
+
+    // If we called compute_float<binary_format<T>>(pns.exponent, pns.mantissa)
+    // and we have an invalid power (am.power2 < 0),
+    // then we need to go the long way around again.  This is very uncommon.
+    if (am.power2 < 0)
+      am = digit_comp<T>(pns, am);
+
+    if ((pns.mantissa != 0 && am.mantissa == 0 && am.power2 == 0)
+	|| am.power2 == binary_format<T>::infinite_power())
+      {
+	// In case of over/underflow, return result_out_of_range and don't
+	// modify value, as per [charconv.from.chars]/1.  Note that LWG 3081 wants
+	// to modify value in this case too.
+	answer.ec = std::errc::result_out_of_range;
+	return answer;
+      }
+
+    // Transform the {,b}float16_t to float32_t before to_float.
+    if constexpr (std::is_same_v<T, floating_type_float16_t>)
+      {
+	if (am.power2 == 0)
+	  {
+	    if (am.mantissa)
+	      {
+		int n = (std::numeric_limits<unsigned int>::digits
+			 - __builtin_clz (am.mantissa)) - 1;
+		am.mantissa &= ~(static_cast<decltype(am.mantissa)>(1) << n);
+		am.mantissa <<= (binary_format<float>::mantissa_explicit_bits()
+				 - n);
+		am.power2 = n + 0x67;
+	      }
+	  }
+	else
+	  {
+	    am.mantissa <<= 13;
+	    am.power2 += 0x70;
+	  }
+      }
+    else
+      am.mantissa <<= 16;
+    to_float(pns.negative, am, *value.x);
+    return answer;
+  }
+} // fast_float
+
 } // anon namespace
 #endif
 
@@ -101,7 +376,6 @@ namespace
 	return m_buf + std::__exchange(m_bytes, m_bytes + bytes);
 
       __glibcxx_assert(m_ptr == nullptr);
-      __glibcxx_assert(alignment != 1);
 
       m_ptr = operator new(bytes);
       m_bytes = bytes;
@@ -142,10 +416,10 @@ namespace
 
   // Find initial portion of [first, last) containing a floating-point number.
   // The string `digits` is either `dec_digits` or `hex_digits`
-  // and `exp` is 'e' or 'p' or '\0'.
+  // and `exp` is "eE", "pP" or NULL.
   const char*
   find_end_of_float(const char* first, const char* last, const char* digits,
-		    char exp)
+		    const char *exp)
   {
     while (first < last && strchr(digits, *first) != nullptr)
       ++first;
@@ -155,7 +429,7 @@ namespace
 	while (first < last && strchr(digits, *first))
 	  ++first;
       }
-    if (first < last && exp != 0 && std::tolower((unsigned char)*first) == exp)
+    if (first < last && exp != nullptr && (*first == exp[0] || *first == exp[1]))
       {
 	++first;
 	if (first < last && (*first == '-' || *first == '+'))
@@ -237,7 +511,7 @@ namespace
 
 	if ((last - first + 2) > buffer_resource::guaranteed_capacity())
 	  {
-	    last = find_end_of_float(first + neg, last, digits, 'p');
+	    last = find_end_of_float(first + neg, last, digits, "pP");
 #ifndef __cpp_exceptions
 	    if ((last - first + 2) > buffer_resource::guaranteed_capacity())
 	      {
@@ -261,7 +535,7 @@ namespace
 	if ((last - first) > buffer_resource::guaranteed_capacity())
 	  {
 	    last = find_end_of_float(first + neg, last, digits,
-				     "e"[fmt == chars_format::fixed]);
+				     fmt == chars_format::fixed ? nullptr : "eE");
 #ifndef __cpp_exceptions
 	    if ((last - first) > buffer_resource::guaranteed_capacity())
 	      {
@@ -353,6 +627,16 @@ namespace
 # ifdef _GLIBCXX_LONG_DOUBLE_ALT128_COMPAT
 	else if constexpr (is_same_v<T, __ieee128>)
 	  tmpval = __strtoieee128(str, &endptr);
+# elif defined(USE_STRTOF128_FOR_FROM_CHARS)
+	else if constexpr (is_same_v<T, _Float128>)
+	  {
+#ifndef _GLIBCXX_HAVE_FLOAT128_MATH
+	    if (&__strtof128 == nullptr)
+	      tmpval = _Float128(std::strtold(str, &endptr));
+	    else
+#endif
+	      tmpval = __strtof128(str, &endptr);
+	  }
 # endif
 #else
 	tmpval = std::strtod(str, &endptr);
@@ -372,8 +656,13 @@ namespace
 	  {
 	    if (__builtin_isinf(tmpval)) // overflow
 	      ec = errc::result_out_of_range;
-	    else // underflow (LWG 3081 wants to set value = tmpval here)
+	    else if (tmpval == 0) // underflow (LWG 3081 wants to set value = tmpval here)
 	      ec = errc::result_out_of_range;
+	    else // denormal value
+	      {
+		value = tmpval;
+		ec = errc();
+	      }
 	  }
 	else if (n)
 	  {
@@ -452,15 +741,33 @@ namespace
 
 #if _GLIBCXX_FLOAT_IS_IEEE_BINARY32 && _GLIBCXX_DOUBLE_IS_IEEE_BINARY64
   // Return true iff [FIRST,LAST) begins with PREFIX, ignoring case.
+  // PREFIX is assumed to not contain any uppercase letters.
   bool
   starts_with_ci(const char* first, const char* last, string_view prefix)
   {
     __glibcxx_requires_valid_range(first, last);
 
-    for (char ch : prefix)
+    // A lookup table that maps uppercase letters to lowercase and
+    // is otherwise the identity mapping.
+    static constexpr auto upper_to_lower_table = [] {
+      constexpr unsigned char lower_letters[27] = "abcdefghijklmnopqrstuvwxyz";
+      constexpr unsigned char upper_letters[27] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+      std::array<unsigned char, (1u << __CHAR_BIT__)> table = {};
+      for (unsigned i = 0; i < table.size(); ++i)
+	table[i] = i;
+      for (unsigned i = 0; i < 26; ++i)
+	table[upper_letters[i]] = lower_letters[i];
+      return table;
+    }();
+
+    if (last - first < static_cast<ptrdiff_t>(prefix.length()))
+      return false;
+
+    for (const unsigned char pch : prefix)
       {
-	__glibcxx_assert(ch >= 'a' && ch <= 'z');
-	if (first == last || (*first != ch && *first != ch - 32))
+	// __glibcxx_assert(pch == upper_to_lower_table[pch]);
+	const unsigned char ch = *first;
+	if (ch != pch && upper_to_lower_table[ch] != pch)
 	  return false;
 	++first;
       }
@@ -473,11 +780,19 @@ namespace
   from_chars_result
   __floating_from_chars_hex(const char* first, const char* last, T& value)
   {
-    static_assert(is_same_v<T, float> || is_same_v<T, double>);
-
-    using uint_t = conditional_t<is_same_v<T, float>, uint32_t, uint64_t>;
+    using uint_t = conditional_t<is_same_v<T, float>, uint32_t,
+				 conditional_t<is_same_v<T, double>, uint64_t,
+					       uint16_t>>;
+#if USE_LIB_FAST_FLOAT
+    constexpr int mantissa_bits
+      = fast_float::binary_format<T>::mantissa_explicit_bits();
+    constexpr int exponent_bits
+      = is_same_v<T, double> ? 11
+	: is_same_v<T, fast_float::floating_type_float16_t> ? 5 : 8;
+#else
     constexpr int mantissa_bits = is_same_v<T, float> ? 23 : 52;
     constexpr int exponent_bits = is_same_v<T, float> ? 8 : 11;
+#endif
     constexpr int exponent_bias = (1 << (exponent_bits - 1)) - 1;
 
     __glibcxx_requires_valid_range(first, last);
@@ -503,12 +818,21 @@ namespace
 	      if (starts_with_ci(first, last, "inity"sv))
 		first += strlen("inity");
 
-	      uint_t result = 0;
-	      result |= sign_bit;
-	      result <<= exponent_bits;
-	      result |= (1ull << exponent_bits) - 1;
-	      result <<= mantissa_bits;
-	      memcpy(&value, &result, sizeof(result));
+	      if constexpr (is_same_v<T, float> || is_same_v<T, double>)
+		{
+		  uint_t result = 0;
+		  result |= sign_bit;
+		  result <<= exponent_bits;
+		  result |= (1ull << exponent_bits) - 1;
+		  result <<= mantissa_bits;
+		  memcpy(&value, &result, sizeof(result));
+		}
+	      else
+		{
+		  // float +/-Inf.
+		  uint32_t result = 0x7F800000 | (sign_bit ? 0x80000000U : 0);
+		  memcpy(value.x, &result, sizeof(result));
+		}
 
 	      return {first, errc{}};
 	    }
@@ -536,10 +860,8 @@ namespace
 			  ++first;
 			  break;
 			}
-		      else if ((ch >= '0' && ch <= '9')
-			       || (ch >= 'a' && ch <= 'z')
-			       || (ch >= 'A' && ch <= 'Z')
-			       || ch == '_')
+		      else if (ch == '_'
+			       || __detail::__from_chars_alnum_to_val(ch) < 127)
 			continue;
 		      else
 			{
@@ -551,12 +873,21 @@ namespace
 
 	      // We make the implementation-defined decision of ignoring the
 	      // sign bit and the n-char-sequence when assembling the NaN.
-	      uint_t result = 0;
-	      result <<= exponent_bits;
-	      result |= (1ull << exponent_bits) - 1;
-	      result <<= mantissa_bits;
-	      result |= (1ull << (mantissa_bits - 1)) | 1;
-	      memcpy(&value, &result, sizeof(result));
+	      if constexpr (is_same_v<T, float> || is_same_v<T, double>)
+		{
+		  uint_t result = 0;
+		  result <<= exponent_bits;
+		  result |= (1ull << exponent_bits) - 1;
+		  result <<= mantissa_bits;
+		  result |= (1ull << (mantissa_bits - 1)) | 1;
+		  memcpy(&value, &result, sizeof(result));
+		}
+	      else
+		{
+		  // float qNaN.
+		  uint32_t result = 0x7FC00001;
+		  memcpy(value.x, &result, sizeof(result));
+		}
 
 	      return {first, errc{}};
 	    }
@@ -600,7 +931,7 @@ namespace
 	    continue;
 	  }
 
-	int hexit = __detail::__from_chars_alnum_to_val<false>(ch);
+	int hexit = __detail::__from_chars_alnum_to_val(ch);
 	if (hexit >= 16)
 	  break;
 	seen_hexit = true;
@@ -618,17 +949,29 @@ namespace
 	  mantissa |= uint_t(hexit) << mantissa_idx;
 	else if (mantissa_idx >= -4)
 	  {
-	    if constexpr (is_same_v<T, float>)
+	    if constexpr (is_same_v<T, float>
+#if USE_LIB_FAST_FLOAT
+			  || is_same_v<T,
+				       fast_float::floating_type_bfloat16_t>
+#endif
+			 )
 	      {
 		__glibcxx_assert(mantissa_idx == -1);
 		mantissa |= hexit >> 1;
 		midpoint_bit = (hexit & 0b0001) != 0;
 	      }
-	    else
+	    else if constexpr (is_same_v<T, double>)
 	      {
 		__glibcxx_assert(mantissa_idx == -4);
 		midpoint_bit = (hexit & 0b1000) != 0;
 		nonzero_tail = (hexit & 0b0111) != 0;
+	      }
+	    else
+	      {
+		__glibcxx_assert(mantissa_idx == -2);
+		mantissa |= hexit >> 2;
+		midpoint_bit = (hexit & 0b0010) != 0;
+		nonzero_tail = (hexit & 0b0001) != 0;
 	      }
 	  }
 	else
@@ -648,7 +991,7 @@ namespace
 
     // Parse the written exponent.
     int written_exponent = 0;
-    if (first != last && *first == 'p')
+    if (first != last && (*first == 'p' || *first == 'P'))
       {
 	// Tentatively consume the 'p' and try to parse a decimal number.
 	const char* const fallback_first = first;
@@ -793,7 +1136,36 @@ namespace
 	__glibcxx_assert(((mantissa & (1ull << mantissa_bits)) != 0)
 			 == (biased_exponent != 0));
       }
-    memcpy(&value, &result, sizeof(result));
+    if constexpr (is_same_v<T, float> || is_same_v<T, double>)
+      memcpy(&value, &result, sizeof(result));
+#if USE_LIB_FAST_FLOAT
+    else if constexpr (is_same_v<T, fast_float::floating_type_bfloat16_t>)
+      {
+	uint32_t res = uint32_t{result} << 16;
+	memcpy(value.x, &res, sizeof(res));
+      }
+    else
+      {
+	// Otherwise float16_t which needs to be converted to float32_t.
+	uint32_t res;
+	if ((result & 0x7FFF) == 0)
+	  res = uint32_t{result} << 16;		// +/-0.0f16
+	else if ((result & 0x7C00) == 0)
+	  {					// denormal
+	    unsigned n = (std::numeric_limits<unsigned int>::digits
+			  - __builtin_clz (result & 0x3FF) - 1);
+	    res = uint32_t{result} & 0x3FF & ~(uint32_t{1} << n);
+	    res <<= 23 - n;
+	    res |= (((uint32_t{n} + 0x67) << 23)
+		    | ((uint32_t{result} & 0x8000) << 16));
+	  }
+	else
+	  res = (((uint32_t{result} & 0x3FF) << 13)
+		 | ((((uint32_t{result} >> 10) & 0x1F) + 0x70) << 23)
+		 | ((uint32_t{result} & 0x8000) << 16));
+	memcpy(value.x, &res, sizeof(res));
+      }
+#endif
 
     return {first, errc{}};
   }
@@ -811,9 +1183,7 @@ from_chars(const char* first, const char* last, float& value,
   if (fmt == chars_format::hex)
     return __floating_from_chars_hex(first, last, value);
   else
-    {
-      return fast_float::from_chars(first, last, value, fmt);
-    }
+    return fast_float::from_chars(first, last, value, fmt);
 #else
   return from_chars_strtod(first, last, value, fmt);
 #endif
@@ -827,9 +1197,7 @@ from_chars(const char* first, const char* last, double& value,
   if (fmt == chars_format::hex)
     return __floating_from_chars_hex(first, last, value);
   else
-    {
-      return fast_float::from_chars(first, last, value, fmt);
-    }
+    return fast_float::from_chars(first, last, value, fmt);
 #else
   return from_chars_strtod(first, last, value, fmt);
 #endif
@@ -848,9 +1216,7 @@ from_chars(const char* first, const char* last, long double& value,
   if (fmt == chars_format::hex)
     result = __floating_from_chars_hex(first, last, dbl_value);
   else
-    {
-      result = fast_float::from_chars(first, last, dbl_value, fmt);
-    }
+    result = fast_float::from_chars(first, last, dbl_value, fmt);
   if (result.ec == errc{})
     value = dbl_value;
   return result;
@@ -858,6 +1224,31 @@ from_chars(const char* first, const char* last, long double& value,
   return from_chars_strtod(first, last, value, fmt);
 #endif
 }
+
+#if USE_LIB_FAST_FLOAT
+// Entrypoints for 16-bit floats.
+[[gnu::cold]] from_chars_result
+__from_chars_float16_t(const char* first, const char* last, float& value,
+		       chars_format fmt) noexcept
+{
+  struct fast_float::floating_type_float16_t val{ &value, 0 };
+  if (fmt == chars_format::hex)
+    return __floating_from_chars_hex(first, last, val);
+  else
+    return fast_float::from_chars_16(first, last, val, fmt);
+}
+
+[[gnu::cold]] from_chars_result
+__from_chars_bfloat16_t(const char* first, const char* last, float& value,
+			chars_format fmt) noexcept
+{
+  struct fast_float::floating_type_bfloat16_t val{ &value, 0 };
+  if (fmt == chars_format::hex)
+    return __floating_from_chars_hex(first, last, val);
+  else
+    return fast_float::from_chars_16(first, last, val, fmt);
+}
+#endif
 
 #ifdef _GLIBCXX_LONG_DOUBLE_COMPAT
 // Make std::from_chars for 64-bit long double an alias for the overload
@@ -872,6 +1263,14 @@ __attribute__((alias ("_ZSt10from_charsPKcS0_RdSt12chars_format")));
 #ifdef _GLIBCXX_LONG_DOUBLE_ALT128_COMPAT
 from_chars_result
 from_chars(const char* first, const char* last, __ieee128& value,
+	   chars_format fmt) noexcept
+{
+  // fast_float doesn't support IEEE binary128 format, but we can use strtold.
+  return from_chars_strtod(first, last, value, fmt);
+}
+#elif defined(USE_STRTOF128_FOR_FROM_CHARS)
+from_chars_result
+from_chars(const char* first, const char* last, _Float128& value,
 	   chars_format fmt) noexcept
 {
   // fast_float doesn't support IEEE binary128 format, but we can use strtold.

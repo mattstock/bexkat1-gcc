@@ -1,5 +1,5 @@
 // GNU D Compiler emulated TLS routines.
-// Copyright (C) 2019-2022 Free Software Foundation, Inc.
+// Copyright (C) 2019-2023 Free Software Foundation, Inc.
 
 // GCC is free software; you can redistribute it and/or modify it under
 // the terms of the GNU General Public License as published by the Free
@@ -223,9 +223,9 @@ void** emutlsAlloc(shared __emutls_object* obj) nothrow @nogc
 }
 
 /*
- * When a thread has finished, remove the TLS array from the GC
- * scan list emutlsArrays, free all allocated TLS variables and
- * finally free the array.
+ * When a thread has finished, free all allocated TLS variables and empty the
+ * array.  The pointer is not free'd as it is stil referenced by the GC scan
+ * list emutlsArrays, which gets destroyed when druntime is unloaded.
  */
 extern (C) void emutlsDestroyThread(void* ptr) nothrow @nogc
 {
@@ -237,7 +237,7 @@ extern (C) void emutlsDestroyThread(void* ptr) nothrow @nogc
             free(entry[-1]);
     }
 
-    free(arr);
+    arr.length = 0;
 }
 
 /*

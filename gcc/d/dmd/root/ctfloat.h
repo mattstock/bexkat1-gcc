@@ -1,5 +1,5 @@
 
-/* Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+/* Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * written by Walter Bright
  * https://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -50,7 +50,7 @@ struct CTFloat
     static bool isSNaN(real_t r);
     static bool isInfinity(real_t r);
 
-    static real_t parse(const char *literal, bool *isOutOfRange = NULL);
+    static real_t parse(const char *literal, bool& isOutOfRange);
     static int sprint(char *str, char fmt, real_t x);
 
     static size_t hash(real_t a);

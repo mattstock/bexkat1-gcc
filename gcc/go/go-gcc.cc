@@ -1,5 +1,5 @@
 // go-gcc.cc -- Go frontend to gcc IR.
-// Copyright (C) 2011-2022 Free Software Foundation, Inc.
+// Copyright (C) 2011-2023 Free Software Foundation, Inc.
 // Contributed by Ian Lance Taylor, Google.
 
 // This file is part of GCC.
@@ -627,6 +627,11 @@ Gcc_backend::Gcc_backend()
 						unsigned_type_node,
 						NULL_TREE),
 		       builtin_const);
+  this->define_builtin(BUILT_IN_CTZL, "__builtin_ctzl", "ctzl",
+		      build_function_type_list(integer_type_node,
+					       long_unsigned_type_node,
+					       NULL_TREE),
+		      builtin_const);
   this->define_builtin(BUILT_IN_CTZLL, "__builtin_ctzll", "ctzll",
 		       build_function_type_list(integer_type_node,
 						long_long_unsigned_type_node,
@@ -637,6 +642,11 @@ Gcc_backend::Gcc_backend()
 						unsigned_type_node,
 						NULL_TREE),
 		       builtin_const);
+  this->define_builtin(BUILT_IN_CLZL, "__builtin_clzl", "clzl",
+		      build_function_type_list(integer_type_node,
+					       long_unsigned_type_node,
+					       NULL_TREE),
+		      builtin_const);
   this->define_builtin(BUILT_IN_CLZLL, "__builtin_clzll", "clzll",
 		       build_function_type_list(integer_type_node,
 						long_long_unsigned_type_node,
@@ -886,16 +896,20 @@ Gcc_backend::Gcc_backend()
                                uint32_type_node,
                                integer_type_node,
                                NULL_TREE);
-  this->define_builtin(BUILT_IN_ATOMIC_ADD_FETCH_4, "__atomic_add_fetch_4", NULL,
-                       t, 0);
+  this->define_builtin(BUILT_IN_ATOMIC_ADD_FETCH_4, "__atomic_add_fetch_4",
+		       NULL, t, 0);
+  this->define_builtin(BUILT_IN_ATOMIC_FETCH_ADD_4, "__atomic_fetch_add_4",
+		       NULL, t, 0);
 
   t = build_function_type_list(uint64_type_node,
                                ptr_type_node,
                                uint64_type_node,
                                integer_type_node,
                                NULL_TREE);
-  this->define_builtin(BUILT_IN_ATOMIC_ADD_FETCH_8, "__atomic_add_fetch_8", NULL,
-                       t, 0);
+  this->define_builtin(BUILT_IN_ATOMIC_ADD_FETCH_8, "__atomic_add_fetch_8",
+		       NULL, t, 0);
+  this->define_builtin(BUILT_IN_ATOMIC_FETCH_ADD_8, "__atomic_fetch_add_8",
+		       NULL, t, 0);
 
   t = build_function_type_list(unsigned_char_type_node,
 			       ptr_type_node,
@@ -1707,6 +1721,13 @@ Gcc_backend::struct_field_expression(Bexpression* bstruct, size_t index,
   if (struct_tree == error_mark_node
       || TREE_TYPE(struct_tree) == error_mark_node)
     return this->error_expression();
+
+  // A function call that returns a zero-sized object will have been
+  // changed to return void.  A zero-sized object can have a
+  // (zero-sized) field, so support that case.
+  if (TREE_TYPE(struct_tree) == void_type_node)
+    return bstruct;
+
   gcc_assert(TREE_CODE(TREE_TYPE(struct_tree)) == RECORD_TYPE);
   tree field = TYPE_FIELDS(TREE_TYPE(struct_tree));
   if (field == NULL_TREE)
@@ -2112,6 +2133,19 @@ Gcc_backend::call_expression(Bfunction*, // containing fcn for call
       args[i] = fn_args.at(i)->get_tree();
       if (args[i] == error_mark_node)
         return this->error_expression();
+      if (TREE_TYPE(args[i]) == void_type_node)
+	{
+	  // This can happen for a case like f(g()) where g returns a
+	  // zero-sized type, because in that case we've changed g to
+	  // return void.
+	  tree t = TYPE_ARG_TYPES(TREE_TYPE(TREE_TYPE(fn)));
+	  for (size_t j = 0; j < i; ++j)
+	    t = TREE_CHAIN(t);
+	  tree arg_type = TREE_TYPE(TREE_VALUE(t));
+	  args[i] = fold_build2_loc(EXPR_LOCATION(args[i]), COMPOUND_EXPR,
+				    arg_type, args[i],
+				    build_zero_cst(arg_type));
+	}
     }
 
   tree fndecl = fn;

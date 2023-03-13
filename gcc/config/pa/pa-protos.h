@@ -1,5 +1,5 @@
 /* Prototypes for pa.cc functions used in the md file & elsewhere.
-   Copyright (C) 2000-2022 Free Software Foundation, Inc.
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -111,7 +111,3 @@ extern void pa_output_function_label (FILE *);
 extern void hppa_profile_hook (int);
 
 extern const int pa_magic_milli[];
-
-/* Routines implemented in pa-d.cc  */
-extern void pa_d_target_versions (void);
-extern void pa_d_register_target_info (void);

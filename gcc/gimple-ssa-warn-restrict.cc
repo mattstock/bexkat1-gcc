@@ -1,6 +1,6 @@
 /* Pass to detect and issue warnings for violations of the restrict
    qualifier.
-   Copyright (C) 2017-2022 Free Software Foundation, Inc.
+   Copyright (C) 2017-2023 Free Software Foundation, Inc.
    Contributed by Martin Sebor <msebor@redhat.com>.
 
    This file is part of GCC.
@@ -64,8 +64,8 @@ class pass_wrestrict : public gimple_opt_pass
  public:
   pass_wrestrict (gcc::context *);
 
-  virtual bool gate (function *);
-  virtual unsigned int execute (function *);
+  bool gate (function *) final override;
+  unsigned int execute (function *) final override;
 
   void check_call (gimple *);
 
@@ -296,8 +296,9 @@ builtin_memref::builtin_memref (pointer_query &ptrqry, gimple *stmt, tree expr,
   tree basetype = TREE_TYPE (base);
   if (TREE_CODE (basetype) == ARRAY_TYPE)
     {
-      if (ref && array_at_struct_end_p (ref))
-	;   /* Use the maximum possible offset for last member arrays.  */
+      if (ref && array_ref_flexible_size_p (ref))
+	;   /* Use the maximum possible offset for an array that might
+	       have flexible size.  */
       else if (tree basesize = TYPE_SIZE_UNIT (basetype))
 	if (TREE_CODE (basesize) == INTEGER_CST)
 	  /* Size could be non-constant for a variable-length type such
@@ -430,7 +431,7 @@ builtin_memref::set_base_and_offset (tree expr)
       else if (is_gimple_assign (stmt))
 	{
 	  tree_code code = gimple_assign_rhs_code (stmt);
-	  if (code == NOP_EXPR)
+	  if (CONVERT_EXPR_CODE_P (code))
 	    {
 	      tree rhs = gimple_assign_rhs1 (stmt);
 	      if (POINTER_TYPE_P (TREE_TYPE (rhs)))
@@ -525,7 +526,6 @@ builtin_memref::set_base_and_offset (tree expr)
     {
       tree memrefoff = fold_convert (ptrdiff_type_node, TREE_OPERAND (base, 1));
       extend_offset_range (memrefoff);
-      base = TREE_OPERAND (base, 0);
 
       if (refoff != HOST_WIDE_INT_MIN
       	  && TREE_CODE (expr) == COMPONENT_REF)
@@ -538,14 +538,19 @@ builtin_memref::set_base_and_offset (tree expr)
 	     REFOFF is set to s[1].b - (char*)s.  */
 	  offset_int off = tree_to_shwi (memrefoff);
 	  refoff += off;
-      	}
 
-      if (!integer_zerop (memrefoff))
-	/* A non-zero offset into an array of struct with flexible array
-	   members implies that the array is empty because there is no
-	   way to initialize such a member when it belongs to an array.
-	   This must be some sort of a bug.  */
-	refsize = 0;
+	  if (!integer_zerop (memrefoff)
+	      && !COMPLETE_TYPE_P (TREE_TYPE (expr))
+	      && multiple_of_p (sizetype, memrefoff,
+				TYPE_SIZE_UNIT (TREE_TYPE (base)), true))
+	    /* A non-zero offset into an array of struct with flexible array
+	       members implies that the array is empty because there is no
+	       way to initialize such a member when it belongs to an array.
+	       This must be some sort of a bug.  */
+	    refsize = 0;
+	}
+
+      base = TREE_OPERAND (base, 0);
     }
 
   if (TREE_CODE (ref) == COMPONENT_REF)
@@ -1729,7 +1734,7 @@ maybe_diag_access_bounds (gimple *call, tree func, int strict,
   if (!oobref)
     return no_warning;
 
-  const opt_code opt = OPT_Warray_bounds;
+  const opt_code opt = OPT_Warray_bounds_;
   /* Return true without issuing a warning.  */
   if (!do_warn)
     return opt;

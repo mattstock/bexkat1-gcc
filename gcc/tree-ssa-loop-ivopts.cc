@@ -1,5 +1,5 @@
 /* Induction variable optimizations.
-   Copyright (C) 2003-2022 Free Software Foundation, Inc.
+   Copyright (C) 2003-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -131,6 +131,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "builtins.h"
 #include "tree-vectorizer.h"
 #include "dbgcnt.h"
+#include "cfganal.h"
 
 /* For lang_hooks.types.type_for_mode.  */
 #include "langhooks.h"
@@ -452,6 +453,7 @@ struct iv_cand
   unsigned id;		/* The number of the candidate.  */
   bool important;	/* Whether this is an "important" candidate, i.e. such
 			   that it should be considered by all uses.  */
+  bool involves_undefs; /* Whether the IV involves undefined values.  */
   ENUM_BITFIELD(iv_position) pos : 8;	/* Where it is computed.  */
   gimple *incremented_at;/* For original biv, the statement where it is
 			   incremented.  */
@@ -468,7 +470,7 @@ struct iv_cand
   bitmap inv_vars;	/* The list of invariant ssa_vars used in step of the
 			   iv_cand.  */
   bitmap inv_exprs;	/* If step is more complicated than a single ssa_var,
-			   hanlde it as a new invariant expression which will
+			   handle it as a new invariant expression which will
 			   be hoisted out of loop.  */
   struct iv *orig_iv;	/* The original iv if this cand is added from biv with
 			   smaller type.  */
@@ -3070,6 +3072,24 @@ get_loop_invariant_expr (struct ivopts_data *data, tree inv_expr)
   return *slot;
 }
 
+
+/* Return *TP if it is an SSA_NAME marked with TREE_VISITED, i.e., as
+   unsuitable as ivopts candidates for potentially involving undefined
+   behavior.  */
+
+static tree
+find_ssa_undef (tree *tp, int *walk_subtrees, void *bb_)
+{
+  basic_block bb = (basic_block) bb_;
+  if (TREE_CODE (*tp) == SSA_NAME
+      && ssa_name_maybe_undef_p (*tp)
+      && !ssa_name_any_use_dominates_bb_p (*tp, bb))
+    return *tp;
+  if (!EXPR_P (*tp))
+    *walk_subtrees = 0;
+  return NULL;
+}
+
 /* Adds a candidate BASE + STEP * i.  Important field is set to IMPORTANT and
    position to POS.  If USE is not NULL, the candidate is set as related to
    it.  If both BASE and STEP are NULL, we add a pseudocandidate for the
@@ -3096,6 +3116,17 @@ add_candidate_1 (struct ivopts_data *data, tree base, tree step, bool important,
      and keep it there until after the loop.  */
   if (flag_keep_gc_roots_live && POINTER_TYPE_P (TREE_TYPE (base)))
     return NULL;
+
+  /* If BASE contains undefined SSA names make sure we only record
+     the original IV.  */
+  bool involves_undefs = false;
+  if (walk_tree (&base, find_ssa_undef, data->current_loop->header, NULL))
+    {
+      if (pos != IP_ORIGINAL)
+	return NULL;
+      important = false;
+      involves_undefs = true;
+    }
 
   /* For non-original variables, make sure their values are computed in a type
      that does not invoke undefined behavior on overflows (since in general,
@@ -3145,6 +3176,7 @@ add_candidate_1 (struct ivopts_data *data, tree base, tree step, bool important,
 	  cand->var_after = cand->var_before;
 	}
       cand->important = important;
+      cand->involves_undefs = involves_undefs;
       cand->incremented_at = incremented_at;
       cand->doloop_p = doloop;
       data->vcands.safe_push (cand);
@@ -4958,6 +4990,11 @@ determine_group_iv_cost_generic (struct ivopts_data *data,
      the candidate.  */
   if (cand->pos == IP_ORIGINAL && cand->incremented_at == use->stmt)
     cost = no_cost;
+  /* If the IV candidate involves undefined SSA values and is not the
+     same IV as on the USE avoid using that candidate here.  */
+  else if (cand->involves_undefs
+	   && (!use->iv || !operand_equal_p (cand->iv->base, use->iv->base, 0)))
+    return false;
   else
     cost = get_computation_cost (data, use, cand, false,
 				 &inv_vars, NULL, &inv_expr);
@@ -7199,6 +7236,12 @@ create_new_iv (struct ivopts_data *data, struct iv_cand *cand)
     case IP_END:
       incr_pos = gsi_last_bb (ip_end_pos (data->current_loop));
       after = true;
+      if (!gsi_end_p (incr_pos) && stmt_ends_bb_p (gsi_stmt (incr_pos)))
+	{
+	  edge e = find_edge (gsi_bb (incr_pos), data->current_loop->header);
+	  incr_pos = gsi_after_labels (split_edge (e));
+	  after = false;
+	}
       break;
 
     case IP_AFTER_USE:
@@ -8161,6 +8204,7 @@ tree_ssa_iv_optimize (void)
   auto_bitmap toremove;
 
   tree_ssa_iv_optimize_init (&data);
+  mark_ssa_maybe_undefs ();
 
   /* Optimize the loops starting with the innermost ones.  */
   for (auto loop : loops_list (cfun, LI_FROM_INNERMOST))

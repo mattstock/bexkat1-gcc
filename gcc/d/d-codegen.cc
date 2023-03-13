@@ -1,5 +1,5 @@
 /* d-codegen.cc --  Code generation and routines for manipulation of GCC trees.
-   Copyright (C) 2006-2022 Free Software Foundation, Inc.
+   Copyright (C) 2006-2023 Free Software Foundation, Inc.
 
 GCC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -38,6 +38,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "stor-layout.h"
 #include "attribs.h"
 #include "function.h"
+#include "gimple-expr.h"
 
 #include "d-tree.h"
 
@@ -76,7 +77,7 @@ d_decl_context (Dsymbol *dsym)
 	 but only for extern(D) symbols.  */
       if (parent->isModule ())
 	{
-	  if ((decl != NULL && decl->linkage != LINK::d)
+	  if ((decl != NULL && decl->resolvedLinkage () != LINK::d)
 	      || (ad != NULL && ad->classKind != ClassKind::d))
 	    return NULL_TREE;
 
@@ -115,6 +116,7 @@ tree
 copy_aggregate_type (tree type)
 {
   tree newtype = build_distinct_type_copy (type);
+  TYPE_STUB_DECL (newtype) = TYPE_NAME (newtype);
   TYPE_FIELDS (newtype) = copy_list (TYPE_FIELDS (type));
 
   for (tree f = TYPE_FIELDS (newtype); f; f = DECL_CHAIN (f))
@@ -417,8 +419,8 @@ build_delegate_cst (tree method, tree object, Type *type)
     {
       /* Convert a function method into an anonymous delegate.  */
       ctype = make_struct_type ("delegate()", 2,
-				get_identifier ("object"), TREE_TYPE (object),
-				get_identifier ("func"), TREE_TYPE (method));
+				get_identifier ("ptr"), TREE_TYPE (object),
+				get_identifier ("funcptr"), TREE_TYPE (method));
       TYPE_DELEGATE (ctype) = 1;
     }
 
@@ -622,11 +624,8 @@ build_target_expr (tree decl, tree exp)
 tree
 force_target_expr (tree exp)
 {
-  tree decl = build_decl (input_location, VAR_DECL, NULL_TREE,
-			  TREE_TYPE (exp));
+  tree decl = create_tmp_var_raw (TREE_TYPE (exp));
   DECL_CONTEXT (decl) = current_function_decl;
-  DECL_ARTIFICIAL (decl) = 1;
-  DECL_IGNORED_P (decl) = 1;
   layout_decl (decl, 0);
 
   return build_target_expr (decl, exp);
@@ -696,11 +695,12 @@ build_address (tree exp)
   return compound_expr (init, exp);
 }
 
-/* Mark EXP saying that we need to be able to take the
-   address of it; it should not be allocated in a register.  */
+/* Mark EXP saying that we need to be able to take the address of it; it should
+   not be allocated in a register.  When COMPLAIN is true, issue an error if we
+   are marking a register variable.  */
 
 tree
-d_mark_addressable (tree exp)
+d_mark_addressable (tree exp, bool complain)
 {
   switch (TREE_CODE (exp))
     {
@@ -712,12 +712,22 @@ d_mark_addressable (tree exp)
       d_mark_addressable (TREE_OPERAND (exp, 0));
       break;
 
-    case PARM_DECL:
     case VAR_DECL:
+      if (complain && DECL_REGISTER (exp))
+	{
+	  if (DECL_HARD_REGISTER (exp) || DECL_EXTERNAL (exp))
+	    error ("address of explicit register variable %qD requested", exp);
+	  else
+	    error ("address of register variable %qD requested", exp);
+	}
+
+      /* Fall through.  */
+    case PARM_DECL:
     case RESULT_DECL:
     case CONST_DECL:
     case FUNCTION_DECL:
-      TREE_ADDRESSABLE (exp) = 1;
+      if (!VAR_P (exp) || !DECL_HARD_REGISTER (exp))
+	TREE_ADDRESSABLE (exp) = 1;
       break;
 
     case CONSTRUCTOR:
@@ -1165,7 +1175,7 @@ build_struct_literal (tree type, vec <constructor_elt, va_gc> *init)
     }
 
   vec <constructor_elt, va_gc> *ve = NULL;
-  HOST_WIDE_INT offset = 0;
+  HOST_WIDE_INT bitoffset = 0;
   bool constant_p = true;
   bool finished = false;
 
@@ -1210,11 +1220,11 @@ build_struct_literal (tree type, vec <constructor_elt, va_gc> *init)
 
       if (is_initialized)
 	{
-	  HOST_WIDE_INT fieldpos = int_byte_position (field);
+	  HOST_WIDE_INT fieldpos = int_bit_position (field);
 	  gcc_assert (value != NULL_TREE);
 
 	  /* Must not initialize fields that overlap.  */
-	  if (fieldpos < offset)
+	  if (fieldpos < bitoffset)
 	    {
 	      /* Find the nearest user defined type and field.  */
 	      tree vtype = type;
@@ -1243,12 +1253,9 @@ build_struct_literal (tree type, vec <constructor_elt, va_gc> *init)
 	    finished = true;
 	}
 
-      /* Move offset to the next position in the struct.  */
-      if (TREE_CODE (type) == RECORD_TYPE)
-	{
-	  offset = int_byte_position (field)
-	    + int_size_in_bytes (TREE_TYPE (field));
-	}
+      /* Move bit offset to the next position in the struct.  */
+      if (TREE_CODE (type) == RECORD_TYPE && DECL_SIZE (field))
+	bitoffset = int_bit_position (field) + tree_to_shwi (DECL_SIZE (field));
 
       /* If all initializers have been assigned, there's nothing else to do.  */
       if (vec_safe_is_empty (init))
@@ -1446,13 +1453,12 @@ build_boolop (tree_code code, tree arg0, tree arg1)
     {
       /* Build a vector comparison.
 	 VEC_COND_EXPR <e1 op e2, { -1, -1, -1, -1 }, { 0, 0, 0, 0 }>; */
-      tree type = TREE_TYPE (arg0);
-      tree cmptype = truth_type_for (type);
+      tree cmptype = truth_type_for (TREE_TYPE (arg0));
       tree cmp = fold_build2_loc (input_location, code, cmptype, arg0, arg1);
 
-      return fold_build3_loc (input_location, VEC_COND_EXPR, type, cmp,
-			      build_minus_one_cst (type),
-			      build_zero_cst (type));
+      return fold_build3_loc (input_location, VEC_COND_EXPR, cmptype, cmp,
+			      build_minus_one_cst (cmptype),
+			      build_zero_cst (cmptype));
     }
 
   if (code == EQ_EXPR || code == NE_EXPR)
@@ -1581,6 +1587,32 @@ complex_expr (tree type, tree re, tree im)
 			  type, re, im);
 }
 
+/* Build a two-field record TYPE representing the complex expression EXPR.  */
+
+tree
+underlying_complex_expr (tree type, tree expr)
+{
+  gcc_assert (list_length (TYPE_FIELDS (type)) == 2);
+
+  expr = d_save_expr (expr);
+
+  /* Build a constructor from the real and imaginary parts.  */
+  if (COMPLEX_FLOAT_TYPE_P (TREE_TYPE (expr)) &&
+      (!INDIRECT_REF_P (expr)
+       || !CONVERT_EXPR_CODE_P (TREE_CODE (TREE_OPERAND (expr, 0)))))
+    {
+      vec <constructor_elt, va_gc> *ve = NULL;
+      CONSTRUCTOR_APPEND_ELT (ve, TYPE_FIELDS (type),
+                    real_part (expr));
+      CONSTRUCTOR_APPEND_ELT (ve, TREE_CHAIN (TYPE_FIELDS (type)),
+                    imaginary_part (expr));
+      return build_constructor (type, ve);
+    }
+
+  /* Replace type in the reinterpret cast with a cast to the record type.  */
+  return build_vconvert (type, expr);
+}
+
 /* Cast EXP (which should be a pointer) to TYPE* and then indirect.
    The back-end requires this cast in many cases.  */
 
@@ -1628,7 +1660,7 @@ build_deref (tree exp)
 /* Builds pointer offset expression PTR[INDEX].  */
 
 tree
-build_array_index (tree ptr, tree index)
+build_pointer_index (tree ptr, tree index)
 {
   if (error_operand_p (ptr) || error_operand_p (index))
     return error_mark_node;
@@ -2139,7 +2171,6 @@ d_build_call (TypeFunction *tf, tree callable, tree object,
 
   /* Build the argument list for the call.  */
   vec <tree, va_gc> *args = NULL;
-  tree saved_args = NULL_TREE;
   bool noreturn_call = false;
 
   /* If this is a delegate call or a nested function being called as
@@ -2149,23 +2180,6 @@ d_build_call (TypeFunction *tf, tree callable, tree object,
 
   if (arguments)
     {
-      /* First pass, evaluated expanded tuples in function arguments.  */
-      for (size_t i = 0; i < arguments->length; ++i)
-	{
-	Lagain:
-	  Expression *arg = (*arguments)[i];
-	  gcc_assert (arg->op != EXP::tuple);
-
-	  if (arg->op == EXP::comma)
-	    {
-	      CommaExp *ce = arg->isCommaExp ();
-	      tree tce = build_expr (ce->e1);
-	      saved_args = compound_expr (saved_args, tce);
-	      (*arguments)[i] = ce->e2;
-	      goto Lagain;
-	    }
-	}
-
       const size_t nparams = tf->parameterList.length ();
       /* if _arguments[] is the first argument.  */
       const size_t varargs = tf->isDstyleVariadic ();
@@ -2207,6 +2221,14 @@ d_build_call (TypeFunction *tf, tree callable, tree object,
 			      build_address (targ));
 	    }
 
+	  /* Complex types are exposed as special types with an underlying
+	     struct representation, if we are passing the native type to a
+	     function that accepts the library-defined version, then ensure
+	     it is properly reinterpreted as the underlying struct type.  */
+	  if (COMPLEX_FLOAT_TYPE_P (TREE_TYPE (targ))
+	      && arg->type->isTypeStruct ())
+	    targ = underlying_complex_expr (build_ctype (arg->type), targ);
+
 	  /* Type `noreturn` is a terminator, as no other arguments can possibly
 	     be evaluated after it.  */
 	  if (TREE_TYPE (targ) == noreturn_type_node)
@@ -2216,17 +2238,12 @@ d_build_call (TypeFunction *tf, tree callable, tree object,
 	}
     }
 
-  /* Evaluate the callee before calling it.  */
-  if (TREE_SIDE_EFFECTS (callee))
-    {
-      callee = d_save_expr (callee);
-      saved_args = compound_expr (callee, saved_args);
-    }
-
   /* If we saw a `noreturn` parameter, any unreachable argument evaluations
      after it are discarded, as well as the function call itself.  */
   if (noreturn_call)
     {
+      tree saved_args = NULL_TREE;
+
       if (TREE_SIDE_EFFECTS (callee))
 	saved_args = compound_expr (callee, saved_args);
 
@@ -2256,7 +2273,7 @@ d_build_call (TypeFunction *tf, tree callable, tree object,
       result = force_target_expr (result);
     }
 
-  return compound_expr (saved_args, result);
+  return result;
 }
 
 /* Build and return the correct call to fmod depending on TYPE.
@@ -2706,7 +2723,16 @@ build_frame_type (tree ffi, FuncDeclaration *fd)
 	  if ((v->edtor && (v->storage_class & STCparameter))
 	      || v->needsScopeDtor ())
 	    error_at (make_location_t (v->loc),
-		      "has scoped destruction, cannot build closure");
+		      "variable %qs has scoped destruction, "
+		      "cannot build closure", v->toChars ());
+	}
+
+      if (DECL_REGISTER (vsym))
+	{
+	  /* Because the value will be in memory, not a register.  */
+	  error_at (make_location_t (v->loc),
+		    "explicit register variable %qs cannot be used in nested "
+		    "function", v->toChars ());
 	}
     }
 
@@ -2810,8 +2836,15 @@ get_frameinfo (FuncDeclaration *fd)
 
   DECL_LANG_FRAMEINFO (fds) = ffi;
 
+  const bool requiresClosure = fd->requiresClosure;
   if (fd->needsClosure ())
     {
+      /* This can shift due to templates being expanded that access alias
+         symbols, give it a decent error for now.  */
+      if (requiresClosure != fd->requiresClosure
+	  && (fd->nrvo_var || global.params.betterC))
+	fd->checkClosure ();
+
       /* Set-up a closure frame, this will be allocated on the heap.  */
       FRAMEINFO_CREATES_FRAME (ffi) = 1;
       FRAMEINFO_IS_CLOSURE (ffi) = 1;

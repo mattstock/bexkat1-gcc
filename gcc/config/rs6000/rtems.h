@@ -1,5 +1,5 @@
 /* Definitions for rtems targeting a PowerPC using elf.
-   Copyright (C) 1996-2022 Free Software Foundation, Inc.
+   Copyright (C) 1996-2023 Free Software Foundation, Inc.
    Contributed by Joel Sherrill (joel@OARcorp.com).
 
    This file is part of GCC.
@@ -22,6 +22,9 @@
    a copy of the GCC Runtime Library Exception along with this program;
    see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
    <http://www.gnu.org/licenses/>.  */
+
+/* Undef gnu-user.h macro we don't want.  */
+#undef CPLUSPLUS_CPP_SPEC
 
 /* Copy and paste from linux64.h and freebsd64.h */
 #ifdef IN_LIBGCC2
@@ -252,7 +255,8 @@
 %{mcpu=821:  %{!Dppc*: %{!Dmpc*: -Dmpc821}  } } \
 %{mcpu=860:  %{!Dppc*: %{!Dmpc*: -Dmpc860}  } } \
 %{mcpu=8540: %{!Dppc*: %{!Dmpc*: -Dppc8540}  } } \
-%{mcpu=e6500: -D__PPC_CPU_E6500__}"
+%{mcpu=e6500: -D__PPC_CPU_E6500__} \
+%{mvrsave: -D__PPC_VRSAVE__}"
 
 #undef	ASM_SPEC
 #define	ASM_SPEC "%{!m64:%(asm_spec32)}%{m64:%(asm_spec64)} %(asm_spec_common)"

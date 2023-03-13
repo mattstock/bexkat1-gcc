@@ -1,5 +1,5 @@
 /* Data flow functions for trees.
-   Copyright (C) 2001-2022 Free Software Foundation, Inc.
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
    Contributed by Diego Novillo <dnovillo@redhat.com>
 
 This file is part of GCC.
@@ -453,8 +453,8 @@ get_ref_base_and_extent (tree exp, poly_int64_pod *poffset,
 		    if (!next
 			|| TREE_CODE (stype) != RECORD_TYPE)
 		      {
-			tree fsize = DECL_SIZE_UNIT (field);
-			tree ssize = TYPE_SIZE_UNIT (stype);
+			tree fsize = DECL_SIZE (field);
+			tree ssize = TYPE_SIZE (stype);
 			if (fsize == NULL
 			    || !poly_int_tree_p (fsize)
 			    || ssize == NULL
@@ -465,7 +465,6 @@ get_ref_base_and_extent (tree exp, poly_int64_pod *poffset,
 			    poly_offset_int tem
 			      = (wi::to_poly_offset (ssize)
 				 - wi::to_poly_offset (fsize));
-			    tem <<= LOG2_BITS_PER_UNIT;
 			    tem -= woffset;
 			    maxsize += tem;
 			  }

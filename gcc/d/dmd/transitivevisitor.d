@@ -17,7 +17,9 @@ import core.stdc.stdio;
 extern(C++) class ParseTimeTransitiveVisitor(AST) : PermissiveVisitor!AST
 {
     alias visit = PermissiveVisitor!AST.visit;
-    mixin ParseVisitMethods!AST;
+
+    mixin ParseVisitMethods!AST __methods;
+    alias visit = __methods.visit;
 }
 
 /* This mixin implements the AST traversal logic for parse time AST nodes. The same code
@@ -26,6 +28,7 @@ extern(C++) class ParseTimeTransitiveVisitor(AST) : PermissiveVisitor!AST
  */
 package mixin template ParseVisitMethods(AST)
 {
+    import dmd.root.array;
 
 //   Statement Nodes
 //===========================================================
@@ -44,7 +47,7 @@ package mixin template ParseVisitMethods(AST)
     override void visit(AST.CompileStatement s)
     {
         //printf("Visiting CompileStatement\n");
-        visitArgs(s.exps);
+        visitArgs(s.exps.peekSlice());
     }
 
     override void visit(AST.CompoundStatement s)
@@ -179,11 +182,9 @@ package mixin template ParseVisitMethods(AST)
             s.elsebody.accept(this);
     }
 
-    void visitArgs(AST.Expressions* expressions, AST.Expression basis = null)
+    private extern(D) void visitArgs(AST.Expression[] expressions, AST.Expression basis = null)
     {
-        if (!expressions || !expressions.dim)
-            return;
-        foreach (el; *expressions)
+        foreach (el; expressions)
         {
             if (!el)
                 el = basis;
@@ -195,8 +196,7 @@ package mixin template ParseVisitMethods(AST)
     override void visit(AST.PragmaStatement s)
     {
         //printf("Visiting PragmaStatement\n");
-        if (s.args && s.args.dim)
-            visitArgs(s.args);
+        visitArgs(s.args.peekSlice());
         if (s._body)
             s._body.accept(this);
     }
@@ -344,19 +344,14 @@ package mixin template ParseVisitMethods(AST)
             foreach (p; *td.origParameters)
                 p.accept(this);
         }
-        visitParameters(t.parameterList.parameters);
+        visitParameters(t.parameterList.parameters.peekSlice());
     }
 
-    void visitParameters(AST.Parameters* parameters)
+    private extern(D) final void visitParameters(AST.Parameter[] parameters)
     {
-        if (parameters)
+        foreach (i; 0 .. parameters.length)
         {
-            size_t dim = AST.Parameter.dim(parameters);
-            foreach(i; 0..dim)
-            {
-                AST.Parameter fparam = AST.Parameter.getNth(parameters, i);
-                fparam.accept(this);
-            }
+            parameters[i].accept(this);
         }
     }
 
@@ -421,12 +416,20 @@ package mixin template ParseVisitMethods(AST)
         //printf("Visiting TypeQualified\n");
         foreach (id; t.idents)
         {
-            if (id.dyncast() == DYNCAST.dsymbol)
+            switch(id.dyncast()) with(DYNCAST)
+            {
+            case dsymbol:
                 (cast(AST.TemplateInstance)id).accept(this);
-            else if (id.dyncast() == DYNCAST.expression)
+                break;
+            case expression:
                 (cast(AST.Expression)id).accept(this);
-            else if (id.dyncast() == DYNCAST.type)
+                break;
+            case type:
                 (cast(AST.Type)id).accept(this);
+                break;
+            default:
+                break;
+            }
         }
     }
 
@@ -459,7 +462,7 @@ package mixin template ParseVisitMethods(AST)
     override void visit(AST.TypeTuple t)
     {
         //printf("Visiting TypeTuple\n");
-        visitParameters(t.arguments);
+        visitParameters(t.arguments.peekSlice());
     }
 
     override void visit(AST.TypeSlice t)
@@ -477,7 +480,7 @@ package mixin template ParseVisitMethods(AST)
 
     override void visit(AST.TypeMixin t)
     {
-        visitArgs(t.exps);
+        visitArgs(t.exps.peekSlice());
     }
 
 //      Miscellaneous
@@ -487,8 +490,9 @@ package mixin template ParseVisitMethods(AST)
     {
         //printf("Visiting StaticAssert\n");
         s.exp.accept(this);
-        if (s.msg)
-            s.msg.accept(this);
+        if (s.msgs)
+            foreach (m; (*s.msgs)[])
+                m.accept(this);
     }
 
     override void visit(AST.EnumMember em)
@@ -561,8 +565,7 @@ package mixin template ParseVisitMethods(AST)
     override void visit(AST.PragmaDeclaration d)
     {
         //printf("Visiting PragmaDeclaration\n");
-        if (d.args && d.args.dim)
-            visitArgs(d.args);
+        visitArgs(d.args.peekSlice());
         visitAttribDeclaration(cast(AST.AttribDeclaration)d);
     }
 
@@ -570,24 +573,22 @@ package mixin template ParseVisitMethods(AST)
     {
         //printf("Visiting ConditionalDeclaration\n");
         d.condition.accept(this);
-        if (d.decl)
-            foreach (de; *d.decl)
-                de.accept(this);
-        if (d.elsedecl)
-            foreach (de; *d.elsedecl)
-                de.accept(this);
+        foreach (de; d.decl.peekSlice())
+            de.accept(this);
+        foreach (de; d.elsedecl.peekSlice())
+            de.accept(this);
     }
 
     override void visit(AST.CompileDeclaration d)
     {
         //printf("Visiting compileDeclaration\n");
-        visitArgs(d.exps);
+        visitArgs(d.exps.peekSlice());
     }
 
     override void visit(AST.UserAttributeDeclaration d)
     {
         //printf("Visiting UserAttributeDeclaration\n");
-        visitArgs(d.atts);
+        visitArgs(d.atts.peekSlice());
         visitAttribDeclaration(cast(AST.AttribDeclaration)d);
     }
 
@@ -617,7 +618,7 @@ package mixin template ParseVisitMethods(AST)
     void visitBaseClasses(AST.ClassDeclaration d)
     {
         //printf("Visiting ClassDeclaration\n");
-        if (!d || !d.baseclasses.dim)
+        if (!d || !d.baseclasses.length)
             return;
         foreach (b; *d.baseclasses)
             visitType(b.type);
@@ -626,7 +627,7 @@ package mixin template ParseVisitMethods(AST)
     bool visitEponymousMember(AST.TemplateDeclaration d)
     {
         //printf("Visiting EponymousMember\n");
-        if (!d.members || d.members.dim != 1)
+        if (!d.members || d.members.length != 1)
             return false;
         AST.Dsymbol onemember = (*d.members)[0];
         if (onemember.ident != d.ident)
@@ -688,7 +689,7 @@ package mixin template ParseVisitMethods(AST)
 
     void visitTemplateParameters(AST.TemplateParameters* parameters)
     {
-        if (!parameters || !parameters.dim)
+        if (!parameters || !parameters.length)
             return;
         foreach (p; *parameters)
             p.accept(this);
@@ -781,9 +782,27 @@ package mixin template ParseVisitMethods(AST)
             s.accept(this);
     }
 
+    override void visit(AST.UnionDeclaration d)
+    {
+        //printf("Visiting UnionDeclaration\n");
+        if (!d.members)
+            return;
+        foreach (s; *d.members)
+            s.accept(this);
+    }
+
     override void visit(AST.ClassDeclaration d)
     {
         //printf("Visiting ClassDeclaration\n");
+        visitBaseClasses(d);
+        if (d.members)
+            foreach (s; *d.members)
+                s.accept(this);
+    }
+
+    override void visit(AST.InterfaceDeclaration d)
+    {
+        //printf("Visiting InterfaceDeclaration\n");
         visitBaseClasses(d);
         if (d.members)
             foreach (s; *d.members)
@@ -830,7 +849,7 @@ package mixin template ParseVisitMethods(AST)
         auto tf = f.type.isTypeFunction();
         if (!f.inferRetType && tf.next)
             visitType(tf.next);
-        visitParameters(tf.parameterList.parameters);
+        visitParameters(tf.parameterList.parameters.peekSlice());
         AST.CompoundStatement cs = f.fbody.isCompoundStatement();
         AST.Statement s = !cs ? f.fbody : null;
         AST.ReturnStatement rs = s ? s.isReturnStatement() : null;
@@ -849,6 +868,12 @@ package mixin template ParseVisitMethods(AST)
     override void visit(AST.DtorDeclaration d)
     {
         //printf("Visiting DtorDeclaration\n");
+        visitFuncBody(d);
+    }
+
+    override void visit(AST.CtorDeclaration d)
+    {
+        //printf("Visiting CtorDeclaration\n");
         visitFuncBody(d);
     }
 
@@ -930,7 +955,7 @@ package mixin template ParseVisitMethods(AST)
     override void visit(AST.ArrayLiteralExp e)
     {
         //printf("Visiting ArrayLiteralExp\n");
-        visitArgs(e.elements, e.basis);
+        visitArgs(e.elements.peekSlice(), e.basis);
     }
 
     override void visit(AST.AssocArrayLiteralExp e)
@@ -962,8 +987,7 @@ package mixin template ParseVisitMethods(AST)
         if (e.thisexp)
             e.thisexp.accept(this);
         visitType(e.newtype);
-        if (e.arguments && e.arguments.dim)
-            visitArgs(e.arguments);
+        visitArgs(e.arguments.peekSlice());
     }
 
     override void visit(AST.NewAnonClassExp e)
@@ -971,8 +995,7 @@ package mixin template ParseVisitMethods(AST)
         //printf("Visiting NewAnonClassExp\n");
         if (e.thisexp)
             e.thisexp.accept(this);
-        if (e.arguments && e.arguments.dim)
-            visitArgs(e.arguments);
+        visitArgs(e.arguments.peekSlice());
         if (e.cd)
             e.cd.accept(this);
     }
@@ -982,7 +1005,7 @@ package mixin template ParseVisitMethods(AST)
         //printf("Visiting TupleExp\n");
         if (e.e0)
             e.e0.accept(this);
-        visitArgs(e.exps);
+        visitArgs(e.exps.peekSlice());
     }
 
     override void visit(AST.FuncExp e)
@@ -1020,7 +1043,7 @@ package mixin template ParseVisitMethods(AST)
         visitType(e.targ);
         if (e.tspec)
             visitType(e.tspec);
-        if (e.parameters && e.parameters.dim)
+        if (e.parameters && e.parameters.length)
             visitTemplateParameters(e.parameters);
     }
 
@@ -1040,7 +1063,7 @@ package mixin template ParseVisitMethods(AST)
     override void visit(AST.MixinExp e)
     {
         //printf("Visiting MixinExp\n");
-        visitArgs(e.exps);
+        visitArgs(e.exps.peekSlice());
     }
 
     override void visit(AST.ImportExp e)
@@ -1074,7 +1097,7 @@ package mixin template ParseVisitMethods(AST)
     {
         //printf("Visiting CallExp\n");
         e.e1.accept(this);
-        visitArgs(e.arguments);
+        visitArgs(e.arguments.peekSlice());
     }
 
     override void visit(AST.PtrExp e)
@@ -1108,7 +1131,7 @@ package mixin template ParseVisitMethods(AST)
     {
         //printf("Visiting ArrayExp\n");
         e.e1.accept(this);
-        visitArgs(e.arguments);
+        visitArgs(e.arguments.peekSlice());
     }
 
     override void visit(AST.PostExp e)

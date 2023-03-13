@@ -2,7 +2,7 @@
 /**
  * Dynamic array implementation.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/root/array.d, root/_array.d)
@@ -222,6 +222,16 @@ public:
         }
     }
 
+    extern (D) void insert(size_t index, T[] a) pure nothrow
+    {
+        size_t d = a.length;
+        reserve(d);
+        if (length != index)
+            memmove(data.ptr + index + d, data.ptr + index, (length - index) * T.sizeof);
+        memcpy(data.ptr + index, a.ptr, d * T.sizeof);
+        length += d;
+    }
+
     void insert(size_t index, T ptr) pure nothrow
     {
         reserve(1);
@@ -342,7 +352,9 @@ public:
     }
 
     alias opDollar = length;
-    alias dim = length;
+
+    deprecated("use `.length` instead")
+    extern(D) size_t dim() const @nogc nothrow pure @safe { return length; }
 }
 
 unittest
@@ -414,6 +426,14 @@ unittest
     arrayA.zero();
     foreach(e; arrayA)
         assert(e == 0);
+
+    arrayA.setDim(0);
+    arrayA.pushSlice([5, 6]);
+    arrayA.insert(1, [1, 2]);
+    assert(arrayA[] == [5, 1, 2, 6]);
+    arrayA.insert(0, [7, 8]);
+    arrayA.insert(arrayA.length, [0, 9]);
+    assert(arrayA[] == [7, 8, 5, 1, 2, 6, 0, 9]);
 }
 
 /**

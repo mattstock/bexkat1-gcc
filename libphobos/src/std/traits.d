@@ -788,7 +788,8 @@ private template fqnType(T,
                 ~ (attrs & FA.trusted ? " @trusted" : "")
                 ~ (attrs & FA.safe ? " @safe" : "")
                 ~ (attrs & FA.nogc ? " @nogc" : "")
-                ~ (attrs & FA.return_ ? " return" : "");
+                ~ (attrs & FA.return_ ? " return" : "")
+                ~ (attrs & FA.live ? " @live" : "");
     }
 
     string addQualifiers(string typeString,
@@ -888,10 +889,10 @@ private template fqnType(T,
             );
         }
     }
-    else static if (isPointer!T)
+    else static if (is(T : U*, U))
     {
         enum fqnType = chain!(
-            fqnType!(PointerTarget!T, qualifiers) ~ "*"
+            fqnType!(U, qualifiers) ~ "*"
         );
     }
     else static if (is(T : __vector(V[N]), V, size_t N))
@@ -1422,6 +1423,11 @@ if (isCallable!func)
             enum val = "val" ~ (name == "val" ? "_" : "");
             enum ptr = "ptr" ~ (name == "ptr" ? "_" : "");
             mixin("
+                enum hasDefaultArg = (PT[i .. i+1] " ~ args ~ ") { return true; };
+            ");
+            static if (is(typeof(hasDefaultArg())))
+            {
+                mixin("
                 // workaround scope escape check, see
                 // https://issues.dlang.org/show_bug.cgi?id=16582
                 // should use return scope once available
@@ -1432,10 +1438,9 @@ if (isCallable!func)
                     auto " ~ val ~ " = " ~ args ~ "[0];
                     auto " ~ ptr ~ " = &" ~ val ~ ";
                     return *" ~ ptr ~ ";
-                };
-            ");
-            static if (is(typeof(get())))
+                };");
                 enum Get = get();
+            }
             else
                 alias Get = void;
                 // If default arg doesn't exist, returns void instead.
@@ -1481,6 +1486,17 @@ if (isCallable!func)
     alias Voids = ParameterDefaults!func;
     static assert(Voids.length == 12);
     static foreach (V; Voids) static assert(is(V == void));
+}
+
+// https://issues.dlang.org/show_bug.cgi?id=20182
+@safe pure nothrow @nogc unittest
+{
+    struct S
+    {
+        this(ref S) {}
+    }
+
+    static assert(__traits(compiles, ParameterDefaults!(S.__ctor)));
 }
 
 /**
@@ -3909,8 +3925,8 @@ template hasStaticMember(T, string member)
 {
     static if (__traits(hasMember, T, member))
     {
-        static if (isPointer!T)
-            alias U = PointerTarget!T;
+        static if (is(T : V*, V))
+            alias U = V;
         else
             alias U = T;
 
@@ -4823,7 +4839,7 @@ Returns class instance alignment.
 template classInstanceAlignment(T)
 if (is(T == class))
 {
-    alias classInstanceAlignment = maxAlignment!(void*, typeof(T.tupleof));
+    enum classInstanceAlignment = __traits(classInstanceAlignment, T);
 }
 
 ///
@@ -5430,8 +5446,8 @@ private template isStorageClassImplicitlyConvertible(From, To)
 {
     alias Pointify(T) = void*;
 
-    enum isStorageClassImplicitlyConvertible = isImplicitlyConvertible!(
-            ModifyTypePreservingTQ!(Pointify, From),
+    enum isStorageClassImplicitlyConvertible = is(
+            ModifyTypePreservingTQ!(Pointify, From) :
             ModifyTypePreservingTQ!(Pointify,   To) );
 }
 
@@ -7122,7 +7138,7 @@ enum bool isSIMDVector(T) = is(T : __vector(V[N]), V, size_t N);
 /**
  * Detect whether type `T` is a pointer.
  */
-enum bool isPointer(T) = is(T == U*, U) && __traits(isScalar, T);
+enum bool isPointer(T) = is(T == U*, U);
 
 ///
 @safe unittest
@@ -8831,6 +8847,14 @@ version (StdUnittest)
     static assert(__traits(compiles, getSymbolsByUDA!(mixin(__MODULE__), "Issue20054")));
 }
 
+private template isAliasSeq(Args...)
+{
+    static if (Args.length != 1)
+        enum isAliasSeq = true;
+    else
+        enum isAliasSeq = false;
+}
+
 private template getSymbolsByUDAImpl(alias symbol, alias attribute, names...)
 {
     import std.meta : Alias, AliasSeq, Filter;
@@ -8852,12 +8876,12 @@ private template getSymbolsByUDAImpl(alias symbol, alias attribute, names...)
             alias member = __traits(getMember, symbol, names[0]);
 
             // Filtering not compiled members such as alias of basic types.
-            static if (!__traits(compiles, hasUDA!(member, attribute)))
+            static if (isAliasSeq!member || isType!member)
             {
                 alias getSymbolsByUDAImpl = tail;
             }
-            // Get overloads for functions, in case different overloads have different sets of UDAs.
-            else static if (isFunction!member)
+            // If a symbol is overloaded, get UDAs for each overload (including templated overlaods).
+            else static if (__traits(getOverloads, symbol, names[0], true).length > 0)
             {
                 enum hasSpecificUDA(alias member) = hasUDA!(member, attribute);
                 alias overloadsWithUDA = Filter!(hasSpecificUDA, __traits(getOverloads, symbol, names[0]));
@@ -9120,3 +9144,11 @@ package(std) template DeducedParameterType(T)
 {
     static assert(is(DeducedParameterType!(inout(int[])) == inout(int)[]));
 }
+
+private auto dip1000Test(int x) {return *&x;}
+// We don't use isSafe, because betterC client code needs to instantiate
+// core.internal.array.comparison.__cmp in the client side. isSafe uses
+// __cmp of two strings, so using it would instantate that here instead. That
+// won't do because betterC compilations do not link the Phobos binary in.
+package(std) enum dip1000Enabled
+    = is(typeof(&dip1000Test) : int function(int) @safe);

@@ -1,5 +1,5 @@
 /* Top level of GCC compilers (cc1, cc1plus, etc.)
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -88,14 +88,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "ipa-modref.h"
 #include "ipa-param-manipulation.h"
 #include "dbgcnt.h"
-
-#if defined(DBX_DEBUGGING_INFO) || defined(XCOFF_DEBUGGING_INFO)
-#include "dbxout.h"
-#endif
-
-#ifdef XCOFF_DEBUGGING_INFO
-#include "xcoffout.h"		/* Needed for external data declarations. */
-#endif
 
 #include "selftest.h"
 
@@ -721,7 +713,7 @@ init_asm_output (const char *name)
 		     "cannot open %qs for writing: %m", asm_file_name);
     }
 
-  if (!flag_syntax_only)
+  if (!flag_syntax_only && !(global_dc->lang_mask & CL_LTODump))
     {
       targetm.asm_out.file_start ();
 
@@ -1038,6 +1030,8 @@ general_init (const char *argv0, bool init_signals)
     = global_options_init.x_flag_diagnostics_show_line_numbers;
   global_dc->show_cwe
     = global_options_init.x_flag_diagnostics_show_cwe;
+  global_dc->show_rules
+    = global_options_init.x_flag_diagnostics_show_rules;
   global_dc->path_format
     = (enum diagnostic_path_format)global_options_init.x_flag_diagnostics_path_format;
   global_dc->show_path_depths
@@ -1364,7 +1358,7 @@ process_options (bool no_backend)
      option flags in use.  */
   if (version_flag)
     {
-      print_version (stderr, "", true);
+      /* We already printed the version header in main ().  */
       if (!quiet_flag)
 	{
 	  fputs ("options passed: ", stderr);
@@ -1415,21 +1409,8 @@ process_options (bool no_backend)
       && ctf_debug_info_level == CTFINFO_LEVEL_NONE)
     write_symbols = NO_DEBUG;
 
-  /* Warn if STABS debug gets enabled and is not the default.  */
-  if (PREFERRED_DEBUGGING_TYPE != DBX_DEBUG && (write_symbols & DBX_DEBUG))
-    warning (0, "STABS debugging information is obsolete and not "
-	     "supported anymore");
-
   if (write_symbols == NO_DEBUG)
     ;
-#if defined(DBX_DEBUGGING_INFO)
-  else if (write_symbols == DBX_DEBUG)
-    debug_hooks = &dbx_debug_hooks;
-#endif
-#if defined(XCOFF_DEBUGGING_INFO)
-  else if (write_symbols == XCOFF_DEBUG)
-    debug_hooks = &xcoff_debug_hooks;
-#endif
 #ifdef DWARF2_DEBUGGING_INFO
   else if (dwarf_debuginfo_p ())
     debug_hooks = &dwarf2_debug_hooks;
@@ -1456,30 +1437,6 @@ process_options (bool no_backend)
       error_at (UNKNOWN_LOCATION,
 		"target system does not support the %qs debug format",
 		debug_type_names[debug_set_to_format (write_symbols)]);
-    }
-
-  /* We know which debug output will be used so we can set flag_var_tracking
-     and flag_var_tracking_uninit if the user has not specified them.  */
-  if (debug_info_level < DINFO_LEVEL_NORMAL
-      || !dwarf_debuginfo_p ()
-      || debug_hooks->var_location == do_nothing_debug_hooks.var_location)
-    {
-      if ((OPTION_SET_P (flag_var_tracking) && flag_var_tracking == 1)
-	  || (OPTION_SET_P (flag_var_tracking_uninit)
-	      && flag_var_tracking_uninit == 1))
-        {
-	  if (debug_info_level < DINFO_LEVEL_NORMAL)
-	    warning_at (UNKNOWN_LOCATION, 0,
-			"variable tracking requested, but useless unless "
-			"producing debug info");
-	  else
-	    warning_at (UNKNOWN_LOCATION, 0,
-			"variable tracking requested, but not supported "
-			"by this debug format");
-	}
-      flag_var_tracking = 0;
-      flag_var_tracking_uninit = 0;
-      flag_var_tracking_assignments = 0;
     }
 
   /* The debug hooks are used to implement -fdump-go-spec because it
@@ -1623,7 +1580,7 @@ process_options (bool no_backend)
   if (flag_stack_check != NO_STACK_CHECK && flag_stack_clash_protection)
     {
       warning_at (UNKNOWN_LOCATION, 0,
-		  "%<-fstack-check=%> and %<-fstack-clash_protection%> are "
+		  "%<-fstack-check=%> and %<-fstack-clash-protection%> are "
 		  "mutually exclusive; disabling %<-fstack-check=%>");
       flag_stack_check = NO_STACK_CHECK;
     }
@@ -2319,7 +2276,7 @@ toplev::main (int argc, char **argv)
 	start_timevars ();
       do_compile (no_backend);
 
-      if (flag_self_test)
+      if (flag_self_test && !seen_error ())
 	{
 	  if (no_backend)
 	    error_at (UNKNOWN_LOCATION, "self-tests incompatible with %<-E%>");

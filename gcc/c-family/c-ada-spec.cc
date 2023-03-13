@@ -1,6 +1,6 @@
 /* Print GENERIC declaration (functions, variables, types) trees coming from
    the C and C++ front-ends as well as macros in Ada syntax.
-   Copyright (C) 2010-2022 Free Software Foundation, Inc.
+   Copyright (C) 2010-2023 Free Software Foundation, Inc.
    Adapted from tree-pretty-print.cc by Arnaud Charlet  <charlet@adacore.com>
 
 This file is part of GCC.
@@ -2030,7 +2030,39 @@ dump_ada_enum_type (pretty_printer *buffer, tree node, tree type, int spc)
     }
 }
 
-/* Return true if NODE is the __float128/_Float128 type.  */
+/* Return true if NODE is the _Float32/_Float32x type.  */
+
+static bool
+is_float32 (tree node)
+{
+  if (!TYPE_NAME (node) || TREE_CODE (TYPE_NAME (node)) != TYPE_DECL)
+    return false;
+
+  tree name = DECL_NAME (TYPE_NAME (node));
+
+  if (IDENTIFIER_POINTER (name) [0] != '_')
+    return false;
+
+  return id_equal (name, "_Float32") || id_equal (name, "_Float32x");
+}
+
+/* Return true if NODE is the _Float64/_Float64x type.  */
+
+static bool
+is_float64 (tree node)
+{
+  if (!TYPE_NAME (node) || TREE_CODE (TYPE_NAME (node)) != TYPE_DECL)
+    return false;
+
+  tree name = DECL_NAME (TYPE_NAME (node));
+
+  if (IDENTIFIER_POINTER (name) [0] != '_')
+    return false;
+
+  return id_equal (name, "_Float64") || id_equal (name, "_Float64x");
+}
+
+/* Return true if NODE is the __float128/_Float128/_Float128x type.  */
 
 static bool
 is_float128 (tree node)
@@ -2043,7 +2075,9 @@ is_float128 (tree node)
   if (IDENTIFIER_POINTER (name) [0] != '_')
     return false;
 
-  return id_equal (name, "__float128") || id_equal (name, "_Float128");
+  return id_equal (name, "__float128")
+	 || id_equal (name, "_Float128")
+	 || id_equal (name, "_Float128x");
 }
 
 static bool bitfield_used = false;
@@ -2105,6 +2139,21 @@ dump_ada_node (pretty_printer *buffer, tree node, tree type, int spc,
 	  append_withs ("Interfaces.C.Extensions", false);
 	  pp_string (buffer, "Extensions.CFloat_128");
 	}
+      else if (TREE_TYPE (node) == float_type_node)
+	{
+	  append_withs ("Ada.Numerics.Complex_Types", false);
+	  pp_string (buffer, "Ada.Numerics.Complex_Types.Complex");
+	}
+      else if (TREE_TYPE (node) == double_type_node)
+	{
+	  append_withs ("Ada.Numerics.Long_Complex_Types", false);
+	  pp_string (buffer, "Ada.Numerics.Long_Complex_Types.Complex");
+	}
+      else if (TREE_TYPE (node) == long_double_type_node)
+	{
+	  append_withs ("Ada.Numerics.Long_Long_Complex_Types", false);
+	  pp_string (buffer, "Ada.Numerics.Long_Long_Complex_Types.Complex");
+	}
       else
 	pp_string (buffer, "<complex>");
       break;
@@ -2117,7 +2166,17 @@ dump_ada_node (pretty_printer *buffer, tree node, tree type, int spc,
       break;
 
     case REAL_TYPE:
-      if (is_float128 (node))
+      if (is_float32 (node))
+	{
+	  pp_string (buffer, "Float");
+	  break;
+	}
+      else if (is_float64 (node))
+	{
+	  pp_string (buffer, "Long_Float");
+	  break;
+	}
+      else if (is_float128 (node))
 	{
 	  append_withs ("Interfaces.C.Extensions", false);
 	  pp_string (buffer, "Extensions.Float_128");
@@ -2190,7 +2249,7 @@ dump_ada_node (pretty_printer *buffer, tree node, tree type, int spc,
 	{
 	  tree ref_type = TREE_TYPE (node);
 	  const unsigned int quals = TYPE_QUALS (ref_type);
-	  bool is_access = false;
+	  bool is_access;
 
 	  if (VOID_TYPE_P (ref_type))
 	    {
@@ -2242,7 +2301,10 @@ dump_ada_node (pretty_printer *buffer, tree node, tree type, int spc,
 		    }
 
 		  if (!package_prefix)
-		    pp_string (buffer, "access");
+		    {
+		      is_access = false;
+		      pp_string (buffer, "access");
+		    }
 		  else if (AGGREGATE_TYPE_P (ref_type))
 		    {
 		      if (!type || TREE_CODE (type) != FUNCTION_DECL)
@@ -2256,17 +2318,21 @@ dump_ada_node (pretty_printer *buffer, tree node, tree type, int spc,
 			    pp_string (buffer, "all ");
 			}
 		      else if (quals & TYPE_QUAL_CONST)
-			pp_string (buffer, "in ");
+			{
+			  is_access = false;
+			  pp_string (buffer, "in ");
+			}
 		      else
 			{
 			  is_access = true;
 			  pp_string (buffer, "access ");
-			  /* ??? should be configurable: access or in out.  */
 			}
 		    }
 		  else
 		    {
-		      is_access = true;
+		      /* We want to use regular with clauses for scalar types,
+			 as they are not involved in circular declarations.  */
+		      is_access = false;
 		      pp_string (buffer, "access ");
 
 		      if (!name_only)
