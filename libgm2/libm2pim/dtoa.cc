@@ -75,13 +75,6 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #define NULL (void *)0
 #endif
 
-#if !defined(TRUE)
-#define TRUE (1 == 1)
-#endif
-#if !defined(FALSE)
-#define FALSE (1 == 0)
-#endif
-
 #if defined(HAVE_STDLIB_H)
 #if !defined(_ISOC99_SOURCE)
 #define _ISOC99_SOURCE
@@ -110,7 +103,7 @@ typedef enum Mode { maxsignicant, decimaldigits } Mode;
    contain ndigits past the decimal point (ndigits may be negative).  */
 
 extern "C" double
-EXPORT(strtod) (const char *s, int *error)
+EXPORT(strtod) (const char *s, bool *error)
 {
   char *endp;
   double d;
@@ -123,10 +116,10 @@ EXPORT(strtod) (const char *s, int *error)
 #if defined(HAVE_ERRNO_H)
     *error = (errno != 0);
 #else
-    *error = FALSE;
+    *error = false;
 #endif
   else
-    *error = TRUE;
+    *error = true;
   return d;
 }
 
@@ -198,20 +191,20 @@ EXPORT(calcdecimal) (char *p, int str_size, int ndigits)
   return x;
 }
 
-extern "C" int
+extern "C" bool
 EXPORT(calcsign) (char *p, int str_size)
 {
   if (p[0] == '-')
     {
       memmove (p, p + 1, str_size - 1);
-      return TRUE;
+      return true;
     }
   else
-    return FALSE;
+    return false;
 }
 
 extern "C" char *
-EXPORT(dtoa) (double d, int mode, int ndigits, int *decpt, int *sign)
+EXPORT(dtoa) (double d, int mode, int ndigits, int *decpt, bool *sign)
 {
   char format[50];
   char *p;

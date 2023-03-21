@@ -200,7 +200,7 @@ gm2-libs.texi-check: m2/SYSTEM-pim.texi m2/SYSTEM-iso.texi m2/Builtins.texi \
 	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -t -uLibraries -s$(srcdir)/m2 -b$(objdir)/m2 -o $(objdir)/m2/gm2-libs.texi
 else
 gm2-libs.texi-check:
-	cp $(srcdir)/m2/target-independent/gm2-libs.texi $(objdir)/m2/gm2-libs.texi
+	cp $(srcdir)/m2/target-independent/m2/gm2-libs.texi $(objdir)/m2/gm2-libs.texi
 endif
 	$(STAMP) gm2-libs.texi-check
 
@@ -214,7 +214,7 @@ gm2-libs.rst-check: m2/SYSTEM-pim.texi m2/SYSTEM-iso.texi m2/Builtins.texi \
 	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -x -uLibraries -s$(srcdir)/m2 -b$(objdir)/m2 -o $(objdir)/m2/gm2-libs.rst
 else
 gm2-libs.rst-check:
-	cp $(srcdir)/m2/target-independent/gm2-libs.rst $(objdir)/m2/gm2-libs.rst
+	cp $(srcdir)/m2/target-independent/m2/gm2-libs.rst $(objdir)/m2/gm2-libs.rst
 endif
 	$(STAMP) gm2-libs.rst-check
 
@@ -243,7 +243,7 @@ SYSTEM-pim-texi-check: $(objdir)/m2/gm2-libs/SYSTEM.def
 	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -t -b$(objdir)/m2 -f$(objdir)/m2/gm2-libs/SYSTEM.def -o $(objdir)/m2/SYSTEM-pim.texi
 else
 SYSTEM-pim-texi-check: $(objdir)/m2/gm2-libs/SYSTEM.def
-	cp $(srcdir)/m2/target-independent/SYSTEM-pim.texi $(objdir)/m2/SYSTEM-pim.texi
+	cp $(srcdir)/m2/target-independent/m2/SYSTEM-pim.texi $(objdir)/m2/SYSTEM-pim.texi
 endif
 	$(STAMP) SYSTEM-pim-texi-check
 
@@ -256,7 +256,7 @@ SYSTEM-pim-rst-check: $(objdir)/m2/gm2-libs/SYSTEM.def
 	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -x -b$(objdir)/m2 -f$(objdir)/m2/gm2-libs/SYSTEM.def -o $(objdir)/m2/SYSTEM-pim.rst
 else
 SYSTEM-pim-rst-check: $(objdir)/m2/gm2-libs/SYSTEM.def
-	cp $(srcdir)/m2/target-independent/SYSTEM-pim.rst $(objdir)/m2/SYSTEM-pim.rst
+	cp $(srcdir)/m2/target-independent/m2/SYSTEM-pim.rst $(objdir)/m2/SYSTEM-pim.rst
 endif
 	$(STAMP) SYSTEM-pim-rst-check
 
@@ -269,7 +269,7 @@ SYSTEM-iso.texi-check:  $(objdir)/m2/gm2-libs-iso/SYSTEM.def
 	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -t -b$(objdir)/m2 -f$(objdir)/m2/gm2-libs-iso/SYSTEM.def -o $(objdir)/m2/SYSTEM-iso.texi
 else
 SYSTEM-iso.texi-check:  $(objdir)/m2/gm2-libs-iso/SYSTEM.def
-	cp $(srcdir)/m2/target-independent/SYSTEM-iso.texi $(objdir)/m2/SYSTEM-iso.texi
+	cp $(srcdir)/m2/target-independent/m2/SYSTEM-iso.texi $(objdir)/m2/SYSTEM-iso.texi
 endif
 	$(STAMP) SYSTEM-iso.texi-check
 
@@ -282,7 +282,7 @@ SYSTEM-iso.rst-check:  $(objdir)/m2/gm2-libs-iso/SYSTEM.def
 	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -x -b$(objdir)/m2 -f$(objdir)/m2/gm2-libs-iso/SYSTEM.def -o $(objdir)/m2/SYSTEM-iso.rst
 else
 SYSTEM-iso.rst-check:  $(objdir)/m2/gm2-libs-iso/SYSTEM.def
-	cp $(srcdir)/m2/target-independent/SYSTEM-iso.rst $(objdir)/m2/SYSTEM-iso.rst
+	cp $(srcdir)/m2/target-independent/m2/SYSTEM-iso.rst $(objdir)/m2/SYSTEM-iso.rst
 endif
 	$(STAMP) SYSTEM-iso.rst-check
 
@@ -296,7 +296,7 @@ Builtins.texi-check:  m2/gm2-libs/Builtins.def
 	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -t -b./ -f$(srcdir)/m2/gm2-libs/Builtins.def -o $(objdir)/m2/Builtins.texi
 else
 Builtins.texi-check:  m2/gm2-libs/Builtins.def
-	cp $(srcdir)/m2/target-independent/Builtins.texi $(objdir)/m2/Builtins.texi
+	cp $(srcdir)/m2/target-independent/m2/Builtins.texi $(objdir)/m2/Builtins.texi
 endif
 	$(STAMP) Builtins.texi-check
 
@@ -309,7 +309,7 @@ Builtins.rst-check:  m2/gm2-libs/Builtins.def
 	$(PYTHON) $(srcdir)/m2/tools-src/def2doc.py -x -b./ -f$(srcdir)/m2/gm2-libs/Builtins.def -o $(objdir)/m2/Builtins.rst
 else
 Builtins.rst-check:  m2/gm2-libs/Builtins.def
-	cp $(srcdir)/m2/target-independent/Builtins.rst $(objdir)/m2/Builtins.rst
+	cp $(srcdir)/m2/target-independent/m2/Builtins.rst $(objdir)/m2/Builtins.rst
 endif
 	$(STAMP) Builtins.rst-check
 
@@ -1352,20 +1352,20 @@ m2/boot-bin/mc$(exeext): $(BUILD-MC-BOOT-O) $(BUILD-MC-INTERFACE-O) \
 
 m2/mc-boot/$(SRC_PREFIX)%.o: m2/mc-boot/$(SRC_PREFIX)%.cc m2/gm2-libs/gm2-libs-host.h
 	-test -d $(@D) || $(mkinstalldirs) $(@D)
-	$(CXX) -g -c -I. -I$(srcdir)/m2/mc-boot-ch -I$(srcdir)/m2/mc-boot -I$(srcdir)/../include -I$(srcdir) $(INCLUDES) $< -o $@
+	$(CXX) $(CXX_FLAGS) -g -c -I. -I$(srcdir)/m2/mc-boot-ch -I$(srcdir)/m2/mc-boot -I$(srcdir)/../include -I$(srcdir) $(INCLUDES) $< -o $@
 
 m2/mc-boot-ch/$(SRC_PREFIX)%.o: m2/mc-boot-ch/$(SRC_PREFIX)%.c m2/gm2-libs/gm2-libs-host.h
 	-test -d $(@D) || $(mkinstalldirs) $(@D)
-	$(CXX) -DHAVE_CONFIG_H -g -c -I. -Im2/gm2-libs -I$(srcdir)/../include -I$(srcdir) $(INCLUDES) -Im2/gm2-libs $< -o $@
+	$(CXX) $(CXX_FLAGS) -DHAVE_CONFIG_H -g -c -I. -Im2/gm2-libs -I$(srcdir)/../include -I$(srcdir) $(INCLUDES) -Im2/gm2-libs $< -o $@
 
 m2/mc-boot-ch/$(SRC_PREFIX)%.o: m2/mc-boot-ch/$(SRC_PREFIX)%.cc m2/gm2-libs/gm2-libs-host.h
 	-test -d $(@D) || $(mkinstalldirs) $(@D)
-	$(CXX) -DHAVE_CONFIG_H -g -c -I. -Im2/gm2-libs -I$(srcdir)/../include -I$(srcdir) $(INCLUDES) -Im2/gm2-libs $< -o $@
+	$(CXX) $(CXX_FLAGS) -DHAVE_CONFIG_H -g -c -I. -Im2/gm2-libs -I$(srcdir)/../include -I$(srcdir) $(INCLUDES) -Im2/gm2-libs $< -o $@
 
 m2/mc-boot/main.o: $(M2LINK) $(srcdir)/m2/init/mcinit
 	-test -d $(@D) || $(mkinstalldirs) $(@D)
 	unset CC ; $(M2LINK) -s --langc++ --exit --name m2/mc-boot/main.cc $(srcdir)/m2/init/mcinit
-	$(CXX) -g -c -I. -I$(srcdir)/../include -I$(srcdir) $(INCLUDES) m2/mc-boot/main.cc -o $@
+	$(CXX) $(CXX_FLAGS) -g -c -I. -I$(srcdir)/../include -I$(srcdir) $(INCLUDES) m2/mc-boot/main.cc -o $@
 
 mcflex.o: mcflex.c m2/gm2-libs/gm2-libs-host.h
 	$(CC) -I$(srcdir)/m2/mc -g -c $< -o $@   # remember that mcReserved.h is copied into m2/mc

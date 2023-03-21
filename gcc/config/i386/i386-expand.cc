@@ -197,9 +197,20 @@ split_double_concat (machine_mode mode, rtx dst, rtx lo, rtx hi)
     {
       /* In this case, code below would first emit_move_insn (dlo, lo)
 	 and then emit_move_insn (dhi, hi).  But the former would
-	 invalidate hi's address.  Load into dhi first.  */
-      emit_move_insn (dhi, hi);
-      hi = dhi;
+	 invalidate hi's address.  */
+      if (rtx_equal_p (dhi, lo))
+	{
+	  /* We can't load into dhi first, so load into dlo
+	     first and we'll swap.  */
+	  emit_move_insn (dlo, hi);
+	  hi = dlo;
+	}
+      else
+	{
+	  /* Load into dhi first.  */
+	  emit_move_insn (dhi, hi);
+	  hi = dhi;
+	}
     }
   if (!rtx_equal_p (dlo, hi))
     {
@@ -18949,11 +18960,9 @@ expand_vec_perm_movs (struct expand_vec_perm_d *d)
   if (d->one_operand_p)
     return false;
 
-  if (!(TARGET_SSE && vmode == V4SFmode)
-      && !(TARGET_SSE && vmode == V4SImode)
-      && !(TARGET_MMX_WITH_SSE && vmode == V2SFmode)
-      && !(TARGET_SSE2 && vmode == V2DFmode)
-      && !(TARGET_SSE2 && vmode == V2DImode))
+  if (!(TARGET_SSE && (vmode == V4SFmode || vmode == V4SImode))
+      && !(TARGET_MMX_WITH_SSE && (vmode == V2SFmode || vmode == V2SImode))
+      && !(TARGET_SSE2 && (vmode == V2DFmode || vmode == V2DImode)))
     return false;
 
   /* Only the first element is changed.  */
@@ -18998,9 +19007,10 @@ expand_vec_perm_blend (struct expand_vec_perm_d *d)
     ;
   else if (TARGET_AVX && (vmode == V4DFmode || vmode == V8SFmode))
     ;
-  else if (TARGET_SSE4_1 && (GET_MODE_SIZE (vmode) == 16
-			     || GET_MODE_SIZE (vmode) == 8
-			     || GET_MODE_SIZE (vmode) == 4))
+  else if (TARGET_SSE4_1
+	   && (GET_MODE_SIZE (vmode) == 16
+	       || (TARGET_MMX_WITH_SSE && GET_MODE_SIZE (vmode) == 8)
+	       || GET_MODE_SIZE (vmode) == 4))
     ;
   else
     return false;
@@ -19033,6 +19043,8 @@ expand_vec_perm_blend (struct expand_vec_perm_d *d)
     case E_V8SFmode:
     case E_V2DFmode:
     case E_V4SFmode:
+    case E_V2SFmode:
+    case E_V2HImode:
     case E_V4HImode:
     case E_V8HImode:
     case E_V8SImode:
@@ -19888,11 +19900,15 @@ expand_vec_perm_1 (struct expand_vec_perm_d *d)
 	}
     }
 
+  /* Try the SSE4.1 blend variable merge instructions.  */
+  if (expand_vec_perm_blend (d))
+    return true;
+
   /* Try movss/movsd instructions.  */
   if (expand_vec_perm_movs (d))
     return true;
 
-  /* Finally, try the fully general two operand permute.  */
+  /* Try the fully general two operand permute.  */
   if (expand_vselect_vconcat (d->target, d->op0, d->op1, d->perm, nelt,
 			      d->testing_p))
     return true;
@@ -19914,10 +19930,6 @@ expand_vec_perm_1 (struct expand_vec_perm_d *d)
 				  d->testing_p))
 	return true;
     }
-
-  /* Try the SSE4.1 blend variable merge instructions.  */
-  if (expand_vec_perm_blend (d))
-    return true;
 
   /* Try one of the AVX vpermil variable permutations.  */
   if (expand_vec_perm_vpermil (d))
@@ -20276,9 +20288,10 @@ expand_vec_perm_pblendv (struct expand_vec_perm_d *d)
     ;
   else if (TARGET_AVX && (vmode == V4DFmode || vmode == V8SFmode))
     ;
-  else if (TARGET_SSE4_1 && (GET_MODE_SIZE (vmode) == 4
-			     || GET_MODE_SIZE (vmode) == 8
-			     || GET_MODE_SIZE (vmode) == 16))
+  else if (TARGET_SSE4_1
+	   && (GET_MODE_SIZE (vmode) == 16
+	       || (TARGET_MMX_WITH_SSE && GET_MODE_SIZE (vmode) == 8)
+	       || GET_MODE_SIZE (vmode) == 4))
     ;
   else
     return false;
@@ -21142,9 +21155,10 @@ expand_vec_perm_2perm_pblendv (struct expand_vec_perm_d *d, bool two_insn)
     ;
   else if (TARGET_AVX && (vmode == V4DFmode || vmode == V8SFmode))
     ;
-  else if (TARGET_SSE4_1 && (GET_MODE_SIZE (vmode) == 16
-			     || GET_MODE_SIZE (vmode) == 8
-			     || GET_MODE_SIZE (vmode) == 4))
+  else if (TARGET_SSE4_1
+	   && (GET_MODE_SIZE (vmode) == 16
+	       || (TARGET_MMX_WITH_SSE && GET_MODE_SIZE (vmode) == 8)
+	       || GET_MODE_SIZE (vmode) == 4))
     ;
   else
     return false;

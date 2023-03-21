@@ -3612,7 +3612,9 @@ add_template_candidate_real (struct z_candidate **candidates, tree tmpl,
   /* Now the explicit specifier might have been deduced; check if this
      declaration is explicit.  If it is and we're ignoring non-converting
      constructors, don't add this function to the set of candidates.  */
-  if ((flags & LOOKUP_ONLYCONVERTING) && DECL_NONCONVERTING_P (fn))
+  if (((flags & (LOOKUP_ONLYCONVERTING|LOOKUP_LIST_INIT_CTOR))
+       == LOOKUP_ONLYCONVERTING)
+      && DECL_NONCONVERTING_P (fn))
     return NULL;
 
   if (DECL_CONSTRUCTOR_P (fn) && nargs == 2)
@@ -13800,6 +13802,7 @@ reference_like_class_p (tree ctype)
       tree name = DECL_NAME (tdecl);
       return (name
 	      && (id_equal (name, "reference_wrapper")
+		  || id_equal (name, "span")
 		  || id_equal (name, "ref_view")));
     }
   for (tree fields = TYPE_FIELDS (ctype);

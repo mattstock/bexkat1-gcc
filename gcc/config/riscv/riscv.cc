@@ -2312,8 +2312,8 @@ riscv_rtx_costs (rtx x, machine_mode mode, int outer_code, int opno ATTRIBUTE_UN
       return false;
 
     case IF_THEN_ELSE:
-      if (TARGET_SFB_ALU
-	  && register_operand (XEXP (x, 1), mode)
+      if ((TARGET_SFB_ALU || TARGET_XTHEADCONDMOV)
+	  && reg_or_0_operand (XEXP (x, 1), mode)
 	  && sfb_alu_operand (XEXP (x, 2), mode)
 	  && comparison_operator (XEXP (x, 0), VOIDmode))
 	{
@@ -2412,10 +2412,19 @@ riscv_rtx_costs (rtx x, machine_mode mode, int outer_code, int opno ATTRIBUTE_UN
 	  *total = COSTS_N_INSNS (SINGLE_SHIFT_COST);
 	  return true;
 	}
-      /* bext pattern for zbs.  */
-      if (TARGET_ZBS && outer_code == SET
+      /* bit extraction pattern (zbs:bext, xtheadbs:tst).  */
+      if ((TARGET_ZBS || TARGET_XTHEADBS) && outer_code == SET
 	  && GET_CODE (XEXP (x, 1)) == CONST_INT
 	  && INTVAL (XEXP (x, 1)) == 1)
+	{
+	  *total = COSTS_N_INSNS (SINGLE_SHIFT_COST);
+	  return true;
+	}
+      gcc_fallthrough ();
+    case SIGN_EXTRACT:
+      if (TARGET_XTHEADBB && outer_code == SET
+	  && CONST_INT_P (XEXP (x, 1))
+	  && CONST_INT_P (XEXP (x, 2)))
 	{
 	  *total = COSTS_N_INSNS (SINGLE_SHIFT_COST);
 	  return true;
@@ -2758,11 +2767,29 @@ riscv_split_64bit_move_p (rtx dest, rtx src)
 void
 riscv_split_doubleword_move (rtx dest, rtx src)
 {
-  rtx low_dest;
+  /* XTheadFmv has instructions for accessing the upper bits of a double.  */
+  if (!TARGET_64BIT && TARGET_XTHEADFMV)
+    {
+      if (FP_REG_RTX_P (dest))
+	{
+	  rtx low_src = riscv_subword (src, false);
+	  rtx high_src = riscv_subword (src, true);
+	  emit_insn (gen_th_fmv_hw_w_x (dest, high_src, low_src));
+	  return;
+	}
+      if (FP_REG_RTX_P (src))
+	{
+	  rtx low_dest = riscv_subword (dest, false);
+	  rtx high_dest = riscv_subword (dest, true);
+	  emit_insn (gen_th_fmv_x_w (low_dest, src));
+	  emit_insn (gen_th_fmv_x_hw (high_dest, src));
+	  return;
+	}
+    }
 
    /* The operation can be split into two normal moves.  Decide in
       which order to do them.  */
-   low_dest = riscv_subword (dest, false);
+   rtx low_dest = riscv_subword (dest, false);
    if (REG_P (low_dest) && reg_overlap_mentioned_p (low_dest, src))
      {
        riscv_emit_move (riscv_subword (dest, true), riscv_subword (src, true));
@@ -3102,13 +3129,30 @@ riscv_extend_comparands (rtx_code code, rtx *op0, rtx *op1)
     }
 }
 
-/* Convert a comparison into something that can be used in a branch.  On
-   entry, *OP0 and *OP1 are the values being compared and *CODE is the code
-   used to compare them.  Update them to describe the final comparison.  */
+/* Convert a comparison into something that can be used in a branch or
+   conditional move.  On entry, *OP0 and *OP1 are the values being
+   compared and *CODE is the code used to compare them.
+
+   Update *CODE, *OP0 and *OP1 so that they describe the final comparison.
+   If NEED_EQ_NE_P, then only EQ or NE comparisons against zero are
+   emitted.  */
 
 static void
-riscv_emit_int_compare (enum rtx_code *code, rtx *op0, rtx *op1)
+riscv_emit_int_compare (enum rtx_code *code, rtx *op0, rtx *op1,
+			bool need_eq_ne_p = false)
 {
+  if (need_eq_ne_p)
+    {
+      rtx cmp_op0 = *op0;
+      rtx cmp_op1 = *op1;
+      if (*code == EQ || *code == NE)
+	{
+	  *op0 = riscv_zero_if_equal (cmp_op0, cmp_op1);
+	  *op1 = const0_rtx;
+	  return;
+	}
+    }
+
   if (splittable_const_int_operand (*op1, VOIDmode))
     {
       HOST_WIDE_INT rhs = INTVAL (*op1);
@@ -3294,16 +3338,71 @@ riscv_expand_conditional_branch (rtx label, rtx_code code, rtx op0, rtx op1)
   emit_jump_insn (gen_condjump (condition, label));
 }
 
-/* If (CODE OP0 OP1) holds, move CONS to DEST; else move ALT to DEST.  */
+/* Helper to emit two one-sided conditional moves for the movecc.  */
 
-void
-riscv_expand_conditional_move (rtx dest, rtx cons, rtx alt, rtx_code code,
-			       rtx op0, rtx op1)
+static void
+riscv_expand_conditional_move_onesided (rtx dest, rtx cons, rtx alt,
+					rtx_code code, rtx op0, rtx op1)
 {
-  riscv_emit_int_compare (&code, &op0, &op1);
-  rtx cond = gen_rtx_fmt_ee (code, GET_MODE (op0), op0, op1);
-  emit_insn (gen_rtx_SET (dest, gen_rtx_IF_THEN_ELSE (GET_MODE (dest), cond,
-						      cons, alt)));
+  machine_mode mode = GET_MODE (dest);
+
+  gcc_assert (GET_MODE_CLASS (mode) == MODE_INT);
+  gcc_assert (reg_or_0_operand (cons, mode));
+  gcc_assert (reg_or_0_operand (alt, mode));
+
+  riscv_emit_int_compare (&code, &op0, &op1, true);
+  rtx cond = gen_rtx_fmt_ee (code, mode, op0, op1);
+
+  rtx tmp1 = gen_reg_rtx (mode);
+  rtx tmp2 = gen_reg_rtx (mode);
+
+  emit_insn (gen_rtx_SET (tmp1, gen_rtx_IF_THEN_ELSE (mode, cond,
+						      cons, const0_rtx)));
+
+  /* We need to expand a sequence for both blocks and we do that such,
+     that the second conditional move will use the inverted condition.
+     We use temporaries that are or'd to the dest register.  */
+  cond = gen_rtx_fmt_ee ((code == EQ) ? NE : EQ, mode, op0, op1);
+  emit_insn (gen_rtx_SET (tmp2, gen_rtx_IF_THEN_ELSE (mode, cond,
+						      alt, const0_rtx)));
+
+  emit_insn (gen_rtx_SET (dest, gen_rtx_IOR (mode, tmp1, tmp2)));
+ }
+
+/* Emit a cond move: If OP holds, move CONS to DEST; else move ALT to DEST.
+   Return 0 if expansion failed.  */
+
+bool
+riscv_expand_conditional_move (rtx dest, rtx op, rtx cons, rtx alt)
+{
+  machine_mode mode = GET_MODE (dest);
+  rtx_code code = GET_CODE (op);
+  rtx op0 = XEXP (op, 0);
+  rtx op1 = XEXP (op, 1);
+
+  if (TARGET_XTHEADCONDMOV
+      && GET_MODE_CLASS (mode) == MODE_INT
+      && reg_or_0_operand (cons, mode)
+      && reg_or_0_operand (alt, mode)
+      && GET_MODE (op) == mode
+      && GET_MODE (op0) == mode
+      && GET_MODE (op1) == mode
+      && (code == EQ || code == NE))
+    {
+      riscv_expand_conditional_move_onesided (dest, cons, alt, code, op0, op1);
+      return true;
+    }
+  else if (TARGET_SFB_ALU
+	   && mode == word_mode)
+    {
+      riscv_emit_int_compare (&code, &op0, &op1);
+      rtx cond = gen_rtx_fmt_ee (code, GET_MODE (op0), op0, op1);
+      emit_insn (gen_rtx_SET (dest, gen_rtx_IF_THEN_ELSE (GET_MODE (dest),
+							  cond, cons, alt)));
+      return true;
+    }
+
+  return false;
 }
 
 /* Implement TARGET_FUNCTION_ARG_BOUNDARY.  Every parameter gets at
@@ -4877,6 +4976,35 @@ riscv_set_return_address (rtx address, rtx scratch)
   riscv_emit_move (gen_frame_mem (GET_MODE (address), slot_address), address);
 }
 
+/* Save register REG to MEM.  Make the instruction frame-related.  */
+
+static void
+riscv_save_reg (rtx reg, rtx mem)
+{
+  riscv_emit_move (mem, reg);
+  riscv_set_frame_expr (riscv_frame_set (mem, reg));
+}
+
+/* Restore register REG from MEM.  */
+
+static void
+riscv_restore_reg (rtx reg, rtx mem)
+{
+  rtx insn = riscv_emit_move (reg, mem);
+  rtx dwarf = NULL_RTX;
+  dwarf = alloc_reg_note (REG_CFA_RESTORE, reg, dwarf);
+
+  if (epilogue_cfa_sp_offset && REGNO (reg) == HARD_FRAME_POINTER_REGNUM)
+    {
+      rtx cfa_adjust_rtx = gen_rtx_PLUS (Pmode, stack_pointer_rtx,
+					 GEN_INT (epilogue_cfa_sp_offset));
+      dwarf = alloc_reg_note (REG_CFA_DEF_CFA, cfa_adjust_rtx, dwarf);
+    }
+
+  REG_NOTES (insn) = dwarf;
+  RTX_FRAME_RELATED_P (insn) = 1;
+}
+
 /* A function to save or store a register.  The first argument is the
    register and the second is the stack slot.  */
 typedef void (*riscv_save_restore_fn) (rtx, rtx);
@@ -4971,6 +5099,36 @@ riscv_for_each_saved_reg (poly_int64 sp_offset, riscv_save_restore_fn fn,
 	  && riscv_is_eh_return_data_register (regno))
 	continue;
 
+      if (TARGET_XTHEADMEMPAIR)
+	{
+	  /* Get the next reg/offset pair.  */
+	  HOST_WIDE_INT offset2 = offset;
+	  unsigned int regno2 = riscv_next_saved_reg (regno, limit, &offset2);
+
+	  /* Validate everything before emitting a mempair instruction.  */
+	  if (regno2 != INVALID_REGNUM
+	      && !cfun->machine->reg_is_wrapped_separately[regno2]
+	      && !(epilogue && !maybe_eh_return
+		   && riscv_is_eh_return_data_register (regno2)))
+	    {
+	      bool load_p = (fn == riscv_restore_reg);
+	      rtx operands[4];
+	      th_mempair_prepare_save_restore_operands (operands,
+							load_p, word_mode,
+							regno, offset,
+							regno2, offset2);
+
+	      /* If the operands fit into a mempair insn, then emit one.  */
+	      if (th_mempair_operands_p (operands, load_p, word_mode))
+		{
+		  th_mempair_save_restore_regs (operands, load_p, word_mode);
+		  offset = offset2;
+		  regno = regno2;
+		  continue;
+		}
+	    }
+	}
+
       riscv_save_restore_reg (word_mode, regno, offset, fn);
     }
 
@@ -4987,35 +5145,6 @@ riscv_for_each_saved_reg (poly_int64 sp_offset, riscv_save_restore_fn fn,
 	  riscv_save_restore_reg (mode, regno, offset, fn);
 	offset -= GET_MODE_SIZE (mode).to_constant ();
       }
-}
-
-/* Save register REG to MEM.  Make the instruction frame-related.  */
-
-static void
-riscv_save_reg (rtx reg, rtx mem)
-{
-  riscv_emit_move (mem, reg);
-  riscv_set_frame_expr (riscv_frame_set (mem, reg));
-}
-
-/* Restore register REG from MEM.  */
-
-static void
-riscv_restore_reg (rtx reg, rtx mem)
-{
-  rtx insn = riscv_emit_move (reg, mem);
-  rtx dwarf = NULL_RTX;
-  dwarf = alloc_reg_note (REG_CFA_RESTORE, reg, dwarf);
-
-  if (epilogue_cfa_sp_offset && REGNO (reg) == HARD_FRAME_POINTER_REGNUM)
-    {
-      rtx cfa_adjust_rtx = gen_rtx_PLUS (Pmode, stack_pointer_rtx,
-					 GEN_INT (epilogue_cfa_sp_offset));
-      dwarf = alloc_reg_note (REG_CFA_DEF_CFA, cfa_adjust_rtx, dwarf);
-    }
-
-  REG_NOTES (insn) = dwarf;
-  RTX_FRAME_RELATED_P (insn) = 1;
 }
 
 /* For stack frames that can't be allocated with a single ADDI instruction,
@@ -5734,7 +5863,8 @@ riscv_secondary_memory_needed (machine_mode mode, reg_class_t class1,
 {
   return (!riscv_v_ext_vector_mode_p (mode)
 	  && GET_MODE_SIZE (mode).to_constant () > UNITS_PER_WORD
-	  && (class1 == FP_REGS) != (class2 == FP_REGS));
+	  && (class1 == FP_REGS) != (class2 == FP_REGS)
+	  && !TARGET_XTHEADFMV);
 }
 
 /* Implement TARGET_REGISTER_MOVE_COST.  */

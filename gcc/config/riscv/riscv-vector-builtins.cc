@@ -3084,6 +3084,15 @@ function_expander::use_compare_insn (rtx_code rcode, insn_code icode)
 
   rtx op1 = expand_normal (CALL_EXPR_ARG (exp, arg_offset++));
   rtx op2 = expand_normal (CALL_EXPR_ARG (exp, arg_offset++));
+  if (!insn_operand_matches (icode, opno + 1, op1))
+    op1 = force_reg (mode, op1);
+  if (!insn_operand_matches (icode, opno + 2, op2))
+    {
+      if (VECTOR_MODE_P (GET_MODE (op2)))
+	op2 = force_reg (mode, op2);
+      else
+	op2 = force_reg (GET_MODE_INNER (mode), op2);
+    }
   rtx comparison = gen_rtx_fmt_ee (rcode, mask_mode, op1, op2);
   if (!VECTOR_MODE_P (GET_MODE (op2)))
     comparison = gen_rtx_fmt_ee (rcode, mask_mode, op1,
@@ -3120,7 +3129,6 @@ function_expander::use_ternop_insn (bool vd_accum_p, insn_code icode)
   rtx vd = expand_normal (CALL_EXPR_ARG (exp, arg_offset++));
   rtx vs1 = expand_normal (CALL_EXPR_ARG (exp, arg_offset++));
   rtx vs2 = expand_normal (CALL_EXPR_ARG (exp, arg_offset++));
-  rtx merge = use_real_merge_p (pred) ? vd : RVV_VUNDEF (mode);
 
   if (VECTOR_MODE_P (GET_MODE (vs1)))
     {
@@ -3130,7 +3138,7 @@ function_expander::use_ternop_insn (bool vd_accum_p, insn_code icode)
       add_input_operand (mode, vs2);
       if (vd_accum_p)
 	add_input_operand (mode, vd);
-      add_input_operand (mode, merge);
+      add_input_operand (mode, vd);
     }
   else
     {
@@ -3145,7 +3153,7 @@ function_expander::use_ternop_insn (bool vd_accum_p, insn_code icode)
 	  add_input_operand (mode, vd);
 	  add_input_operand (mode, vs2);
 	}
-      add_input_operand (mode, merge);
+      add_input_operand (mode, vd);
     }
 
   for (int argno = arg_offset; argno < call_expr_nargs (exp); argno++)
@@ -3162,8 +3170,6 @@ function_expander::use_ternop_insn (bool vd_accum_p, insn_code icode)
 rtx
 function_expander::use_widen_ternop_insn (insn_code icode)
 {
-  machine_mode mode = TYPE_MODE (builtin_types[type.index].vector);
-
   /* Record the offset to get the argument.  */
   int arg_offset = 0;
 
@@ -3172,16 +3178,8 @@ function_expander::use_widen_ternop_insn (insn_code icode)
   else
     add_all_one_mask_operand (mask_mode ());
 
-  rtx merge = RVV_VUNDEF (mode);
-  if (use_real_merge_p (pred))
-    merge = expand_normal (CALL_EXPR_ARG (exp, arg_offset));
-
   for (int argno = arg_offset; argno < call_expr_nargs (exp); argno++)
-    {
-      if (argno == call_expr_nargs (exp) - 1)
-	add_input_operand (mode, merge);
-      add_input_operand (argno);
-    }
+    add_input_operand (argno);
 
   add_input_operand (Pmode, get_tail_policy_for_pred (pred));
   add_input_operand (Pmode, get_mask_policy_for_pred (pred));

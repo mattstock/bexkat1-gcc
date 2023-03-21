@@ -49,18 +49,20 @@ EXTERN tree m2decl_BuildStringConstant (const char *string, int length);
 EXTERN tree m2decl_BuildCStringConstant (const char *string, int length);
 EXTERN tree m2decl_BuildConstLiteralNumber (location_t location,
 					    const char *str,
-                                            unsigned int base);
-EXTERN void m2decl_DetermineSizeOfConstant (location_t location,
+                                            unsigned int base,
+					    bool issueError);
+EXTERN bool m2decl_DetermineSizeOfConstant (location_t location,
 					    const char *str, unsigned int base,
                                             bool *needsLong,
-                                            bool *needsUnsigned);
+                                            bool *needsUnsigned,
+					    bool issueError);
 EXTERN void m2decl_RememberVariables (tree l);
 
 EXTERN tree m2decl_BuildEndFunctionDeclaration (
     location_t location_begin, location_t location_end, const char *name,
     tree returntype, bool isexternal, bool isnested, bool ispublic,
     bool isnoreturn);
-EXTERN void m2decl_BuildStartFunctionDeclaration (int uses_varargs);
+EXTERN void m2decl_BuildStartFunctionDeclaration (bool uses_varargs);
 EXTERN tree m2decl_BuildParameterDeclaration (location_t location, char *name,
                                               tree type, bool isreference);
 EXTERN tree m2decl_DeclareKnownConstant (location_t location, tree type,

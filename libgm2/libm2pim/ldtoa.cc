@@ -91,13 +91,6 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #define NULL (void *)0
 #endif
 
-#if !defined(TRUE)
-#define TRUE (1 == 1)
-#endif
-#if !defined(FALSE)
-#define FALSE (1 == 0)
-#endif
-
 #define MAX_FP_DIGITS 500
 
 typedef enum Mode { maxsignicant, decimaldigits } Mode;
@@ -113,7 +106,7 @@ extern "C" int IMPORT(dtoa,calcsign) (char *p, int str_size);
    contain ndigits past the decimal point (ndigits may be negative).  */
 
 extern "C" long double
-EXPORT(strtold) (const char *s, int *error)
+EXPORT(strtold) (const char *s, bool *error)
 {
   char *endp;
   long double d;
@@ -131,15 +124,15 @@ EXPORT(strtold) (const char *s, int *error)
 #if defined(HAVE_ERRNO_H)
     *error = (errno != 0);
 #else
-    *error = FALSE;
+    *error = false;
 #endif
   else
-    *error = TRUE;
+    *error = true;
   return d;
 }
 
 extern "C" char *
-EXPORT(ldtoa) (long double d, int mode, int ndigits, int *decpt, int *sign)
+EXPORT(ldtoa) (long double d, int mode, int ndigits, int *decpt, bool *sign)
 {
   char format[50];
   char *p;

@@ -267,7 +267,7 @@
 #define _GLIBCXX_SIMD_IS_UNLIKELY(__x) __builtin_expect(__x, 0)
 #define _GLIBCXX_SIMD_IS_LIKELY(__x) __builtin_expect(__x, 1)
 
-#if defined __STRICT_ANSI__ && __STRICT_ANSI__
+#if __STRICT_ANSI__ || defined __clang__
 #define _GLIBCXX_SIMD_CONSTEXPR
 #define _GLIBCXX_SIMD_USE_CONSTEXPR_API const
 #else
@@ -320,7 +320,9 @@
 #endif
 
 // integer division not optimized
+#ifndef __clang__
 #define _GLIBCXX_SIMD_WORKAROUND_PR90993 1
+#endif
 
 // very bad codegen for extraction and concatenation of 128/256 "subregisters"
 // with sizeof(element type) < 8: https://godbolt.org/g/mqUsgM

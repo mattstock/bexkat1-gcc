@@ -8706,6 +8706,18 @@ cp_finish_decl (tree decl, tree init, bool init_const_expr_p,
 	  if (!decl_maybe_constant_destruction (decl, type))
 	    TREE_READONLY (decl) = 0;
 	}
+      else if (VAR_P (decl)
+	       && CP_DECL_THREAD_LOCAL_P (decl)
+	       && (!DECL_EXTERNAL (decl) || flag_extern_tls_init)
+	       && (was_readonly || TREE_READONLY (decl))
+	       && var_needs_tls_wrapper (decl))
+	{
+	  /* TLS variables need dynamic initialization by the TLS wrapper
+	     function, we don't want to hoist accesses to it before the
+	     wrapper.  */
+	  was_readonly = 0;
+	  TREE_READONLY (decl) = 0;
+	}
 
       make_rtl_for_nonlocal_decl (decl, init, asmspec);
 
@@ -14393,7 +14405,8 @@ grokdeclarator (const cp_declarator *declarator,
 		cplus_decl_attributes (&decl, *attrlist, 0);
 		*attrlist = NULL_TREE;
 
-		decl = do_friend (ctype, unqualified_id, decl,
+		tree scope = ctype ? ctype : in_namespace;
+		decl = do_friend (scope, unqualified_id, decl,
 				  flags, funcdef_flag);
 		return decl;
 	      }

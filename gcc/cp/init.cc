@@ -561,18 +561,16 @@ perform_target_ctor (tree init)
   return init;
 }
 
-/* Return the non-static data initializer for FIELD_DECL MEMBER.  */
+/* Instantiate the default member initializer of MEMBER, if needed.
+   Only get_nsdmi should use the return value of this function.  */
 
 static GTY((cache)) decl_tree_cache_map *nsdmi_inst;
 
 tree
-get_nsdmi (tree member, bool in_ctor, tsubst_flags_t complain)
+maybe_instantiate_nsdmi_init (tree member, tsubst_flags_t complain)
 {
-  tree init;
-  tree save_ccp = current_class_ptr;
-  tree save_ccr = current_class_ref;
-  
-  if (DECL_LANG_SPECIFIC (member) && DECL_TEMPLATE_INFO (member))
+  tree init = DECL_INITIAL (member);
+  if (init && DECL_LANG_SPECIFIC (member) && DECL_TEMPLATE_INFO (member))
     {
       init = DECL_INITIAL (DECL_TI_TEMPLATE (member));
       location_t expr_loc
@@ -615,6 +613,18 @@ get_nsdmi (tree member, bool in_ctor, tsubst_flags_t complain)
 	      pushed = true;
 	    }
 
+	  /* If we didn't push_to_top_level, still step out of constructor
+	     scope so build_base_path doesn't try to use its __in_chrg.  */
+	  tree cfd = current_function_decl;
+	  auto cbl = current_binding_level;
+	  if (at_function_scope_p ())
+	    {
+	      current_function_decl
+		= decl_function_context (current_function_decl);
+	      while (current_binding_level->kind != sk_class)
+		current_binding_level = current_binding_level->level_chain;
+	    }
+
 	  inject_this_parameter (ctx, TYPE_UNQUALIFIED);
 
 	  start_lambda_scope (member);
@@ -631,6 +641,8 @@ get_nsdmi (tree member, bool in_ctor, tsubst_flags_t complain)
 	  if (init != error_mark_node)
 	    hash_map_safe_put<hm_ggc> (nsdmi_inst, member, init);
 
+	  current_function_decl = cfd;
+	  current_binding_level = cbl;
 	  if (pushed)
 	    {
 	      pop_deferring_access_checks ();
@@ -642,8 +654,19 @@ get_nsdmi (tree member, bool in_ctor, tsubst_flags_t complain)
 	  input_location = sloc;
 	}
     }
-  else
-    init = DECL_INITIAL (member);
+
+  return init;
+}
+
+/* Return the non-static data initializer for FIELD_DECL MEMBER.  */
+
+tree
+get_nsdmi (tree member, bool in_ctor, tsubst_flags_t complain)
+{
+  tree save_ccp = current_class_ptr;
+  tree save_ccr = current_class_ref;
+
+  tree init = maybe_instantiate_nsdmi_init (member, complain);
 
   if (init && TREE_CODE (init) == DEFERRED_PARSE)
     {

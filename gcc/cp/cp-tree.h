@@ -6989,6 +6989,7 @@ extern void copy_linkage			(tree, tree);
 extern tree get_guard				(tree);
 extern tree get_guard_cond			(tree, bool);
 extern tree set_guard				(tree);
+extern bool var_needs_tls_wrapper		(tree);
 extern tree maybe_get_tls_wrapper_call		(tree);
 extern void mark_needed				(tree);
 extern bool decl_needed_p			(tree);
@@ -7086,6 +7087,7 @@ extern bool is_copy_initialization		(tree);
 extern tree build_zero_init			(tree, tree, bool);
 extern tree build_value_init			(tree, tsubst_flags_t);
 extern tree build_value_init_noctor		(tree, tsubst_flags_t);
+extern tree maybe_instantiate_nsdmi_init	(tree, tsubst_flags_t);
 extern tree get_nsdmi				(tree, bool, tsubst_flags_t);
 extern tree build_offset_ref			(tree, tree, bool,
 						 tsubst_flags_t);
