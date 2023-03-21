@@ -1595,7 +1595,7 @@ bfin*-*)
 bexkat1-*-elf)
 	gas=yes
 	gnu_ld=yes
-	tm_file="${tm_file} dbxelf.h elfos.h newlib-stdint.h"
+	tm_file="elfos.h newlib-stdint.h ${tm_file}"
 	tmake_file="${tmake_file} bexkat1/t-bexkat1"
 	;;
 bpf-*-*)
