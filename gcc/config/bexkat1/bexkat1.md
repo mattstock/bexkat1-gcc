@@ -1,6 +1,5 @@
 ;; Machine description for Bexkat1
 ;; Copyright (C) 2009-2015 Free Software Foundation, Inc.
-;; Contributed by Anthony Green <green@bexkat1logic.com>
 
 ;; This file is part of GCC.
 
@@ -46,45 +45,6 @@
 ;; -------------------------------------------------------------------------
 ;; Arithmetic instructions
 ;; -------------------------------------------------------------------------
-
-(define_insn "sqrtsf2"
-  [(set (match_operand:SF 0 "register_operand" "=r")
-          (sqrt:SF
-            (match_operand:SF 1 "register_operand" "r")))]
-  ""
-  "sqrt.s\\t%0, %1")
-
-(define_insn "addsf3"
-  [(set (match_operand:SF 0 "register_operand" "=r")
-          (plus:SF
-            (match_operand:SF 1 "register_operand" "r")
-            (match_operand:SF 2 "register_operand" "r")))]
-  ""
-  "add.s\\t%0, %1, %2")
-
-(define_insn "subsf3"
-  [(set (match_operand:SF 0 "register_operand" "=r")
-          (minus:SF
-            (match_operand:SF 1 "register_operand" "r")
-            (match_operand:SF 2 "register_operand" "r")))]
-  ""
-  "sub.s\\t%0, %1, %2")
-
-(define_insn "mulsf3"
-  [(set (match_operand:SF 0 "register_operand" "=r")
-	  (mult:SF
-	   (match_operand:SF 1 "register_operand" "r")
-	   (match_operand:SF 2 "register_operand" "r")))]
-  ""
-  "mul.s\\t%0, %1, %2")
-
-(define_insn "divsf3"
-  [(set (match_operand:SF 0 "register_operand" "=r")
-	  (div:SF
-	   (match_operand:SF 1 "register_operand" "r")
-	   (match_operand:SF 2 "register_operand" "r")))]
-  ""
-  "div.s\\t %0, %1, %2")
 
 (define_insn "addsi3"
   [(set (match_operand:SI 0 "register_operand" "=r,r")
@@ -268,6 +228,18 @@
 (define_insn "movsi_push"
   [(set (mem:SI (pre_dec:SI (reg:SI BEXKAT1_SP)))
   	(match_operand:SI 0 "register_operand" "r"))]
+  ""
+  "push\\t%0")
+
+(define_insn "movqi_push"
+  [(set (mem:QI (pre_modify:SI (reg:SI BEXKAT1_SP) (plus:SI (reg:SI BEXKAT1_SP)  (const_int -4))))
+  	(match_operand:QI 0 "register_operand" "r"))]
+  ""
+  "push\\t%0")
+
+(define_insn "movhi_push"
+  [(set (mem:HI (pre_modify:SI (reg:SI BEXKAT1_SP) (plus:SI (reg:SI BEXKAT1_SP) (const_int -4))))
+  	(match_operand:HI 0 "register_operand" "r"))]
   ""
   "push\\t%0")
 
@@ -538,7 +510,7 @@
 ;; Branch instructions
 ;; -------------------------------------------------------------------------
 
-(define_code_iterator cond [ordered unordered unlt unle unge ungt ne eq lt ltu gt gtu ge le geu leu])
+(define_code_iterator cond [ordered unordered unlt unle ungt ne eq lt ltu gt gtu ge le geu leu])
 (define_code_attr CC [(ordered "ord") (unordered "unord") (unlt "unlt") (unle "unle") (unge "unge") (ungt "ungt") (ne "ne") (eq "eq") (lt "lt") (ltu "ltu") 
 		      (gt "gt") (gtu "gtu") (ge "ge") (le "le") 
 		      (geu "geu") (leu "leu") ])
