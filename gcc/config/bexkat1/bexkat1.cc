@@ -59,7 +59,7 @@ bexkat1_return_in_memory (const_tree type, const_tree fntype ATTRIBUTE_UNUSED)
 {
   const HOST_WIDE_INT size = int_size_in_bytes (type);
   return (size == -1 || size > 2 * UNITS_PER_WORD);
-	}
+}
 
 /* Define how to find the value returned by a function.
    VALTYPE is the data type of the value (as a tree).
